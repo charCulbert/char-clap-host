@@ -63,8 +63,12 @@ add_library(nch-core STATIC
     src/note-encoding.cpp
     src/plugin-instance.cpp
     src/presets.cpp
+    src/random.cpp
+    src/validation.cpp
+    src/validation-tests.cpp
     src/state-stream.cpp
     src/process-buffers.cpp
+    src/process-check.cpp
     src/wav.cpp
     src/webview.cpp
     src/event-list.cpp

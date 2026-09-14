@@ -10,8 +10,8 @@ blockSize: 256
 frames: 4800
 channels: 2
 sampleRate: 48000
-peak: 0.05000000074505806
-rms: 0.05000000074505473
+peak: @TIME@
+rms: @TIME@
 silent: false
 calls:
 hoveredParam: -

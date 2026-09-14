@@ -26,8 +26,18 @@ def substitute(text, fixtures, tmp):
 
 
 def normalise(text, fixtures, tmp):
+    """Removes what differs between machines and runs, and nothing else.
+
+    Paths become placeholders, and elapsed times become @TIME@ -- a duration is
+    never reproducible, so leaving it in would make every transcript a
+    flake."""
     text = text.replace(fixtures, "@FIXTURES@").replace(tmp, "@TMP@")
-    # Durations and device names are machine-specific; nothing else should be.
+    # An elapsed time: a decimal with more precision than anything meaningful
+    # the host reports.
+    text = re.sub(r"\d+\.\d{5,}(e-?\d+)?", "@TIME@", text)
+    # Column widths follow the longest cell, so a scrubbed duration changes the
+    # alignment of the whole table.
+    text = re.sub(r"[ \t]{2,}", "  ", text)
     return re.sub(r"[ \t]+$", "", text, flags=re.M)
 
 

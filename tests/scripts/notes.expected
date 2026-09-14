@@ -10,20 +10,20 @@ features:
 sampleRate: 48000
 blockSize: 512
 notes:
-  port  channel  key  velocity            noteId
-  0     0        60   0.7874015748031497  -1
+  port  channel  key  velocity  noteId
+  0  0  60  @TIME@  -1
 frames: 12000
 channels: 2
 sampleRate: 48000
-peak: 0.15748031437397003
-rms: 0.11141646707087964
+peak: @TIME@
+rms: @TIME@
 silent: false
 notes:
 frames: 12000
 channels: 2
 sampleRate: 48000
-peak: 0.1176471933722496
-rms: 0.008277000307423267
+peak: @TIME@
+rms: @TIME@
 silent: false
 violations:
 count: 0

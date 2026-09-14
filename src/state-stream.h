@@ -38,7 +38,10 @@ private:
 
 class InputStream {
 public:
-	explicit InputStream(std::vector<uint8_t> bytes) : bytes_(std::move(bytes)) {
+	// `chunk` caps how much a single read returns. A plug-in is obliged to
+	// cope with a short read, and most only discover otherwise here.
+	explicit InputStream(std::vector<uint8_t> bytes, uint64_t chunk = 0)
+	    : bytes_(std::move(bytes)), chunk_(chunk) {
 		stream_.ctx = this;
 		stream_.read = read;
 	}
@@ -50,7 +53,9 @@ private:
 	static int64_t read(const clap_istream_t *stream, void *buffer, uint64_t size) {
 		auto *self = static_cast<InputStream *>(stream->ctx);
 		const uint64_t available = self->bytes_.size() - self->position_;
-		const uint64_t count = size < available ? size : available;
+		uint64_t count = size < available ? size : available;
+		if (self->chunk_ != 0 && count > self->chunk_)
+			count = self->chunk_;
 		if (count != 0)
 			std::memcpy(buffer, self->bytes_.data() + self->position_, count);
 		self->position_ += count;
@@ -60,6 +65,7 @@ private:
 	clap_istream_t stream_{};
 	std::vector<uint8_t> bytes_;
 	uint64_t position_ = 0;
+	uint64_t chunk_ = 0;
 };
 
 // Whole-file helpers for the state commands.

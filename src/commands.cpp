@@ -418,6 +418,53 @@ void Session::registerCommands() {
 		               return setParamValue(session, id, request.arg(1, "value").asNumber());
 	               }});
 
+	commands_.add({"param.mod", "<id> <amount> [key] [channel] [port]",
+	               "Modulate a parameter, without changing its value.",
+	               [](Session &session, const Request &request) -> Response {
+		               Response ready = needPlugin(session);
+		               if (!ready.ok)
+			               return ready;
+		               if (!request.hasArg(0, "id") || !request.hasArg(1, "amount"))
+			               return Response::failure("usage: param.mod <id> <amount> [key] [channel] [port]");
+
+		               const auto id = static_cast<clap_id>(request.arg(0, "id").asNumber());
+		               clap_param_info_t info{};
+		               if (!paramInfoById(session, id, info))
+			               return Response::failure("no parameter with id " + std::to_string(id));
+		               if ((info.flags & CLAP_PARAM_IS_MODULATABLE) == 0)
+			               return Response::failure("that parameter is not modulatable");
+
+		               // -1 everywhere is a global modulation; naming a key or
+		               // a note id makes it polyphonic, which is the thing
+		               // CLAP can express and older formats cannot.
+		               const auto key = static_cast<int16_t>(request.arg(2, "key").asNumber(-1));
+		               const auto channel = static_cast<int16_t>(request.arg(3, "channel").asNumber(-1));
+		               const auto port = static_cast<int16_t>(request.arg(4, "port").asNumber(-1));
+		               const auto noteId = static_cast<int32_t>(request.arg("noteId").asNumber(-1));
+		               const double amount = request.arg(1, "amount").asNumber();
+		               const uint64_t delay =
+		                   framesFromArgument(request.arg("at"), session.sampleRate(), 0);
+
+		               const bool polyphonic = key >= 0 || channel >= 0 || port >= 0 || noteId >= 0;
+		               if (polyphonic && (info.flags & (CLAP_PARAM_IS_MODULATABLE_PER_NOTE_ID |
+		                                                CLAP_PARAM_IS_MODULATABLE_PER_KEY |
+		                                                CLAP_PARAM_IS_MODULATABLE_PER_CHANNEL |
+		                                                CLAP_PARAM_IS_MODULATABLE_PER_PORT)) == 0)
+			               return Response::failure("that parameter only accepts global modulation");
+
+		               session.engine().scheduleParamMod(id, info.cookie, amount, port, channel, key, noteId, delay);
+
+		               Object out;
+		               out["id"] = Value(static_cast<uint64_t>(id));
+		               out["amount"] = Value(amount);
+		               out["polyphonic"] = Value(polyphonic);
+		               // Said explicitly, because the surprising part of
+		               // modulation is that the parameter does not move.
+		               out["value"] = Value(info.default_value);
+		               out["note"] = Value("modulation is an offset; the parameter's own value is unchanged");
+		               return Response::success(Value(std::move(out)));
+	               }});
+
 	commands_.add({"ports", "", "List the plug-in's audio and note ports.",
 	               [](Session &session, const Request &) -> Response {
 		               Response ready = needPlugin(session);

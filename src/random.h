@@ -1,0 +1,48 @@
+// A deterministic generator, so a failure can be reproduced exactly.
+//
+// The algorithm and the default seed match clap-validator's, so a stream of
+// generated events from this host and one from that tool line up where the
+// generators line up. std::mt19937 seeded from random_device would make every
+// failure a one-off story.
+#pragma once
+
+#include <cstdint>
+#include <string>
+#include <vector>
+
+namespace nch {
+
+// xoshiro128++: small, fast, and identical on every platform, which
+// std::uniform_int_distribution is not.
+class Random {
+public:
+	// The seed clap-validator uses for every test, so runs are comparable.
+	static constexpr uint64_t kDefaultSeed = 0x13376767;
+
+	explicit Random(uint64_t seed = kDefaultSeed) { reseed(seed); }
+	void reseed(uint64_t seed);
+
+	uint32_t next();
+	// Uniform in [0, bound). Rejection-sampled, so the distribution has no
+	// bias at large bounds.
+	uint32_t below(uint32_t bound);
+	// Uniform in [low, high], inclusive at both ends.
+	int32_t between(int32_t low, int32_t high);
+	// Uniform in [0, 1).
+	double unit();
+	double between(double low, double high);
+	// True with the given probability.
+	bool chance(double probability);
+
+	template <typename T> const T &pick(const std::vector<T> &from) { return from[below(static_cast<uint32_t>(from.size()))]; }
+
+private:
+	uint32_t state_[4] = {};
+};
+
+// A seed as it appears in a report: hexadecimal, so it can be pasted back.
+std::string formatSeed(uint64_t seed);
+// Accepts decimal or 0x-prefixed hexadecimal.
+bool parseSeed(const std::string &text, uint64_t &seed);
+
+} // namespace nch

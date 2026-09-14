@@ -570,6 +570,8 @@ bool Session::runLine(const std::string &line) {
 	runMainThreadWork();
 	if (options_.strict && response.ok && validator_.violationCount() != violationsBefore && validator_.hasErrors())
 		response = Response::failure("plug-in violated the CLAP contract; see `validate`");
+	if (!response.ok)
+		++commandFailures_;
 	writeResponse(request, response);
 	return !quit_;
 }
@@ -646,6 +648,12 @@ void Session::writeResponse(const Request &request, const Response &response) {
 	}
 	if (!response.ok) {
 		emit("error: " + response.error + "\n");
+		// A failure often carries the very thing you need to see -- which
+		// tests failed, which ports were refused -- so the data is printed
+		// rather than swallowed with the error.
+		if (response.data.isNull())
+			return;
+		emit(response.data.toText());
 		return;
 	}
 	if (response.data.isNull())

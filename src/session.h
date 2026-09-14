@@ -54,6 +54,7 @@ public:
 
 	const Options &options() const { return options_; }
 	Validator &validator() { return validator_; }
+	bool validatorHasErrors() const { return validator_.hasErrors(); }
 	Host &host() { return host_; }
 	HostServices &services() { return services_; }
 	Bundle &bundle() { return instance_.bundle(); }
@@ -169,6 +170,10 @@ public:
 	// Called by the reader thread when stdin ends.
 	void closeInput();
 	bool shouldQuit() const { return quit_; }
+	// Whether any command has answered with a failure. A one-shot run exits
+	// non-zero on this, so a script or a CI job gets a verdict rather than
+	// having to parse the output.
+	bool anyCommandFailed() const { return commandFailures_ != 0; }
 	void requestQuit() { quit_ = true; }
 	void writeResponse(const Request &request, const Response &response);
 
@@ -212,6 +217,7 @@ private:
 
 	bool stateDirty_ = false;
 	bool quit_ = false;
+	uint64_t commandFailures_ = 0;
 
 	// What the plug-in has asked the host for is counted once, by
 	// HostServices, so `status`, `validate` and `callbacks` cannot disagree.

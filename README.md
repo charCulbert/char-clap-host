@@ -124,7 +124,9 @@ stay on the command line.
 | Reported by the plug-in | `latency` `tail` `voices` `note.names` `remote.pages` `triggers` `render.mode` |
 | Devices | `audio.devices` `audio.start` `audio.stop` `audio.status` `audio.test` `midi.ports` `midi.open` `midi.close` `midi.outputs` `midi.out` |
 | Interface | `gui.open` `gui.close` `gui.resize` `gui` `gui.contents` `gui.snapshot` `settings` `settings.close` |
-| Host behaviour | `track.info` `threadpool` `undo` `callbacks` `validate` `validate.clear` |
+| Modulation | `param.mod` |
+| Validation | `validate` `validate.clear` `validate.run` `validate.tests` |
+| Host behaviour | `track.info` `threadpool` `undo` `callbacks` |
 
 ## What it does
 
@@ -134,6 +136,38 @@ the thread pool fans tasks across pre-created workers, resource directories are
 created and cleaned up, undo keeps the history the plug-in builds, and
 transport-control moves the real transport. `callbacks` counts every one, so
 you can see exactly which extensions a plug-in exercised.
+
+**A validation suite, not only a host.** `validate.run` drives the plug-in into
+the corners of the specification and returns a verdict: descriptor and feature
+consistency, parameter ranges and flags, events in an unknown namespace, block
+sizes from one frame to four thousand, fractional sample rates, state through a
+stream that returns short reads, and modulation. Test ids match
+[clap-validator](https://github.com/free-audio/clap-validator)'s where the test
+is the same, so the two reports can be compared line for line, and the five
+statuses and the exit rule are the same — a warning or a skip does not fail a
+run.
+
+```console
+$ clap-host --json MySynth.clap -- validate.run ; echo "exit $?"
+{"ok":true,"cmd":"validate.run","data":{"seed":"0x13376767","tests":[…],"passed":19,"failed":0,"ok":true}}
+exit 0
+```
+
+Every block is checked while a test runs: outputs are poison-filled beforehand
+so an unwritten sample reads as *unwritten* rather than as a NaN, inputs must
+come back unmodified, a constant-mask bit must be true, nothing may be written
+past the block, and output events must be ordered and in range. Runs are
+deterministic — same seed, same verdict — and the seed is in every report.
+
+**Modulation, which nothing else tests.** `CLAP_EVENT_PARAM_MOD` is an offset
+on top of a parameter rather than a change to it, addressed by the same
+(port, channel, key, note_id) tuple as a note, so one voice of a held chord can
+be modulated alone. clap-validator names a modulation test but sends
+`CLAP_EVENT_PARAM_VALUE` in both branches of its generator; pluginval has no
+concept of it. Here `param.mod` sends the real thing, and three tests check
+that it moves the sound without moving the value, that it can be addressed per
+note id, per key, per channel and by wildcard, and that it does not survive a
+reset.
 
 **A validator, not just a host.** It stays permissive — a violation is noted and
 the run continues, so a misbehaving plug-in can still be inspected — but it also

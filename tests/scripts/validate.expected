@@ -1,0 +1,69 @@
+id: com.charlieculbert.wclap-runtime-sine-example
+name: WCLAP Runtime Sine Example
+vendor: Charlie Culbert
+version: 0.1.0
+description: Minimal MIDI sine example
+features:
+  instrument
+  synthesizer
+  stereo
+tests:
+  test  checks
+  descriptor-consistency  The factory and the created plug-in describe themselves the same way.
+  features-categories  The plug-in declares what kind of plug-in it is.
+  features-duplicates  No feature is declared twice.
+  query-nonexistent-factory  Asking for a factory that does not exist returns nothing.
+  create-id-with-trailing-garbage  An id the plug-in does not declare creates nothing.
+  param-info-consistency  Parameter ids, ranges and flags agree with the specification.
+  param-default-values  Every parameter starts at the default it declares.
+  param-set-wrong-namespace  Events in an unknown namespace are ignored.
+  param-modulation-value-unchanged  Modulation offsets the value heard without changing the value itself.
+  param-modulation-polyphonic  Modulation addressed at one voice, one key, one channel, and all of them.
+  param-modulation-reset  Modulation does not survive a reset.
+  process-audio-basic  Five ordinary blocks produce usable audio.
+  process-varying-block-sizes  Block sizes from one frame to four thousand.
+  process-varying-sample-rates  Sample rates including fractional ones.
+  process-random-block-sizes  Block sizes that change every block.
+  state-invalid-empty  An empty state is not mistaken for a valid one.
+  state-invalid-random  Random bytes do not crash the plug-in.
+  state-round-trip  State saved and loaded returns the same parameters.
+  state-buffered  State loads from a stream that returns short reads.
+seed: 0x13376767
+tests:
+  test  status  seconds
+  process-audio-basic  passed  @TIME@
+passed: 1
+failed: 0
+warnings: 0
+skipped: 0
+ok: true
+seed: 0x13376767
+tests:
+  test  status  details  seconds
+  state-invalid-empty  skipped  the plug-in does not implement clap.state  @TIME@
+  state-invalid-random  skipped  the plug-in does not implement clap.state  @TIME@
+  state-round-trip  skipped  the plug-in does not implement clap.state  @TIME@
+  state-buffered  skipped  the plug-in does not implement clap.state  @TIME@
+passed: 0
+failed: 0
+warnings: 0
+skipped: 4
+ok: true
+id: com.charlieculbert.wclap-runtime-thread-check-example
+name: WCLAP Runtime Thread Check Example
+vendor: Charlie Culbert
+version: 0.1.0
+description: CLAP symbolic thread-role diagnostics
+features:
+  utility
+error: 1 of 2 tests failed
+seed: 0x13376767
+tests:
+  test  status  details  seconds
+  features-categories  failed  the plug-in declares no category feature; a host cannot tell what it is  @TIME@
+  features-duplicates  passed  -  @TIME@
+passed: 1
+failed: 1
+warnings: 0
+skipped: 0
+ok: false

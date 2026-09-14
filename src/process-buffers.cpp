@@ -23,12 +23,11 @@ void ProcessBuffers::build(const PluginInstance &instance, uint32_t maxFrames) {
 	const auto *ports = instance.extension<clap_plugin_audio_ports_t>(CLAP_EXT_AUDIO_PORTS);
 
 	const auto collect = [&](bool isInput, std::vector<Port> &into, uint32_t &mainIndex) {
-		if (ports == nullptr || ports->count == nullptr || ports->get == nullptr) {
-			// No port information: assume one stereo port in each direction,
-			// which is what a minimal plug-in expects.
-			into.push_back({2, {}, {}});
+		// "If the plugin does not implement this extension, it won't have audio
+		// ports." Inventing a stereo pair for a note effect means handing it
+		// buffers it never agreed to fill.
+		if (ports == nullptr || ports->count == nullptr || ports->get == nullptr)
 			return;
-		}
 		const uint32_t count = ports->count(instance.plugin(), isInput);
 		for (uint32_t i = 0; i < count; ++i) {
 			clap_audio_port_info_t info{};

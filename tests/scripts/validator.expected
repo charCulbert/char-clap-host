@@ -14,12 +14,12 @@ peak: 0
 rms: 0
 silent: true
 violations:
-  severity  where     message                                 count
-  WARN      clap.log  Playback is nearing the clip boundary   1
-  ERROR     clap.log  Example recoverable error               1
-  ERROR     clap.log  Example fatal diagnostic                1
-  ERROR     clap.log  Example host-misbehaving diagnostic     1
-  ERROR     clap.log  Example plug-in-misbehaving diagnostic  1
+  severity  where  message  count
+  WARN  clap.log  Playback is nearing the clip boundary  1
+  ERROR  clap.log  Example recoverable error  1
+  ERROR  clap.log  Example fatal diagnostic  1
+  ERROR  clap.log  Example host-misbehaving diagnostic  1
+  ERROR  clap.log  Example plug-in-misbehaving diagnostic  1
 count: 5
 violations:
 count: 0

@@ -23,6 +23,14 @@ namespace {
 using nch::Options;
 using nch::Session;
 
+// Non-zero when a command failed, or when --strict and the plug-in broke the
+// contract.
+int exitStatus(const Session &session, const Options &options) {
+	if (session.anyCommandFailed())
+		return 1;
+	return options.strict && session.validatorHasErrors() ? 1 : 0;
+}
+
 void printUsage() {
 	std::puts(R"(clap-host — a single-plugin native CLAP host
 
@@ -129,9 +137,11 @@ int main(int argc, char **argv) {
 
 	// With commands given on the argv line and no terminal attached, the run
 	// is a one-shot: do not wait on stdin.
+	// A run that was given its commands up front and has no terminal is a
+	// script or a CI job: its exit status is the verdict.
 	const bool interactive = isatty(fileno(stdin)) != 0;
 	if (!immediateCommands.empty() && !interactive)
-		return session.validator().hasErrors() && options.strict ? 1 : 0;
+		return exitStatus(session, options);
 
 	if (interactive && !options.quiet)
 		std::puts("clap-host 0.1.0 — type `help` for commands, `quit` to leave.");
@@ -174,5 +184,5 @@ int main(int argc, char **argv) {
 	// so it matches the floor the host gives them rather than sitting above
 	// it.
 	nch::runApplicationLoop([&session] { return session.tick(); }, 8);
-	return session.validator().hasErrors() && options.strict ? 1 : 0;
+	return exitStatus(session, options);
 }

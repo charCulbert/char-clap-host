@@ -2,6 +2,7 @@
 // and what the host has been asked for.
 #include "commands-common.h"
 #include "session.h"
+#include "validation.h"
 
 #include <clap/ext/draft/triggers.h>
 
@@ -381,6 +382,51 @@ void Session::registerExtensionCommands() {
 	commands_.add({"undo", "", "Report the undo history the plug-in has built.",
 	               [](Session &session, const Request &) -> Response {
 		               return Response::success(session.services().undoReport());
+	               }});
+
+	commands_.add({"validate.run", "[test-fragment] [--seed=<n>] [--only-failures]",
+	               "Run the validation suite against the loaded plug-in.",
+	               [](Session &session, const Request &request) -> Response {
+		               if (!session.isLoaded())
+			               return Response::failure("no plug-in loaded");
+
+		               SuiteOptions options;
+		               options.filter = request.arg(0, "test").asString();
+		               options.onlyFailures = request.arg("only-failures").asBool(false);
+		               const std::string seedText = request.arg("seed").asString();
+		               if (!seedText.empty() && !parseSeed(seedText, options.seed))
+			               return Response::failure("a seed must be decimal or 0x-prefixed hexadecimal");
+
+		               // Each test loads the plug-in itself, so the path is
+		               // what the suite needs rather than the instance.
+		               const std::string path = session.bundle().path();
+		               const SuiteReport report = runSuite(session, path, options);
+
+		               // Put the plug-in back, since the suite unloads after
+		               // its last test.
+		               std::string error;
+		               session.load(path, {}, 0, error);
+
+		               Response response = Response::success(report.describe(options.onlyFailures));
+		               response.ok = report.ok();
+		               if (!report.ok())
+			               response.error = std::to_string(report.failed + report.crashed) +
+			                                " of " + std::to_string(report.results.size()) + " tests failed";
+		               return response;
+	               }});
+
+	commands_.add({"validate.tests", "", "List the validation tests and what each one checks.",
+	               [](Session &, const Request &) -> Response {
+		               Array rows;
+		               for (const auto &test : allTests()) {
+			               Object row;
+			               row["test"] = Value(test.id);
+			               row["checks"] = Value(test.description);
+			               rows.push_back(Value(std::move(row)));
+		               }
+		               Object out;
+		               out["tests"] = Value(std::move(rows));
+		               return Response::success(Value(std::move(out)));
 	               }});
 
 	commands_.add({"callbacks", "", "Count every host callback the plug-in has made.",

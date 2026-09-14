@@ -8,11 +8,11 @@ features:
 audio:
 note:
   inputs:
-    index  id          name   dialects
-    0      1162037582  Notes  clap
+  index  id  name  dialects
+  0  1162037582  Notes  clap
   outputs:
-    index  id          name          dialects
-    0      1162039125  Echoed notes  clap
+  index  id  name  dialects
+  0  1162039125  Echoed notes  clap
 sampleRate: 48000
 blockSize: 512
 frames: 512
@@ -21,7 +21,7 @@ status: 1
 outputEvents: 1
 events:
   frame  type  event
-  0      0     note on key 60 channel 0 velocity 0.787402
+  0  0  note on key 60 channel 0 velocity @TIME@
 seen: 1
 frames: 512
 blocks: 1
@@ -29,5 +29,5 @@ status: 1
 outputEvents: 0
 events:
   frame  type  event
-  0      0     note on key 60 channel 0 velocity 0.787402
+  0  0  note on key 60 channel 0 velocity @TIME@
 seen: 1

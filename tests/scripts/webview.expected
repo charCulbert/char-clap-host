@@ -8,32 +8,32 @@ features:
   synthesizer
   stereo
 extensions:
-  extension                 present  via
-  audio-ports               true     clap.audio-ports
-  audio-ports-config        false
-  audio-ports-config-info   false
-  audio-ports-activation    false
+  extension  present  via
+  audio-ports  true  clap.audio-ports
+  audio-ports-config  false
+  audio-ports-config-info  false
+  audio-ports-activation  false
   configurable-audio-ports  false
-  note-ports                false
-  note-name                 false
-  params                    true     clap.params
-  param-indication          false
-  remote-controls           false
-  state                     false
-  state-context             false
-  preset-load               false
-  latency                   false
-  tail                      false
-  render                    false
-  voice-info                false
-  gui                       true     clap.gui
-  timer-support             false
-  posix-fd-support          false
-  thread-pool               false
-  context-menu              false
-  track-info                false
-  surround                  false
-  ambisonic                 false
+  note-ports  false
+  note-name  false
+  params  true  clap.params
+  param-indication  false
+  remote-controls  false
+  state  false
+  state-context  false
+  preset-load  false
+  latency  false
+  tail  false
+  render  false
+  voice-info  false
+  gui  true  clap.gui
+  timer-support  false
+  posix-fd-support  false
+  thread-pool  false
+  context-menu  false
+  track-info  false
+  surround  false
+  ambisonic  false
 open: false
 api: -
 floating: false

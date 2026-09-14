@@ -1,0 +1,10 @@
+# The validation suite run against a clean plug-in, and against one that
+# breaks two rules. Determinism matters here: the same seed must give the same
+# verdict every time.
+load @FIXTURES@/instrument.clap
+validate.tests
+validate.run process-audio-basic
+validate.run state
+unload
+load @FIXTURES@/thread-check.clap
+validate.run features

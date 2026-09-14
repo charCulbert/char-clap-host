@@ -192,6 +192,24 @@ NoteTranslation Engine::scheduleLiveMidi(const uint8_t *bytes, uint32_t size, in
 	return translation;
 }
 
+void Engine::scheduleParamMod(clap_id paramId, void *cookie, double amount, int16_t port, int16_t channel,
+                              int16_t key, int32_t noteId, uint64_t delayFrames) {
+	clap_event_param_mod_t event{};
+	event.header.size = sizeof(event);
+	event.header.time = 0;
+	event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+	event.header.type = CLAP_EVENT_PARAM_MOD;
+	event.header.flags = 0;
+	event.param_id = paramId;
+	event.cookie = cookie;
+	event.note_id = noteId;
+	event.port_index = port;
+	event.channel = channel;
+	event.key = key;
+	event.amount = amount;
+	scheduleAfter(&event.header, delayFrames);
+}
+
 void Engine::noteOn(int16_t port, int16_t channel, int16_t key, double velocity, int32_t noteId, uint64_t delayFrames) {
 	const clap_event_note_t event = makeNote(CLAP_EVENT_NOTE_ON, port, channel, key, velocity, noteId);
 	if (noteEncoding(port).wantsClapNotes()) {
@@ -383,10 +401,20 @@ int32_t Engine::processBlock(uint32_t frames, const BlockIo &io) {
 	process.in_events = inEvents_.input();
 	process.out_events = outEvents_.output();
 
+	if (checkBlocks_)
+		check_.before(buffers_, blockFrames);
+
 	int32_t status = CLAP_PROCESS_ERROR;
 	{
 		ScopedThreadRole role(ThreadRole::Audio);
 		status = session_.plugin()->process(session_.plugin(), &process);
+	}
+
+	if (checkBlocks_) {
+		// Reported through the validator, so a problem found here reads
+		// alongside everything else the host noticed.
+		for (const auto &problem : check_.after(buffers_, blockFrames, outEvents_))
+			session_.validator().error("clap_plugin.process", problem);
 	}
 	if (status == CLAP_PROCESS_ERROR) {
 		// "Processing failed. The output buffer must be discarded." Writing it

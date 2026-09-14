@@ -7,6 +7,7 @@
 
 #include "event-list.h"
 #include "note-encoding.h"
+#include "process-check.h"
 #include "process-buffers.h"
 #include "wav.h"
 
@@ -102,6 +103,13 @@ public:
 	int32_t processInterleaved(const float *input, uint32_t inputChannels, float *output, uint32_t outputChannels,
 	                           uint32_t frames);
 
+	// Checks every block against what a plug-in is allowed to do: unwritten
+	// samples, NaNs, a dishonest constant mask, writes past the block. Off by
+	// default because it costs a copy of every buffer per block; the
+	// validation suite turns it on.
+	void setProcessChecking(bool enabled) { checkBlocks_ = enabled; }
+	ProcessCheck &processCheck() { return check_; }
+
 	// True while a block is being processed, so a caller on another thread can
 	// refuse rather than join in.
 	bool isInsideProcess() const { return insideProcess_.load(std::memory_order_acquire); }
@@ -110,6 +118,16 @@ public:
 	// stream's layout is known.
 	void setDeviceOutputChannels(uint32_t channels) { deviceOutputChannels_ = channels; }
 	uint32_t deviceOutputChannels() const { return deviceOutputChannels_; }
+
+	// Schedules a parameter modulation.
+	//
+	// Modulation is an offset, not a value: CLAP says "the value heard is
+	// param_value + param_mod", so the parameter's own value is untouched and
+	// `params.list` still reads what it read before. Addressed by the same
+	// (port, channel, key, note_id) tuple as a note, with -1 as a wildcard, so
+	// one voice of a held chord can be modulated on its own.
+	void scheduleParamMod(clap_id paramId, void *cookie, double amount, int16_t port, int16_t channel, int16_t key,
+	                      int32_t noteId, uint64_t delayFrames);
 
 	// --- notes ------------------------------------------------------------
 	// Note helpers keep track of what is sounding, so `note off all` can end
@@ -182,6 +200,8 @@ private:
 	std::atomic<uint32_t> cachedDialect_{CLAP_NOTE_DIALECT_CLAP};
 	// Guards the one thing CLAP says must never happen twice at once.
 	std::atomic<bool> insideProcess_{false};
+	ProcessCheck check_;
+	bool checkBlocks_ = false;
 	bool running_ = false;
 
 	// The schedule is written by the main thread and by device threads, and
