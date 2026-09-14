@@ -16,6 +16,7 @@ note:
 sampleRate: 48000
 blockSize: 512
 frames: 512
+blocks: 1
 status: 1
 outputEvents: 1
 events:
@@ -23,6 +24,7 @@ events:
   0      0     note on key 60 channel 0 velocity 0.787402
 seen: 1
 frames: 512
+blocks: 1
 status: 1
 outputEvents: 0
 events:
