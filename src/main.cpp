@@ -158,6 +158,9 @@ int main(int argc, char **argv) {
 	});
 	reader.detach(); // a blocking read on stdin cannot be interrupted portably
 
+	// Cmd-Q and the Quit menu item take the same path as the `quit` command.
+	nch::setQuitHandler([&session] { session.requestQuit(); });
+
 	// The platform owns the loop; the host's own work is a timer on it.
 	nch::runApplicationLoop([&session] { return session.tick(); }, 20);
 	return session.validator().hasErrors() && options.strict ? 1 : 0;

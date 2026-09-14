@@ -3,13 +3,78 @@
 #include <clap/clap.h>
 
 #include <cstdio>
+#include <functional>
 #include <string>
 
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/QuartzCore.h>
 
 namespace nch {
+// Defined below; the application delegate needs it before it exists.
+void requestQuit();
+} // namespace nch
+
+// Cmd-Q would otherwise call -terminate: and kill the process where it stands,
+// leaving the plug-in undestroyed. Cancelling the termination and asking the
+// host to quit takes the ordinary shutdown path instead.
+@interface NchAppDelegate : NSObject <NSApplicationDelegate>
+@end
+
+@implementation NchAppDelegate
+- (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender {
+	(void)sender;
+	nch::requestQuit();
+	return NSTerminateCancel;
+}
+@end
+
+namespace nch {
 namespace {
+
+std::function<void()> &quitHandler() {
+	static std::function<void()> handler;
+	return handler;
+}
+
+// An application built by hand gets no menu bar, and without one none of the
+// standard shortcuts exist: no Cmd-Q, no Cmd-W, no Cmd-H. Every one of those
+// is muscle memory, so the host installs the minimum that makes them work.
+void installMainMenu() {
+	NSMenu *menubar = [[NSMenu alloc] init];
+	NSMenuItem *appItem = [[NSMenuItem alloc] init];
+	[menubar addItem:appItem];
+
+	NSString *name = @"clap-host";
+	NSMenu *appMenu = [[NSMenu alloc] init];
+	[appMenu addItemWithTitle:[@"About " stringByAppendingString:name]
+	                   action:@selector(orderFrontStandardAboutPanel:)
+	            keyEquivalent:@""];
+	[appMenu addItem:[NSMenuItem separatorItem]];
+	[appMenu addItemWithTitle:[@"Hide " stringByAppendingString:name]
+	                   action:@selector(hide:)
+	            keyEquivalent:@"h"];
+	NSMenuItem *hideOthers = [appMenu addItemWithTitle:@"Hide Others"
+	                                            action:@selector(hideOtherApplications:)
+	                                     keyEquivalent:@"h"];
+	[hideOthers setKeyEquivalentModifierMask:NSEventModifierFlagCommand | NSEventModifierFlagOption];
+	[appMenu addItemWithTitle:@"Show All" action:@selector(unhideAllApplications:) keyEquivalent:@""];
+	[appMenu addItem:[NSMenuItem separatorItem]];
+	[appMenu addItemWithTitle:[@"Quit " stringByAppendingString:name]
+	                   action:@selector(terminate:)
+	            keyEquivalent:@"q"];
+	[appItem setSubmenu:appMenu];
+
+	NSMenuItem *windowItem = [[NSMenuItem alloc] init];
+	[menubar addItem:windowItem];
+	NSMenu *windowMenu = [[NSMenu alloc] initWithTitle:@"Window"];
+	[windowMenu addItemWithTitle:@"Close" action:@selector(performClose:) keyEquivalent:@"w"];
+	[windowMenu addItemWithTitle:@"Minimise" action:@selector(performMiniaturize:) keyEquivalent:@"m"];
+	[windowMenu addItemWithTitle:@"Zoom" action:@selector(performZoom:) keyEquivalent:@""];
+	[windowItem setSubmenu:windowMenu];
+	[NSApp setWindowsMenu:windowMenu];
+
+	[NSApp setMainMenu:menubar];
+}
 
 // A CLI process has no activation policy of its own, so the first window has
 // to ask for one or it never appears on screen.
@@ -20,6 +85,9 @@ void ensureApplication() {
 	prepared = true;
 	[NSApplication sharedApplication];
 	[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+	static NchAppDelegate *delegate = [[NchAppDelegate alloc] init];
+	[NSApp setDelegate:delegate];
+	installMainMenu();
 	[NSApp activateIgnoringOtherApps:YES];
 	[NSApp finishLaunching];
 }
@@ -171,6 +239,15 @@ private:
 };
 
 } // namespace
+
+void setQuitHandler(std::function<void()> handler) {
+	quitHandler() = std::move(handler);
+}
+
+void requestQuit() {
+	if (quitHandler())
+		quitHandler()();
+}
 
 void prepareApplication() {
 	@autoreleasepool {

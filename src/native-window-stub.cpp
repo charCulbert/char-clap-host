@@ -11,6 +11,8 @@
 
 namespace nch {
 
+void setQuitHandler(std::function<void()>) {}
+
 void prepareApplication() {}
 
 std::unique_ptr<NativeWindow> createNativeWindow(uint32_t, uint32_t, const std::string &, std::string &error) {

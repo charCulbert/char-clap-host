@@ -127,6 +127,8 @@ private:
 
 } // namespace
 
+void setQuitHandler(std::function<void()>) {}
+
 void prepareApplication() {}
 
 std::unique_ptr<NativeWindow> createNativeWindow(uint32_t width, uint32_t height, const std::string &title,
