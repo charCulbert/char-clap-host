@@ -6,9 +6,31 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdio>
 
 namespace nch {
 namespace {
+
+// Rescan flags spelt out, so `callbacks` says which rescan a plug-in asked for.
+std::string paramRescanFlagNames(uint32_t flags) {
+	const struct {
+		uint32_t bit;
+		const char *name;
+	} known[] = {
+	    {CLAP_PARAM_RESCAN_VALUES, "values"},
+	    {CLAP_PARAM_RESCAN_TEXT, "text"},
+	    {CLAP_PARAM_RESCAN_INFO, "info"},
+	    {CLAP_PARAM_RESCAN_ALL, "all"},
+	};
+	std::string names;
+	for (const auto &entry : known) {
+		if ((flags & entry.bit) == 0)
+			continue;
+		names += names.empty() ? "[" : "|";
+		names += entry.name;
+	}
+	return names.empty() ? std::string() : names + "]";
+}
 
 uint64_t nowMs() {
 	using namespace std::chrono;
@@ -144,6 +166,8 @@ void Session::runMainThreadWork() {
 	if (plugin_ != nullptr && callbackRequested_.exchange(false, std::memory_order_acq_rel))
 		plugin_->on_main_thread(plugin_);
 
+	serviceFlushRequest();
+
 	if (plugin_ == nullptr || timers_.empty())
 		return;
 	const auto *timerSupport = pluginExtension<clap_plugin_timer_support_t>(CLAP_EXT_TIMER_SUPPORT);
@@ -257,15 +281,32 @@ void Session::onRequestRestart() {
 		const double rate = sampleRate_;
 		const uint32_t minFrames = minFrames_;
 		const uint32_t maxFrames = maxFrames_;
+		// deactivate() stops processing on the way through, so whether to
+		// resume has to be remembered before it runs; otherwise a plug-in that
+		// asks for a restart falls silent for good.
+		const bool wasProcessing = engine_.isRunning();
 		deactivate();
-		if (!activate(rate, minFrames, maxFrames, error))
+		if (!activate(rate, minFrames, maxFrames, error)) {
 			validator_.error("clap_host.request_restart", "reactivation failed: " + error);
+			return;
+		}
+		if (wasProcessing && !engine_.start(error))
+			validator_.error("clap_host.request_restart", "could not resume processing: " + error);
 	});
 }
 
 void Session::onRequestProcess() {
-	// Honoured by the audio engine when one is running; nothing to do while
-	// the host renders on demand.
+	// "Request the host to activate and start processing the plugin. This is
+	// useful if you have external IO and need to wake up the plugin from
+	// 'sleep'." A plug-in that returned CLAP_PROCESS_SLEEP has no other way
+	// back, so the host resumes rather than counting the request.
+	postToMainThread([this] {
+		if (plugin_ == nullptr || engine_.isRunning())
+			return;
+		std::string error;
+		if (!engine_.start(error))
+			validator_.warn("clap_host.request_process", "could not start processing: " + error);
+	});
 }
 
 void Session::onRequestCallback() {
@@ -273,18 +314,151 @@ void Session::onRequestCallback() {
 }
 
 void Session::onParamsRescan(clap_param_rescan_flags flags) {
-	lastParamRescanFlags_ |= flags;
-	++paramRescanCount_;
+	// Recorded with the flags, because when testing a plug-in the useful
+	// question is not "did a rescan happen" but "which one".
+	services_.recordCall("clap_host_params.rescan" + paramRescanFlagNames(flags));
+	// "[CLAP_PARAM_RESCAN_ALL] can only be used while the plugin is
+	// deactivated."
+	if ((flags & CLAP_PARAM_RESCAN_ALL) != 0 && active_)
+		validator_.error("clap_host_params.rescan",
+		                 "CLAP_PARAM_RESCAN_ALL while the plug-in is active; it may only be used while deactivated");
 }
 
 void Session::onParamsClear(clap_id paramId, clap_param_clear_flags flags) {
 	(void)paramId;
 	(void)flags;
-	++paramClearCount_;
+	services_.recordCall("clap_host_params.clear");
 }
 
 void Session::onParamsRequestFlush() {
+	// Serviced on the main thread, because what counts as a legal delivery
+	// route depends on whether the plug-in is active and processing.
 	flushRequested_.store(true, std::memory_order_release);
+}
+
+void Session::serviceFlushRequest() {
+	if (!flushRequested_.exchange(false, std::memory_order_acq_rel) || plugin_ == nullptr)
+		return;
+	const auto *params = pluginExtension<clap_plugin_params_t>(CLAP_EXT_PARAMS);
+	if (params == nullptr || params->flush == nullptr)
+		return;
+
+	if (active_) {
+		// While active, flush belongs to the audio thread, so the delivery
+		// route is a process block rather than a direct call.
+		std::string error;
+		if (!engine_.runSilentBlock(error))
+			validator_.warn("clap_host_params.request_flush", "could not deliver: " + error);
+		return;
+	}
+
+	EventList in;
+	EventList out;
+	params->flush(plugin_, in.input(), out.output());
+	absorbOutputEvents(out);
+}
+
+void Session::absorbOutputEvents(const EventList &events) {
+	const auto *params = pluginExtension<clap_plugin_params_t>(CLAP_EXT_PARAMS);
+	for (uint32_t i = 0; i < events.size(); ++i) {
+		const clap_event_header_t *header = events.at(i);
+		outputEventsSeen_ += 1;
+
+		std::string description;
+		if (header->space_id == CLAP_CORE_EVENT_SPACE_ID) {
+			switch (header->type) {
+			case CLAP_EVENT_PARAM_VALUE: {
+				const auto *event = reinterpret_cast<const clap_event_param_value_t *>(header);
+				// The plug-in's own interface moved a parameter; this is the
+				// only way the host learns of it.
+				description = "param " + std::to_string(event->param_id) + " = " + std::to_string(event->value);
+				if (params == nullptr)
+					validator_.warn("clap_plugin.process",
+					                "sent a parameter value without implementing clap.params");
+				break;
+			}
+			case CLAP_EVENT_PARAM_GESTURE_BEGIN:
+			case CLAP_EVENT_PARAM_GESTURE_END: {
+				const auto *event = reinterpret_cast<const clap_event_param_gesture_t *>(header);
+				description = std::string(header->type == CLAP_EVENT_PARAM_GESTURE_BEGIN ? "gesture begin "
+				                                                                         : "gesture end ") +
+				              std::to_string(event->param_id);
+				break;
+			}
+			case CLAP_EVENT_NOTE_END: {
+				const auto *event = reinterpret_cast<const clap_event_note_t *>(header);
+				description = "note end key " + std::to_string(event->key);
+				engine_.retireNote(event->port_index, event->channel, event->key);
+				break;
+			}
+			case CLAP_EVENT_NOTE_ON:
+			case CLAP_EVENT_NOTE_OFF:
+			case CLAP_EVENT_NOTE_CHOKE: {
+				const auto *event = reinterpret_cast<const clap_event_note_t *>(header);
+				const char *name = header->type == CLAP_EVENT_NOTE_ON
+				                       ? "note on"
+				                       : (header->type == CLAP_EVENT_NOTE_OFF ? "note off" : "note choke");
+				description = std::string(name) + " key " + std::to_string(event->key) + " channel " +
+				              std::to_string(event->channel) + " velocity " + std::to_string(event->velocity);
+				break;
+			}
+			case CLAP_EVENT_NOTE_EXPRESSION: {
+				const auto *event = reinterpret_cast<const clap_event_note_expression_t *>(header);
+				description = "expression " + std::to_string(event->expression_id) + " key " +
+				              std::to_string(event->key) + " = " + std::to_string(event->value);
+				break;
+			}
+			case CLAP_EVENT_MIDI: {
+				const auto *event = reinterpret_cast<const clap_event_midi_t *>(header);
+				char bytes[32];
+				std::snprintf(bytes, sizeof(bytes), "midi %02X %02X %02X", event->data[0], event->data[1],
+				              event->data[2]);
+				description = bytes;
+				break;
+			}
+			case CLAP_EVENT_MIDI_SYSEX: {
+				const auto *event = reinterpret_cast<const clap_event_midi_sysex_t *>(header);
+				description = "sysex " + std::to_string(event->size) + " bytes";
+				break;
+			}
+			case CLAP_EVENT_MIDI2:
+				description = "midi2";
+				break;
+			default:
+				description = "type " + std::to_string(header->type);
+				break;
+			}
+		} else {
+			description = "space " + std::to_string(header->space_id) + " type " + std::to_string(header->type);
+		}
+
+		// Bounded, because a busy plug-in emits a great many of these and the
+		// host is a tool for looking at the recent ones.
+		constexpr size_t kMaxRecorded = 512;
+		if (outputEvents_.size() >= kMaxRecorded)
+			outputEvents_.erase(outputEvents_.begin());
+		outputEvents_.push_back({engine_.playhead() + header->time, header->type, std::move(description)});
+	}
+}
+
+void Session::clearOutputEvents() {
+	outputEvents_.clear();
+	outputEventsSeen_ = 0;
+}
+
+Value Session::outputEventReport() const {
+	Array rows;
+	for (const auto &event : outputEvents_) {
+		Object row;
+		row["frame"] = Value(event.frame);
+		row["type"] = Value(event.type);
+		row["event"] = Value(event.description);
+		rows.push_back(Value(std::move(row)));
+	}
+	Object out;
+	out["events"] = Value(std::move(rows));
+	out["seen"] = Value(outputEventsSeen_);
+	return Value(std::move(out));
 }
 
 void Session::onStateMarkDirty() {
@@ -292,29 +466,39 @@ void Session::onStateMarkDirty() {
 }
 
 void Session::onLatencyChanged() {
-	++latencyChangeCount_;
+	// "[main-thread & being-activated]": the new latency is only meaningful
+	// once activation finishes, so the host re-reads it then rather than here.
+	latencyChangedDuringActivate_ = true;
 }
 
 void Session::onTailChanged() {
-	++tailChangeCount_;
+	// Recorded by the host callback; nothing to decide, the tail is read on
+	// demand.
 }
 
 void Session::onNotePortsRescan(uint32_t flags) {
-	lastNotePortsRescanFlags_ |= flags;
-	++notePortsRescanCount_;
+	(void)flags;
+	notePortsChanged_ = true;
 }
 
 void Session::onAudioPortsRescan(uint32_t flags) {
-	lastAudioPortsRescanFlags_ |= flags;
-	++audioPortsRescanCount_;
+	// Several of these flags change the port layout, which the plug-in may
+	// only do while deactivated.
+	constexpr uint32_t layoutFlags = CLAP_AUDIO_PORTS_RESCAN_FLAGS | CLAP_AUDIO_PORTS_RESCAN_CHANNEL_COUNT |
+	                                 CLAP_AUDIO_PORTS_RESCAN_PORT_TYPE | CLAP_AUDIO_PORTS_RESCAN_IN_PLACE_PAIR |
+	                                 CLAP_AUDIO_PORTS_RESCAN_LIST;
+	if ((flags & layoutFlags) != 0 && active_)
+		validator_.error("clap_host_audio_ports.rescan",
+		                 "a layout-changing rescan while the plug-in is active; those flags require deactivation");
+	audioPortsChanged_ = true;
 }
 
 void Session::onVoiceInfoChanged() {
-	++voiceInfoChangeCount_;
+	// Recorded by the host callback; voice info is read on demand.
 }
 
 void Session::onNoteNameChanged() {
-	++noteNameChangeCount_;
+	// Recorded by the host callback; note names are read on demand.
 }
 
 bool Session::onTimerRegister(uint32_t periodMs, clap_id *timerId) {
@@ -344,20 +528,33 @@ bool Session::onTimerUnregister(clap_id timerId) {
 }
 
 void Session::onGuiResizeHintsChanged() {
-	++guiResizeHintsChangeCount_;
+	// Recorded by the host callback; the hints are read when resizing.
 }
 
 bool Session::onGuiRequestResize(uint32_t width, uint32_t height) {
-	requestedGuiWidth_ = width;
-	requestedGuiHeight_ = height;
+	// clap.gui marks this [thread-safe]. Off the main thread the host may only
+	// acknowledge and act later, which is exactly what the extension says a
+	// true return means in that case.
+	if (currentThreadRole() != ThreadRole::Main) {
+		postToMainThread([this, width, height] { gui_.requestResize(width, height); });
+		return true;
+	}
 	return gui_.requestResize(width, height);
 }
 
 bool Session::onGuiRequestShow() {
+	if (currentThreadRole() != ThreadRole::Main) {
+		postToMainThread([this] { gui_.requestShow(); });
+		return true;
+	}
 	return gui_.requestShow();
 }
 
 bool Session::onGuiRequestHide() {
+	if (currentThreadRole() != ThreadRole::Main) {
+		postToMainThread([this] { gui_.requestHide(); });
+		return true;
+	}
 	return gui_.requestHide();
 }
 
@@ -387,10 +584,9 @@ Value Session::statusReport() const {
 	out["blockSize"] = Value(maxFrames_);
 	out["stateDirty"] = Value(stateDirty_);
 	out["timers"] = Value(static_cast<uint64_t>(timers_.size()));
-	out["restartRequests"] = Value(host_.restartRequests());
-	out["processRequests"] = Value(host_.processRequests());
-	out["callbackRequests"] = Value(host_.callbackRequests());
-	out["paramRescans"] = Value(paramRescanCount_);
+	out["restartRequests"] = Value(services_.callCount("clap_host.request_restart"));
+	out["processRequests"] = Value(services_.callCount("clap_host.request_process"));
+	out["callbackRequests"] = Value(services_.callCount("clap_host.request_callback"));
 	out["violations"] = Value(static_cast<uint64_t>(validator_.violationCount()));
 	out["webviewMessages"] = Value(webviewMessagesSent_);
 	out["midiMessages"] = Value(midiMessageCount());

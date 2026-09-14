@@ -351,6 +351,15 @@ void Session::registerAudioCommands() {
 		               return Response::success(Value(std::move(out)));
 	               }});
 
+	commands_.add({"events", "[clear]", "What the plug-in has sent back to the host.",
+	               [](Session &session, const Request &request) -> Response {
+		               if (request.arg(0, "action").asString() == "clear") {
+			               session.clearOutputEvents();
+			               return Response::success();
+		               }
+		               return Response::success(session.outputEventReport());
+	               }});
+
 	commands_.add({"playhead", "[reset]", "Report or reset the frame playhead.",
 	               [](Session &session, const Request &request) -> Response {
 		               if (request.arg(0, "action").asString() == "reset")

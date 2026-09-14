@@ -26,11 +26,6 @@ public:
 	// creation can be reported rather than crashing.
 	void setPluginReady(bool ready) { pluginReady_.store(ready, std::memory_order_release); }
 
-	// Counters the `validate` and `status` commands report.
-	uint64_t restartRequests() const { return restartRequests_.load(std::memory_order_relaxed); }
-	uint64_t processRequests() const { return processRequests_.load(std::memory_order_relaxed); }
-	uint64_t callbackRequests() const { return callbackRequests_.load(std::memory_order_relaxed); }
-
 	static Host &from(const clap_host_t *host);
 	Session &session() { return session_; }
 	Validator &validator() { return validator_; }
@@ -40,10 +35,8 @@ public:
 	// still serviced: the host stays permissive and only reports.
 	void noteMainThreadCall(const char *where);
 	void noteAudioThreadCall(const char *where);
-
-	void recordRestartRequest() { restartRequests_.fetch_add(1, std::memory_order_relaxed); }
-	void recordProcessRequest() { processRequests_.fetch_add(1, std::memory_order_relaxed); }
-	void recordCallbackRequest() { callbackRequests_.fetch_add(1, std::memory_order_relaxed); }
+	// Records a call with no thread requirement of its own.
+	void noteCall(const char *where);
 
 private:
 
@@ -51,9 +44,6 @@ private:
 	Session &session_;
 	Validator &validator_;
 	std::atomic<bool> pluginReady_{false};
-	std::atomic<uint64_t> restartRequests_{0};
-	std::atomic<uint64_t> processRequests_{0};
-	std::atomic<uint64_t> callbackRequests_{0};
 };
 
 } // namespace nch

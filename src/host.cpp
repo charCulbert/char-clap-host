@@ -70,6 +70,13 @@ void paramsClear(const clap_host_t *host, clap_id paramId, clap_param_clear_flag
 }
 
 void paramsRequestFlush(const clap_host_t *host) {
+	Host::from(host).noteCall("clap_host_params.request_flush");
+	// [thread-safe, !audio-thread]: the plug-in is already inside process() or
+	// flush() on that thread, so asking for another is a contradiction.
+	if (currentThreadRole() == ThreadRole::Audio)
+		Host::from(host).validator().error("clap_host_params.request_flush",
+		                                   "called from the audio thread, where the plug-in is already inside "
+		                                   "process() or flush()");
 	sessionOf(host).onParamsRequestFlush();
 }
 
@@ -96,6 +103,8 @@ const clap_host_latency_t kLatency = {latencyChanged};
 // --- clap.tail -----------------------------------------------------------
 
 void tailChanged(const clap_host_t *host) {
+	// clap.tail marks changed() [audio-thread].
+	Host::from(host).noteAudioThreadCall("clap_host_tail.changed");
 	sessionOf(host).onTailChanged();
 }
 
@@ -103,8 +112,12 @@ const clap_host_tail_t kTail = {tailChanged};
 
 // --- clap.note-ports -----------------------------------------------------
 
-uint32_t notePortsSupportedDialects(const clap_host_t *) {
-	return CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI | CLAP_NOTE_DIALECT_MIDI_MPE | CLAP_NOTE_DIALECT_MIDI2;
+uint32_t notePortsSupportedDialects(const clap_host_t *host) {
+	Host::from(host).noteCall("clap_host_note_ports.supported_dialects");
+	// MIDI2 is deliberately absent: the host cannot produce or read it, and
+	// claiming it would invite a plug-in to pick a dialect that reaches
+	// nothing.
+	return CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI | CLAP_NOTE_DIALECT_MIDI_MPE;
 }
 
 void notePortsRescan(const clap_host_t *host, uint32_t flags) {
@@ -218,17 +231,17 @@ const void *hostGetExtension(const clap_host_t *host, const char *extensionId) {
 }
 
 void hostRequestRestart(const clap_host_t *host) {
-	Host::from(host).recordRestartRequest();
+	Host::from(host).noteCall("clap_host.request_restart");
 	sessionOf(host).onRequestRestart();
 }
 
 void hostRequestProcess(const clap_host_t *host) {
-	Host::from(host).recordProcessRequest();
+	Host::from(host).noteCall("clap_host.request_process");
 	sessionOf(host).onRequestProcess();
 }
 
 void hostRequestCallback(const clap_host_t *host) {
-	Host::from(host).recordCallbackRequest();
+	Host::from(host).noteCall("clap_host.request_callback");
 	sessionOf(host).onRequestCallback();
 }
 
@@ -256,6 +269,7 @@ Host &Host::from(const clap_host_t *host) {
 }
 
 void Host::noteMainThreadCall(const char *where) {
+	noteCall(where);
 	if (currentThreadRole() != ThreadRole::Main)
 		validator_.error(where, std::string("called from the ") + threadRoleName(currentThreadRole()) +
 		                            " thread; this call is main-thread only");
@@ -264,9 +278,14 @@ void Host::noteMainThreadCall(const char *where) {
 }
 
 void Host::noteAudioThreadCall(const char *where) {
+	noteCall(where);
 	if (currentThreadRole() != ThreadRole::Audio)
 		validator_.error(where, std::string("called from the ") + threadRoleName(currentThreadRole()) +
 		                            " thread; this call is audio-thread only");
+}
+
+void Host::noteCall(const char *where) {
+	session_.services().recordCall(where);
 }
 
 } // namespace nch

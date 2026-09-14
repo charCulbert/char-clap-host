@@ -103,6 +103,10 @@ public:
 	void noteOff(int16_t port, int16_t channel, int16_t key, double velocity, int32_t noteId, uint64_t delayFrames);
 	void allNotesOff(uint64_t delayFrames);
 	std::vector<clap_event_note_t> activeNotes() const;
+	// The plug-in reports a voice has finished. Retiring the note keeps the
+	// host's idea of what is sounding honest, rather than claiming a voice the
+	// plug-in has already ended.
+	void retireNote(int16_t port, int16_t channel, int16_t key);
 
 	// How the plug-in's note port wants notes encoded. Every path into the
 	// plug-in asks this, so a note is only ever sent one way.
@@ -118,6 +122,12 @@ public:
 
 	// Events the plug-in emitted during the last block.
 	const EventList &lastOutputEvents() const { return outEvents_; }
+
+	// Runs one silent block so queued events reach the plug-in even when the
+	// host is not otherwise processing. Enters and leaves processing around
+	// it, which is legal while activated and is what lets a flush request be
+	// honoured in that state.
+	bool runSilentBlock(std::string &error);
 
 private:
 	void buildTransportEvent(uint32_t frames);

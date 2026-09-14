@@ -223,6 +223,20 @@ std::vector<clap_event_note_t> Engine::activeNotes() const {
 	return activeNotes_;
 }
 
+void Engine::retireNote(int16_t port, int16_t channel, int16_t key) {
+	for (auto it = activeNotes_.begin(); it != activeNotes_.end(); ++it) {
+		// -1 is a wildcard in note events, so a plug-in may end a whole
+		// channel or every voice at once.
+		const bool samePort = port < 0 || it->port_index == port;
+		const bool sameChannel = channel < 0 || it->channel == channel;
+		const bool sameKey = key < 0 || it->key == key;
+		if (samePort && sameChannel && sameKey) {
+			activeNotes_.erase(it);
+			return;
+		}
+	}
+}
+
 void Engine::collectBlockEvents(uint32_t frames) {
 	inEvents_.clear();
 	std::lock_guard<std::mutex> lock(scheduleMutex_);
@@ -339,9 +353,15 @@ int32_t Engine::processBlock(uint32_t frames, AudioData *output) {
 		ScopedThreadRole role(ThreadRole::Audio);
 		status = session_.plugin()->process(session_.plugin(), &process);
 	}
-	if (status == CLAP_PROCESS_ERROR)
+	if (status == CLAP_PROCESS_ERROR) {
+		// "Processing failed. The output buffer must be discarded." Writing it
+		// anyway would put whatever the plug-in left behind into a file or a
+		// speaker.
 		session_.validator().error("clap_plugin.process", "returned CLAP_PROCESS_ERROR");
+		buffers_.silence(frames);
+	}
 
+	session_.absorbOutputEvents(outEvents_);
 	if (output != nullptr)
 		buffers_.appendMainOutput(*output, frames);
 	playhead_ += frames;
@@ -380,10 +400,41 @@ int32_t Engine::processInterleaved(const float *input, uint32_t inputChannels, f
 	process.out_events = outEvents_.output();
 
 	const int32_t status = session_.plugin()->process(session_.plugin(), &process);
+	if (status == CLAP_PROCESS_ERROR) {
+		session_.validator().error("clap_plugin.process", "returned CLAP_PROCESS_ERROR");
+		buffers_.silence(frames);
+	}
 	buffers_.readMainOutput(output, frames, outputChannels);
 	playhead_ += frames;
 	advanceTransport(frames);
 	return status;
+}
+
+bool Engine::runSilentBlock(std::string &error) {
+	if (!session_.isLoaded()) {
+		error = "no plug-in loaded";
+		return false;
+	}
+	if (running_) {
+		// Already processing: the next block carries whatever is queued.
+		return true;
+	}
+	if (!session_.isActive() && !session_.activate(session_.sampleRate(), 1, session_.blockSize(), error))
+		return false;
+
+	buffers_.build(session_, session_.blockSize());
+	{
+		ScopedThreadRole role(ThreadRole::Audio);
+		if (!session_.plugin()->start_processing(session_.plugin())) {
+			error = "start_processing failed";
+			return false;
+		}
+	}
+	running_ = true;
+	session_.setProcessing(true);
+	processBlock(session_.blockSize(), nullptr);
+	stop();
+	return true;
 }
 
 bool Engine::render(uint64_t frames, AudioData &out, std::string &error) {

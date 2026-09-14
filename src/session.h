@@ -137,6 +137,16 @@ public:
 	// Returns false until a webview is open to receive the message.
 	bool onWebviewMessage(const void *buffer, uint32_t size);
 
+	// Delivers a requested parameter flush by whatever route is legal in the
+	// current state, and collects whatever the plug-in sends back.
+	void serviceFlushRequest();
+	// Applies the events a plug-in emitted: parameter values become the host's
+	// view of them, note ends retire the note. Every event is recorded.
+	void absorbOutputEvents(const EventList &events);
+	// The events the plug-in has emitted recently, newest last.
+	Value outputEventReport() const;
+	void clearOutputEvents();
+
 	// --- observable state -------------------------------------------------
 	bool stateDirty() const { return stateDirty_; }
 	void clearStateDirty() { stateDirty_ = false; }
@@ -205,26 +215,27 @@ private:
 	bool stateDirty_ = false;
 	bool quit_ = false;
 
-	// What the plug-in has asked the host for, reported by `status` and used
-	// by tests to prove a callback actually arrived.
-	uint64_t paramRescanCount_ = 0;
-	uint64_t paramClearCount_ = 0;
-	uint32_t lastParamRescanFlags_ = 0;
-	uint64_t latencyChangeCount_ = 0;
-	uint64_t tailChangeCount_ = 0;
-	uint64_t notePortsRescanCount_ = 0;
-	uint32_t lastNotePortsRescanFlags_ = 0;
-	uint64_t audioPortsRescanCount_ = 0;
-	uint32_t lastAudioPortsRescanFlags_ = 0;
-	uint64_t voiceInfoChangeCount_ = 0;
-	uint64_t noteNameChangeCount_ = 0;
-	uint64_t guiResizeHintsChangeCount_ = 0;
-	uint32_t requestedGuiWidth_ = 0;
-	uint32_t requestedGuiHeight_ = 0;
+	// What the plug-in has asked the host for is counted once, by
+	// HostServices, so `status`, `validate` and `callbacks` cannot disagree.
+	// Only the things the host has to act on are remembered here.
+	bool latencyChangedDuringActivate_ = false;
+	bool notePortsChanged_ = false;
+	bool audioPortsChanged_ = false;
 	uint64_t webviewMessagesSent_ = 0;
 	bool guiClosedByPlugin_ = false;
 	bool guiDestroyedByPlugin_ = false;
 	std::atomic<bool> flushRequested_{false};
+	bool wasProcessingBeforeRestart_ = false;
+
+	// A bounded log of what the plug-in emitted, so a test can see exactly
+	// what came back rather than a count of it.
+	struct OutputEvent {
+		uint64_t frame = 0;
+		uint16_t type = 0;
+		std::string description;
+	};
+	std::vector<OutputEvent> outputEvents_;
+	uint64_t outputEventsSeen_ = 0;
 
 	std::mutex workMutex_;
 	std::vector<std::function<void()>> work_;
