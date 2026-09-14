@@ -21,6 +21,7 @@ Session::Session(Options options)
 	maxFrames_ = options_.blockSize;
 	registerCommands();
 	registerAudioCommands();
+	registerStateCommands();
 }
 
 Session::~Session() {

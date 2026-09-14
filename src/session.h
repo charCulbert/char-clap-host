@@ -107,6 +107,8 @@ public:
 	bool stateDirty() const { return stateDirty_; }
 	void clearStateDirty() { stateDirty_ = false; }
 	Value statusReport() const;
+	// Indexes the bundle's preset-discovery factory, if it has one.
+	Value presetReport();
 
 	// --- command loop -----------------------------------------------------
 	const CommandTable &commands() const { return commands_; }
@@ -120,6 +122,7 @@ public:
 private:
 	void registerCommands();
 	void registerAudioCommands();
+	void registerStateCommands();
 	void refreshExtensions();
 
 	Options options_;
