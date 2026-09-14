@@ -1,6 +1,9 @@
 #include "bundle.h"
 
 #include <cstdlib>
+#include <map>
+#include <mutex>
+#include <string>
 
 #if defined(__APPLE__)
 #include <CoreFoundation/CoreFoundation.h>
@@ -110,6 +113,66 @@ std::string homeDirectory() {
 	return {};
 }
 
+// One library, however many Bundles refer to it.
+//
+// entry.h asks a host to "make an absolute best effort to call init() and
+// deinit() once, and always in matched pairs". Two plug-ins from the same file
+// -- two sessions, or a plug-in that wraps another -- share one loaded image,
+// so opening it twice must not mean initialising it twice, and closing one
+// must not unload the library the other is still running.
+struct LoadedLibrary {
+	void *handle = nullptr;
+	const clap_plugin_entry_t *entry = nullptr;
+	uint32_t references = 0;
+};
+
+std::map<std::string, LoadedLibrary> &loadedLibraries() {
+	static std::map<std::string, LoadedLibrary> libraries;
+	return libraries;
+}
+
+std::mutex &libraryMutex() {
+	static std::mutex mutex;
+	return mutex;
+}
+
+const clap_plugin_entry_t *acquireLibrary(const std::string &path, std::string &error) {
+	std::lock_guard<std::mutex> lock(libraryMutex());
+	auto &libraries = loadedLibraries();
+	const auto existing = libraries.find(path);
+	if (existing != libraries.end()) {
+		++existing->second.references;
+		return existing->second.entry;
+	}
+
+	void *handle = nullptr;
+	const clap_plugin_entry_t *entry = loadEntry(path, handle, error);
+	if (entry == nullptr)
+		return nullptr;
+	if (entry->init == nullptr || !entry->init(path.c_str())) {
+		unloadEntry(handle);
+		error = "clap_entry->init failed for " + path;
+		return nullptr;
+	}
+	libraries.emplace(path, LoadedLibrary{handle, entry, 1});
+	return entry;
+}
+
+void releaseLibrary(const std::string &path) {
+	std::lock_guard<std::mutex> lock(libraryMutex());
+	auto &libraries = loadedLibraries();
+	const auto found = libraries.find(path);
+	if (found == libraries.end())
+		return;
+	if (--found->second.references != 0)
+		return;
+	// The last reference: one deinit for the one init, then unload.
+	if (found->second.entry->deinit != nullptr)
+		found->second.entry->deinit();
+	unloadEntry(found->second.handle);
+	libraries.erase(found);
+}
+
 } // namespace
 
 Bundle::~Bundle() {
@@ -118,26 +181,18 @@ Bundle::~Bundle() {
 
 bool Bundle::open(const std::string &path, std::string &error) {
 	close();
-	void *handle = nullptr;
-	const clap_plugin_entry_t *entry = loadEntry(path, handle, error);
+	const clap_plugin_entry_t *entry = acquireLibrary(path, error);
 	if (entry == nullptr)
 		return false;
-	if (entry->init == nullptr || !entry->init(path.c_str())) {
-		unloadEntry(handle);
-		error = "clap_entry->init failed for " + path;
-		return false;
-	}
+
 	const auto *factory = static_cast<const clap_plugin_factory_t *>(
 	    entry->get_factory ? entry->get_factory(CLAP_PLUGIN_FACTORY_ID) : nullptr);
 	if (factory == nullptr) {
-		if (entry->deinit != nullptr)
-			entry->deinit();
-		unloadEntry(handle);
+		releaseLibrary(path);
 		error = path + " exposes no plugin factory";
 		return false;
 	}
 	path_ = path;
-	library_ = handle;
 	entry_ = entry;
 	factory_ = factory;
 	return true;
@@ -146,10 +201,7 @@ bool Bundle::open(const std::string &path, std::string &error) {
 void Bundle::close() {
 	if (entry_ == nullptr)
 		return;
-	if (entry_->deinit != nullptr)
-		entry_->deinit();
-	unloadEntry(library_);
-	library_ = nullptr;
+	releaseLibrary(path_);
 	entry_ = nullptr;
 	factory_ = nullptr;
 	path_.clear();

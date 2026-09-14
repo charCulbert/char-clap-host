@@ -621,7 +621,22 @@ bool Session::tick() {
 	return !quit_;
 }
 
+void Session::setOutput(std::function<void(const std::string &)> sink) {
+	output_ = std::move(sink);
+}
+
 void Session::writeResponse(const Request &request, const Response &response) {
+	// One place decides what a reply looks like; where it goes is the sink's
+	// business.
+	const auto emit = [this](const std::string &text) {
+		if (output_) {
+			output_(text);
+			return;
+		}
+		std::fputs(text.c_str(), stdout);
+		std::fflush(stdout);
+	};
+
 	if (options_.json) {
 		Object envelope;
 		envelope["ok"] = Value(response.ok);
@@ -631,21 +646,18 @@ void Session::writeResponse(const Request &request, const Response &response) {
 			envelope["error"] = Value(response.error);
 		if (!response.data.isNull())
 			envelope["data"] = response.data;
-		std::printf("%s\n", Value(std::move(envelope)).toJson().c_str());
-		std::fflush(stdout);
+		emit(Value(std::move(envelope)).toJson() + "\n");
 		return;
 	}
 	if (!response.ok) {
-		std::printf("error: %s\n", response.error.c_str());
-		std::fflush(stdout);
+		emit("error: " + response.error + "\n");
 		return;
 	}
 	if (response.data.isNull())
 		return;
 	const std::string text = response.data.toText();
 	if (!text.empty())
-		std::fputs(text.c_str(), stdout);
-	std::fflush(stdout);
+		emit(text);
 }
 
 } // namespace nch

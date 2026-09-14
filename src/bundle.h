@@ -39,7 +39,8 @@ public:
 
 private:
 	std::string path_;
-	void *library_ = nullptr; // platform handle; CFBundleRef on macOS
+	// The loaded image is shared between every Bundle referring to the same
+	// file, and reference counted, so the entry is initialised once.
 	const clap_plugin_entry_t *entry_ = nullptr;
 	const clap_plugin_factory_t *factory_ = nullptr;
 };

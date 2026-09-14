@@ -64,6 +64,10 @@ private:
 	std::map<std::string, Command> commands_;
 };
 
+// Reads a duration argument: seconds by default, or frames when written with
+// an `f` suffix, as in `480f`. Returns `fallback` when the argument is absent.
+uint64_t framesFromArgument(const Value &value, double sampleRate, uint64_t fallback);
+
 // Splits a line into words, honouring double quotes and backslash escapes so
 // paths with spaces survive.
 std::vector<std::string> tokenize(const std::string &line);

@@ -1,6 +1,8 @@
 #include "command.h"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdlib>
 
 namespace nch {
 namespace {
@@ -122,6 +124,16 @@ Response CommandTable::dispatch(Session &session, const Request &request) const 
 	if (command == nullptr)
 		return Response::failure("unknown command: " + request.name);
 	return command->run(session, request);
+}
+
+uint64_t framesFromArgument(const Value &value, double sampleRate, uint64_t fallback) {
+	if (value.isNull())
+		return fallback;
+	const std::string text = value.asString();
+	if (!text.empty() && (text.back() == 'f' || text.back() == 'F'))
+		return static_cast<uint64_t>(std::strtoull(text.c_str(), nullptr, 10));
+	const double seconds = value.asNumber();
+	return seconds <= 0.0 ? 0 : static_cast<uint64_t>(std::llround(seconds * sampleRate));
 }
 
 std::vector<std::string> tokenize(const std::string &line) {

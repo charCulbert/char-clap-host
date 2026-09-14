@@ -99,6 +99,23 @@ void appendU16(std::vector<uint8_t> &out, uint16_t value) {
 
 } // namespace
 
+AudioStats measure(const AudioData &audio) {
+	AudioStats stats;
+	double sumOfSquares = 0.0;
+	uint64_t count = 0;
+	for (const auto &channel : audio.channels) {
+		for (const float sample : channel) {
+			const double magnitude = std::fabs(static_cast<double>(sample));
+			stats.peak = std::max(stats.peak, magnitude);
+			sumOfSquares += static_cast<double>(sample) * sample;
+			++count;
+		}
+	}
+	stats.rms = count == 0 ? 0.0 : std::sqrt(sumOfSquares / static_cast<double>(count));
+	stats.silent = stats.peak == 0.0;
+	return stats;
+}
+
 bool readWav(const std::string &path, AudioData &out, std::string &error) {
 	std::vector<uint8_t> bytes;
 	if (!readFile(path, bytes, error))

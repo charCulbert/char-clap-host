@@ -7,6 +7,7 @@ add_executable(nch-tests
     midi-file.test.cpp
     note-encoding.test.cpp
     plugin-instance.test.cpp
+    session-commands.test.cpp
     timeline.test.cpp
     wav.test.cpp
     main.cpp

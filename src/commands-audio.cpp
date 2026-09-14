@@ -15,35 +15,16 @@ Response needPlugin(Session &session) {
 	return session.isLoaded() ? Response::success() : Response::failure("no plug-in loaded");
 }
 
-// Reads a time argument in seconds, or in frames when suffixed with `f`.
-uint64_t framesFromArgument(const Value &value, double sampleRate, uint64_t fallback) {
-	if (value.isNull())
-		return fallback;
-	const std::string text = value.asString();
-	if (!text.empty() && (text.back() == 'f' || text.back() == 'F'))
-		return static_cast<uint64_t>(std::strtoull(text.c_str(), nullptr, 10));
-	return static_cast<uint64_t>(std::llround(value.asNumber() * sampleRate));
-}
-
-Value measure(const AudioData &audio) {
+// The shape a render or an input file is reported in.
+Value describeAudio(const AudioData &audio) {
+	const AudioStats stats = measure(audio);
 	Object out;
 	out["frames"] = Value(static_cast<uint64_t>(audio.frameCount()));
 	out["channels"] = Value(audio.channelCount());
 	out["sampleRate"] = Value(audio.sampleRate);
-	double peak = 0.0;
-	double sumOfSquares = 0.0;
-	uint64_t count = 0;
-	for (const auto &channel : audio.channels) {
-		for (const float sample : channel) {
-			const double magnitude = std::fabs(static_cast<double>(sample));
-			peak = std::max(peak, magnitude);
-			sumOfSquares += static_cast<double>(sample) * sample;
-			++count;
-		}
-	}
-	out["peak"] = Value(peak);
-	out["rms"] = Value(count == 0 ? 0.0 : std::sqrt(sumOfSquares / static_cast<double>(count)));
-	out["silent"] = Value(peak == 0.0);
+	out["peak"] = Value(stats.peak);
+	out["rms"] = Value(stats.rms);
+	out["silent"] = Value(stats.silent);
 	return Value(std::move(out));
 }
 
@@ -305,7 +286,7 @@ void Session::registerAudioCommands() {
 		               std::string error;
 		               if (!readWav(path, audio, error))
 			               return Response::failure(error);
-		               Value report = measure(audio);
+		               Value report = describeAudio(audio);
 		               session.engine().setInput(std::move(audio));
 		               return Response::success(std::move(report));
 	               }});
@@ -324,7 +305,7 @@ void Session::registerAudioCommands() {
 		               std::string error;
 		               if (!session.engine().render(frames, out, error))
 			               return Response::failure(error);
-		               Value report = measure(out);
+		               Value report = describeAudio(out);
 		               const std::string path = request.arg(1, "file").asString();
 		               if (!path.empty()) {
 			               const SampleFormat format = formatFromName(request.arg("format").asString("float32"));

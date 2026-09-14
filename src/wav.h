@@ -21,6 +21,16 @@ struct AudioData {
 
 enum class SampleFormat { Float32, Pcm24, Pcm16 };
 
+// What a stretch of audio amounts to. Reported after every render, and the
+// quickest way to tell silence from sound without listening.
+struct AudioStats {
+	double peak = 0.0;
+	double rms = 0.0;
+	bool silent = true;
+};
+
+AudioStats measure(const AudioData &audio);
+
 // Reads a RIFF/WAVE file. Handles PCM 8/16/24/32 and IEEE float 32/64, mono or
 // multichannel. Returns false with `error` set.
 bool readWav(const std::string &path, AudioData &out, std::string &error);

@@ -174,6 +174,11 @@ public:
 	void requestQuit() { quit_ = true; }
 	void writeResponse(const Request &request, const Response &response);
 
+	// Where replies go. Standard output by default; a test sets its own sink
+	// and reads back what a command answered, which is what makes the command
+	// set testable without spawning the binary.
+	void setOutput(std::function<void(const std::string &)> sink);
+
 private:
 	// Mixes the test tone into a device block, if one is playing.
 	void renderTestTone(float *output, uint32_t frames, uint32_t channels);
@@ -235,6 +240,8 @@ private:
 
 	std::mutex workMutex_;
 	std::vector<std::function<void()>> work_;
+
+	std::function<void(const std::string &)> output_;
 
 	std::mutex lineMutex_;
 	std::condition_variable lineArrived_;
