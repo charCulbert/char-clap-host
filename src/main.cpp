@@ -174,7 +174,10 @@ int main(int argc, char **argv) {
 			std::fprintf(stderr, "error: %s\n", settingsError.c_str());
 	});
 
-	// The platform owns the loop; the host's own work is a timer on it.
-	nch::runApplicationLoop([&session] { return session.tick(); }, 20);
+	// The platform owns the loop; the host's own work is a timer on it. The
+	// interval sets the ceiling on how often a plug-in's own timers can fire,
+	// so it matches the floor the host gives them rather than sitting above
+	// it.
+	nch::runApplicationLoop([&session] { return session.tick(); }, 8);
 	return session.validator().hasErrors() && options.strict ? 1 : 0;
 }

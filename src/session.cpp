@@ -476,9 +476,10 @@ void Session::onNoteNameChanged() {
 bool Session::onTimerRegister(uint32_t periodMs, clap_id *timerId) {
 	if (timerId == nullptr)
 		return false;
-	// CLAP leaves the floor to the host; 16 ms keeps a GUI responsive without
-	// spinning the main loop.
-	const uint32_t period = periodMs < 16 ? 16 : periodMs;
+	// CLAP leaves the floor to the host. 8 ms matches the main loop's own
+	// interval, so a plug-in asking for a fast timer gets what it asked for
+	// rather than whatever the loop happens to allow.
+	const uint32_t period = periodMs < 8 ? 8 : periodMs;
 	Timer timer;
 	timer.id = nextTimerId_++;
 	timer.periodMs = period;

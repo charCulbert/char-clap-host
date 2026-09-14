@@ -7,17 +7,16 @@ features:
   audio-effect
   stereo
 presets:
-  name  loadKey  location  soundpack                                              description                 features
-  Soft  soft     internal  com.charlieculbert.wclap-runtime-presets-example.pack  Quiet built-in preset       soft
-  Loud  loud     internal  com.charlieculbert.wclap-runtime-presets-example.pack  Full-level built-in preset  loud
+  name    loadKey  location                                                                                                  soundpack                                              description                 features
+  Soft    soft     internal                                                                                                  com.charlieculbert.wclap-runtime-presets-example.pack  Quiet built-in preset       soft
+  Loud    loud     internal                                                                                                  com.charlieculbert.wclap-runtime-presets-example.pack  Full-level built-in preset  loud
+  Medium           @FIXTURES@/presets.clap/presets/medium.wclap-preset  com.charlieculbert.wclap-runtime-presets-example.pack  Host-provided preset file   medium
 locations:
   name               kind    path
   Built-in presets   plugin
   Host preset files  file    @FIXTURES@/presets.clap/presets
 filetypes:
   wclap-preset
-errors:
-  Unknown preset location
 providers:
   id                                                        name
   com.charlieculbert.wclap-runtime-presets-example.factory  Runtime example presets

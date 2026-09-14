@@ -7,7 +7,9 @@
 
 #include <clap/clap.h>
 
+#include <filesystem>
 #include <string>
+#include <system_error>
 #include <vector>
 
 namespace nch {
@@ -123,6 +125,43 @@ void receiverAddFeature(const clap_preset_discovery_metadata_receiver_t *receive
 
 void receiverAddExtraInfo(const clap_preset_discovery_metadata_receiver_t *, const char *, const char *) {}
 
+// A provider usually declares a directory, not a file. "crawl the given
+// locations and monitor file system changes -> get_metadata() for each presets
+// files": without the crawl the host asks about the directory itself, the
+// provider says it is not a preset, and nothing is ever found.
+std::vector<std::string> presetFilesUnder(const std::string &path, const std::vector<std::string> &filetypes) {
+	std::vector<std::string> files;
+	std::error_code code;
+	const std::filesystem::path root(path);
+	if (!std::filesystem::exists(root, code))
+		return files;
+	if (!std::filesystem::is_directory(root, code)) {
+		files.push_back(path);
+		return files;
+	}
+
+	const auto matches = [&filetypes](const std::filesystem::path &file) {
+		if (filetypes.empty())
+			return true; // "If empty or NULL then every file should be matched."
+		std::string extension = file.extension().string();
+		if (!extension.empty() && extension.front() == '.')
+			extension.erase(extension.begin());
+		for (const auto &declared : filetypes)
+			if (declared.empty() || declared == extension)
+				return true;
+		return false;
+	};
+
+	for (std::filesystem::recursive_directory_iterator it(root, std::filesystem::directory_options::skip_permission_denied, code), end;
+	     it != end && !code; it.increment(code)) {
+		if (!it->is_regular_file(code))
+			continue;
+		if (matches(it->path()))
+			files.push_back(it->path().string());
+	}
+	return files;
+}
+
 void prepare(Indexing &indexing) {
 	indexing.indexer.clap_version = CLAP_VERSION;
 	indexing.indexer.name = "nativeClapHost";
@@ -237,13 +276,22 @@ Value Session::presetReport() {
 			continue;
 		}
 		for (size_t location = locationsBefore; location < indexing.locations.size(); ++location) {
-			indexing.currentLocation = indexing.locationPaths[location];
 			indexing.currentLocationKind = indexing.locations[location].kind;
-			const char *path = indexing.locations[location].kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN
-			                       ? nullptr
-			                       : indexing.locationPaths[location].c_str();
-			if (provider->get_metadata != nullptr)
-				provider->get_metadata(provider, indexing.locations[location].kind, path, &indexing.receiver);
+			if (provider->get_metadata == nullptr)
+				continue;
+
+			if (indexing.locations[location].kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN) {
+				// The plug-in's own list, which CLAP spells as a null location.
+				indexing.currentLocation.clear();
+				provider->get_metadata(provider, indexing.locations[location].kind, nullptr, &indexing.receiver);
+				continue;
+			}
+
+			for (const auto &file : presetFilesUnder(indexing.locationPaths[location], indexing.filetypes)) {
+				indexing.currentLocation = file;
+				provider->get_metadata(provider, indexing.locations[location].kind, file.c_str(),
+				                       &indexing.receiver);
+			}
 		}
 		if (provider->destroy != nullptr)
 			provider->destroy(provider);
