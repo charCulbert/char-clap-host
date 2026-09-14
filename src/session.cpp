@@ -22,6 +22,7 @@ Session::Session(Options options)
 	registerCommands();
 	registerAudioCommands();
 	registerStateCommands();
+	registerExtensionCommands();
 }
 
 Session::~Session() {
@@ -261,6 +262,14 @@ bool Session::onGuiRequestHide() {
 	return false;
 }
 
+bool Session::onWebviewMessage(const void *buffer, uint32_t size) {
+	// Without a webview open there is nowhere for the message to go; record it
+	// so a test can still see that the plug-in tried.
+	(void)buffer;
+	webviewMessagesSent_ += size != 0 ? 1 : 0;
+	return false;
+}
+
 void Session::onGuiClosed(bool wasDestroyed) {
 	guiClosedByPlugin_ = true;
 	guiDestroyedByPlugin_ = wasDestroyed;
@@ -284,6 +293,7 @@ Value Session::statusReport() const {
 	out["callbackRequests"] = Value(host_.callbackRequests());
 	out["paramRescans"] = Value(paramRescanCount_);
 	out["violations"] = Value(static_cast<uint64_t>(validator_.violationCount()));
+	out["webviewMessages"] = Value(webviewMessagesSent_);
 	return Value(std::move(out));
 }
 

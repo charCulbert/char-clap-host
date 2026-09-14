@@ -9,6 +9,7 @@
 #include "bundle.h"
 #include "command.h"
 #include "engine.h"
+#include "host-services.h"
 #include "host.h"
 #include "validator.h"
 
@@ -49,6 +50,7 @@ public:
 	const Options &options() const { return options_; }
 	Validator &validator() { return validator_; }
 	Host &host() { return host_; }
+	HostServices &services() { return services_; }
 	Bundle &bundle() { return bundle_; }
 
 	// --- lifecycle -------------------------------------------------------
@@ -102,6 +104,8 @@ public:
 	bool onGuiRequestShow();
 	bool onGuiRequestHide();
 	void onGuiClosed(bool wasDestroyed);
+	// Returns false until a webview is open to receive the message.
+	bool onWebviewMessage(const void *buffer, uint32_t size);
 
 	// --- observable state -------------------------------------------------
 	bool stateDirty() const { return stateDirty_; }
@@ -123,11 +127,13 @@ private:
 	void registerCommands();
 	void registerAudioCommands();
 	void registerStateCommands();
+	void registerExtensionCommands();
 	void refreshExtensions();
 
 	Options options_;
 	Validator validator_;
 	Host host_;
+	HostServices services_;
 	Bundle bundle_;
 	CommandTable commands_;
 
@@ -159,6 +165,7 @@ private:
 	uint64_t guiResizeHintsChangeCount_ = 0;
 	uint32_t requestedGuiWidth_ = 0;
 	uint32_t requestedGuiHeight_ = 0;
+	uint64_t webviewMessagesSent_ = 0;
 	bool guiClosedByPlugin_ = false;
 	bool guiDestroyedByPlugin_ = false;
 	std::atomic<bool> flushRequested_{false};

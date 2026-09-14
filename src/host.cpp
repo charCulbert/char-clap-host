@@ -1,5 +1,6 @@
 #include "host.h"
 
+#include "host-extensions.h"
 #include "session.h"
 #include "thread-role.h"
 
@@ -213,7 +214,7 @@ const void *hostGetExtension(const clap_host_t *host, const char *extensionId) {
 	if (is(CLAP_EXT_TIMER_SUPPORT)) return &kTimerSupport;
 	if (is(CLAP_EXT_GUI)) return &kGui;
 	if (is(CLAP_EXT_EVENT_REGISTRY)) return &kEventRegistry;
-	return nullptr;
+	return extraHostExtension(extensionId);
 }
 
 void hostRequestRestart(const clap_host_t *host) {

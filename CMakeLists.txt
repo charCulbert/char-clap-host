@@ -19,6 +19,7 @@ add_library(nch-core STATIC
     src/command.cpp
     src/commands.cpp
     src/commands-audio.cpp
+    src/commands-ext.cpp
     src/commands-state.cpp
     src/engine.cpp
     src/presets.cpp
@@ -27,6 +28,8 @@ add_library(nch-core STATIC
     src/wav.cpp
     src/event-list.cpp
     src/host.cpp
+    src/host-extensions.cpp
+    src/host-services.cpp
     src/json.cpp
     src/session.cpp
     src/thread-role.cpp
