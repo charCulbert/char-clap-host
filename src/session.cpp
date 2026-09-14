@@ -88,6 +88,9 @@ bool Session::load(const std::string &path, const std::string &id, uint32_t inde
 	plugin_ = plugin;
 	host_.setPluginReady(true);
 	refreshExtensions();
+	// Worked out here, on the main thread, so a MIDI message arriving on a
+	// device thread never has to ask the plug-in.
+	engine_.refreshNoteEncoding();
 	return true;
 }
 
@@ -98,6 +101,7 @@ void Session::unload() {
 		gui_.close();
 		audioDevice_.stop();
 		midiInput_.close();
+		midiOutput_.close();
 		deactivate();
 		host_.setPluginReady(false);
 		plugin_->destroy(plugin_);
@@ -127,6 +131,7 @@ bool Session::activate(double sampleRate, uint32_t minFrames, uint32_t maxFrames
 	sampleRate_ = sampleRate;
 	minFrames_ = minFrames;
 	maxFrames_ = maxFrames;
+	engine_.refreshNoteEncoding();
 	return true;
 }
 
@@ -167,6 +172,11 @@ void Session::runMainThreadWork() {
 		plugin_->on_main_thread(plugin_);
 
 	serviceFlushRequest();
+
+	if (notePortsChanged_) {
+		notePortsChanged_ = false;
+		engine_.refreshNoteEncoding();
+	}
 
 	if (plugin_ == nullptr || timers_.empty())
 		return;
@@ -438,6 +448,14 @@ void Session::absorbOutputEvents(const EventList &events) {
 		if (outputEvents_.size() >= kMaxRecorded)
 			outputEvents_.erase(outputEvents_.begin());
 		outputEvents_.push_back({engine_.playhead() + header->time, header->type, std::move(description)});
+
+		// Whatever the plug-in emits that has a MIDI form goes to the device,
+		// which is what makes a note effect useful rather than merely
+		// observable.
+		if (midiOutput_.isOpen()) {
+			for (const auto &message : encodeToMidi(header))
+				midiOutput_.send(message.bytes, message.size);
+		}
 	}
 }
 

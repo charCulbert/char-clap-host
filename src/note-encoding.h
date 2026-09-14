@@ -60,6 +60,20 @@ struct NoteTranslation {
 // reaches events that came from a physical keyboard.
 NoteTranslation translateMidi(const uint8_t *bytes, uint32_t size, const NoteEncoding &encoding, uint32_t flags);
 
+// One MIDI 1.0 message on its way out of the host.
+struct MidiMessage {
+	uint8_t bytes[3] = {0, 0, 0};
+	uint8_t size = 0;
+};
+
+// Turns an event a plug-in emitted into the MIDI to send to a device.
+//
+// The mirror of translateMidi: CLAP note events become note on/off, a TUNING
+// expression becomes pitch bend and a PRESSURE expression becomes channel
+// pressure or poly aftertouch depending on whether it names a key. A raw MIDI
+// event passes through. Anything with no MIDI form yields nothing.
+std::vector<MidiMessage> encodeToMidi(const clap_event_header_t *event);
+
 // The bend range the host assumes when translating pitch bend to TUNING.
 // MIDI does not carry its own range, and +/-2 semitones is the universal
 // default a keyboard is built around.

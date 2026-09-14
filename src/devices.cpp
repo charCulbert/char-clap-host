@@ -278,6 +278,112 @@ Value AudioDevice::statusReport() const {
 	return Value(std::move(out));
 }
 
+struct MidiOutput::Impl {
+	RtMidiOut enumerator;
+	std::vector<std::unique_ptr<RtMidiOut>> connections;
+	std::vector<std::string> openNames;
+	std::atomic<uint64_t> messages{0};
+};
+
+MidiOutput::MidiOutput() : impl_(std::make_unique<Impl>()) {}
+
+MidiOutput::~MidiOutput() {
+	close();
+}
+
+bool MidiOutput::isOpen() const {
+	return !impl_->connections.empty();
+}
+
+std::vector<DeviceChoice> MidiOutput::ports() const {
+	std::vector<DeviceChoice> found;
+	const unsigned int count = impl_->enumerator.getPortCount();
+	for (unsigned int i = 0; i < count; ++i) {
+		DeviceChoice choice;
+		choice.name = impl_->enumerator.getPortName(i);
+		choice.id = choice.name;
+		found.push_back(std::move(choice));
+	}
+	return found;
+}
+
+std::vector<std::string> MidiOutput::openPortIds() const {
+	return impl_->openNames;
+}
+
+bool MidiOutput::setOpenPorts(const std::vector<std::string> &ids, std::string &error) {
+	close();
+	for (const auto &id : ids) {
+		const unsigned int count = impl_->enumerator.getPortCount();
+		unsigned int chosen = count;
+		for (unsigned int i = 0; i < count; ++i) {
+			if (impl_->enumerator.getPortName(i) == id) {
+				chosen = i;
+				break;
+			}
+		}
+		if (chosen == count) {
+			error = "no MIDI output port called \"" + id + "\"";
+			return false;
+		}
+		auto connection = std::make_unique<RtMidiOut>();
+		try {
+			connection->openPort(chosen, "nativeClapHost");
+		} catch (const RtMidiError &failure) {
+			error = failure.getMessage();
+			return false;
+		}
+		impl_->openNames.push_back(id);
+		impl_->connections.push_back(std::move(connection));
+	}
+	return true;
+}
+
+void MidiOutput::close() {
+	for (auto &connection : impl_->connections)
+		connection->closePort();
+	impl_->connections.clear();
+	impl_->openNames.clear();
+}
+
+void MidiOutput::send(const uint8_t *bytes, uint32_t size) {
+	if (bytes == nullptr || size == 0)
+		return;
+	for (auto &connection : impl_->connections) {
+		try {
+			connection->sendMessage(bytes, size);
+		} catch (const RtMidiError &) {
+			// A device that has gone away must not take the audio thread with
+			// it; the message is simply lost.
+		}
+	}
+	impl_->messages.fetch_add(1, std::memory_order_relaxed);
+}
+
+uint64_t MidiOutput::messageCount() const {
+	return impl_->messages.load(std::memory_order_relaxed);
+}
+
+Value MidiOutput::portReport() const {
+	Array rows;
+	const unsigned int count = impl_->enumerator.getPortCount();
+	for (unsigned int i = 0; i < count; ++i) {
+		const std::string name = impl_->enumerator.getPortName(i);
+		bool isOpenPort = false;
+		for (const auto &openName : impl_->openNames)
+			isOpenPort = isOpenPort || openName == name;
+		Object row;
+		row["index"] = Value(i);
+		row["name"] = Value(name);
+		row["open"] = Value(isOpenPort);
+		rows.push_back(Value(std::move(row)));
+	}
+	Object out;
+	out["ports"] = Value(std::move(rows));
+	out["messages"] = Value(messageCount());
+	return Value(std::move(out));
+}
+
 struct MidiInput::Impl {
 	// One connection per open port, plus a spare used only to enumerate, so
 	// listing ports never disturbs what is already open.

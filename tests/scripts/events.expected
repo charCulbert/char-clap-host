@@ -1,0 +1,31 @@
+id: com.charlieculbert.wclap-runtime-note-echo-example
+name: WCLAP Runtime Note Echo Example
+vendor: Charlie Culbert
+version: 0.1.0
+description: Sample-accurate native CLAP note echo
+features:
+  note-effect
+audio:
+note:
+  inputs:
+    index  id          name   dialects
+    0      1162037582  Notes  clap
+  outputs:
+    index  id          name          dialects
+    0      1162039125  Echoed notes  clap
+sampleRate: 48000
+blockSize: 512
+frames: 512
+status: 1
+outputEvents: 1
+events:
+  frame  type  event
+  0      0     note on key 60 channel 0 velocity 0.787402
+seen: 1
+frames: 512
+status: 1
+outputEvents: 0
+events:
+  frame  type  event
+  0      0     note on key 60 channel 0 velocity 0.787402
+seen: 1

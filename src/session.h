@@ -71,6 +71,7 @@ public:
 	Engine &engine() { return engine_; }
 	AudioDevice &audioDevice() { return audioDevice_; }
 	MidiInput &midiInput() { return midiInput_; }
+	MidiOutput &midiOutput() { return midiOutput_; }
 	PluginGui &gui() { return gui_; }
 	SettingsWindow &settings() { return settings_; }
 
@@ -193,6 +194,7 @@ private:
 	Engine engine_;
 	AudioDevice audioDevice_;
 	MidiInput midiInput_;
+	MidiOutput midiOutput_;
 	PluginGui gui_;
 	SettingsWindow settings_;
 	std::atomic<uint64_t> audioCallbacks_{0};

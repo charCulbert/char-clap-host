@@ -66,12 +66,12 @@ non-zero exit status, which is what you want in CI. `help` lists every command;
 | Plug-in | `load`, `unload`, `plugins`, `info`, `extensions`, `status` |
 | Parameters | `params.list`, `param.get`, `param.set`, `params.dump`, `param.indication` |
 | Audio | `activate`, `deactivate`, `render`, `process`, `audio.input`, `playhead` |
-| Notes and MIDI | `note.on`, `note.off`, `notes`, `midi`, `cc`, `midi.load` |
+| Notes and MIDI | `note.on`, `note.off`, `notes`, `midi`, `cc`, `midi.load`, `events` |
 | Transport | `tempo`, `timesig`, `transport` |
 | State | `state.save`, `state.load`, `state.info`, `presets.list`, `preset.load` |
 | Ports | `ports`, `ports.configs`, `ports.select`, `ports.activate`, `surround`, `ambisonic` |
 | Reported by the plug-in | `latency`, `tail`, `voices`, `note.names`, `remote.pages`, `triggers`, `render.mode` |
-| Devices | `audio.devices`, `audio.start`, `audio.stop`, `audio.status`, `midi.ports`, `midi.open`, `midi.close` |
+| Devices | `audio.devices`, `audio.start`, `audio.stop`, `audio.status`, `audio.test`, `midi.ports`, `midi.open`, `midi.close`, `midi.outputs`, `midi.out` |
 | Interface | `gui.open`, `gui.close`, `gui.resize`, `gui`, `gui.contents`, `gui.snapshot` |
 | Devices, visually | `settings`, `settings.close`, `audio.test` |
 | Host behaviour | `track.info`, `threadpool`, `undo`, `callbacks`, `validate`, `validate.clear` |
@@ -90,6 +90,14 @@ frames and sliced into each block; the transport advances in beats and seconds
 alongside. A device callback and an offline render share the same processing
 path, so what you hear and what lands on disk agree — a note played live
 through a loopback device captures at the same peak the offline render writes.
+
+**Notes go both ways, in the dialect the plug-in asked for.** Every path into a
+plug-in — a typed command, a MIDI file, a physical keyboard — goes through one
+module that reads the port's `preferred_dialect` and encodes accordingly, so a
+note is only ever sent one way, as CLAP requires. Where the target is CLAP,
+pitch bend and pressure become note expressions. What a plug-in emits comes
+back out: `events` shows every output event with its frame and what it was, and
+a note effect's output can be sent to a MIDI device.
 
 **A validator, not just a host.** The host stays permissive: it notes a
 violation and carries on, so a misbehaving plug-in can still be inspected.

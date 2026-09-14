@@ -1,0 +1,10 @@
+# A note effect's output reaches the host: the event log says what came back,
+# and the note the plug-in ended no longer counts as sounding.
+load @FIXTURES@/note-echo.clap
+ports
+activate 48000 512
+note.on 60 100
+process 512
+events
+process 512
+events

@@ -65,6 +65,37 @@ private:
 	std::unique_ptr<Impl> impl_;
 };
 
+// Sending the plug-in's note output to a MIDI device.
+//
+// The mirror of MidiInput: what a note effect emits becomes MIDI on the wire,
+// so a plug-in whose whole purpose is to produce notes has somewhere to put
+// them.
+class MidiOutput {
+public:
+	MidiOutput();
+	~MidiOutput();
+	MidiOutput(const MidiOutput &) = delete;
+	MidiOutput &operator=(const MidiOutput &) = delete;
+
+	std::vector<DeviceChoice> ports() const;
+	std::vector<std::string> openPortIds() const;
+	// Opens exactly the listed ports and closes the rest.
+	bool setOpenPorts(const std::vector<std::string> &ids, std::string &error);
+	void close();
+	bool isOpen() const;
+
+	// Sends one message to every open port. Callable from the audio thread:
+	// it only writes, and never allocates or takes a lock of its own.
+	void send(const uint8_t *bytes, uint32_t size);
+	uint64_t messageCount() const;
+
+	Value portReport() const;
+
+private:
+	struct Impl;
+	std::unique_ptr<Impl> impl_;
+};
+
 class MidiInput {
 public:
 	explicit MidiInput(Session &session);

@@ -67,6 +67,33 @@ void Session::registerDeviceCommands() {
 		               return Response::success();
 	               }});
 
+	commands_.add({"midi.outputs", "", "List the MIDI output ports this machine offers.",
+	               [](Session &session, const Request &) -> Response {
+		               return Response::success(session.midiOutput().portReport());
+	               }});
+
+	commands_.add({"midi.out", "[port-name|close]", "Send the plug-in's note output to a MIDI port.",
+	               [](Session &session, const Request &request) -> Response {
+		               const std::string port = request.arg(0, "port").asString();
+		               std::string error;
+		               if (port.empty() || port == "close") {
+			               session.midiOutput().close();
+			               return Response::success();
+		               }
+		               // A partial name is enough at the prompt.
+		               std::string matched;
+		               for (const auto &candidate : session.midiOutput().ports())
+			               if (matched.empty() && candidate.name.find(port) != std::string::npos)
+				               matched = candidate.id;
+		               if (matched.empty())
+			               return Response::failure("no MIDI output port matching \"" + port + "\"");
+		               if (!session.midiOutput().setOpenPorts({matched}, error))
+			               return Response::failure(error);
+		               Object out;
+		               out["port"] = Value(matched);
+		               return Response::success(Value(std::move(out)));
+	               }});
+
 	commands_.add({"gui.open", "[native|webview] [floating]", "Open the plug-in's interface in a window.",
 	               [](Session &session, const Request &request) -> Response {
 		               const std::string api = request.arg(0, "api").asString();

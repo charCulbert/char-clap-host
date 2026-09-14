@@ -155,8 +155,20 @@ clap_event_midi_t makeMidiNote(bool on, int16_t port, int16_t channel, int16_t k
 // A plug-in only receives notes in the dialect its port declares, so the
 // choice is made once here and every caller inherits it.
 NoteEncoding Engine::noteEncoding(int16_t port) const {
+	if (currentThreadRole() != ThreadRole::Main) {
+		// clap.note-ports is main-thread only, so a device thread takes the
+		// answer the main thread last worked out rather than asking again.
+		NoteEncoding encoding;
+		encoding.dialect = cachedDialect_.load(std::memory_order_acquire);
+		encoding.portIndex = port;
+		return encoding;
+	}
 	return encodingForPort(session_.plugin(),
 	                       session_.pluginExtension<clap_plugin_note_ports_t>(CLAP_EXT_NOTE_PORTS), port);
+}
+
+void Engine::refreshNoteEncoding() {
+	cachedDialect_.store(noteEncoding(0).dialect, std::memory_order_release);
 }
 
 NoteTranslation Engine::scheduleMidi(const uint8_t *bytes, uint32_t size, int16_t port, uint32_t flags,

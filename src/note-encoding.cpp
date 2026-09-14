@@ -1,5 +1,7 @@
 #include "note-encoding.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace nch {
@@ -75,6 +77,81 @@ clap_event_midi_t makeMidi(int16_t port, const uint8_t *bytes, uint32_t size, ui
 }
 
 } // namespace
+
+std::vector<MidiMessage> encodeToMidi(const clap_event_header_t *event) {
+	std::vector<MidiMessage> out;
+	if (event == nullptr || event->space_id != CLAP_CORE_EVENT_SPACE_ID)
+		return out;
+
+	const auto clampChannel = [](int16_t channel) {
+		// A wildcard channel has to become a concrete one on the wire; channel
+		// 1 is the conventional choice.
+		return static_cast<uint8_t>(channel < 0 ? 0 : (channel & 0x0F));
+	};
+
+	switch (event->type) {
+	case CLAP_EVENT_NOTE_ON:
+	case CLAP_EVENT_NOTE_OFF: {
+		const auto *note = reinterpret_cast<const clap_event_note_t *>(event);
+		if (note->key < 0)
+			return out;
+		MidiMessage message;
+		message.size = 3;
+		message.bytes[0] = static_cast<uint8_t>((event->type == CLAP_EVENT_NOTE_ON ? 0x90 : 0x80) |
+		                                        clampChannel(note->channel));
+		message.bytes[1] = static_cast<uint8_t>(note->key & 0x7F);
+		message.bytes[2] = static_cast<uint8_t>(std::lround(std::min(1.0, std::max(0.0, note->velocity)) * 127.0));
+		out.push_back(message);
+		return out;
+	}
+	case CLAP_EVENT_NOTE_EXPRESSION: {
+		const auto *expression = reinterpret_cast<const clap_event_note_expression_t *>(event);
+		if (expression->expression_id == CLAP_NOTE_EXPRESSION_TUNING) {
+			const double clamped = std::min(kPitchBendSemitones,
+			                                std::max(-kPitchBendSemitones, expression->value));
+			const int32_t raw = 8192 + static_cast<int32_t>(std::lround(clamped / kPitchBendSemitones * 8191.0));
+			MidiMessage message;
+			message.size = 3;
+			message.bytes[0] = static_cast<uint8_t>(0xE0 | clampChannel(expression->channel));
+			message.bytes[1] = static_cast<uint8_t>(raw & 0x7F);
+			message.bytes[2] = static_cast<uint8_t>((raw >> 7) & 0x7F);
+			out.push_back(message);
+			return out;
+		}
+		if (expression->expression_id == CLAP_NOTE_EXPRESSION_PRESSURE) {
+			const auto amount =
+			    static_cast<uint8_t>(std::lround(std::min(1.0, std::max(0.0, expression->value)) * 127.0));
+			MidiMessage message;
+			if (expression->key < 0) {
+				message.size = 2;
+				message.bytes[0] = static_cast<uint8_t>(0xD0 | clampChannel(expression->channel));
+				message.bytes[1] = amount;
+			} else {
+				message.size = 3;
+				message.bytes[0] = static_cast<uint8_t>(0xA0 | clampChannel(expression->channel));
+				message.bytes[1] = static_cast<uint8_t>(expression->key & 0x7F);
+				message.bytes[2] = amount;
+			}
+			out.push_back(message);
+			return out;
+		}
+		// Every other expression is CLAP-only; MIDI 1.0 has nowhere to put it.
+		return out;
+	}
+	case CLAP_EVENT_MIDI: {
+		const auto *midi = reinterpret_cast<const clap_event_midi_t *>(event);
+		MidiMessage message;
+		message.size = 3;
+		message.bytes[0] = midi->data[0];
+		message.bytes[1] = midi->data[1];
+		message.bytes[2] = midi->data[2];
+		out.push_back(message);
+		return out;
+	}
+	default:
+		return out;
+	}
+}
 
 NoteEncoding encodingForPort(const clap_plugin_t *plugin, const clap_plugin_note_ports_t *notePorts,
                              int16_t portIndex) {

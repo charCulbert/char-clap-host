@@ -345,9 +345,16 @@ Value SettingsWindow::snapshot() const {
 	for (const auto &id : openPorts)
 		openIds.push_back(Value(id));
 
+	MidiOutput &midiOut = session_.midiOutput();
+	Array openOutputIds;
+	for (const auto &id : midiOut.openPortIds())
+		openOutputIds.push_back(Value(id));
+
 	Object midiObject;
 	midiObject["inputDevices"] = Value(deviceArray(offered));
 	midiObject["inputDeviceIds"] = Value(std::move(openIds));
+	midiObject["outputDevices"] = Value(deviceArray(midiOut.ports()));
+	midiObject["outputDeviceIds"] = Value(std::move(openOutputIds));
 
 	Object out;
 	out["audio"] = Value(std::move(audioObject));
@@ -399,6 +406,14 @@ Value SettingsWindow::apply(const Value &request, std::string &error) {
 			ids.clear();
 		}
 		if (!session_.midiInput().setOpenPorts(ids, error))
+			return snapshot();
+	}
+
+	if (midiRequest.has("outputDeviceIds")) {
+		std::vector<std::string> ids;
+		for (const auto &id : midiRequest["outputDeviceIds"].array())
+			ids.push_back(id.asString());
+		if (!session_.midiOutput().setOpenPorts(ids, error))
 			return snapshot();
 	}
 	return snapshot();

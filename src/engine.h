@@ -110,7 +110,12 @@ public:
 
 	// How the plug-in's note port wants notes encoded. Every path into the
 	// plug-in asks this, so a note is only ever sent one way.
+	//
+	// Reading it from the plug-in means calling clap.note-ports, which is
+	// main-thread only, so the answer is worked out there and cached. A
+	// message arriving on a device thread reads the cache instead.
 	NoteEncoding noteEncoding(int16_t port) const;
+	void refreshNoteEncoding();
 
 	// Schedules one MIDI 1.0 message, encoded for the port. `arrival` places a
 	// live message at the frame it happened; pass nothing for `delayFrames`
@@ -154,6 +159,8 @@ private:
 	// another thread can be turned into a frame.
 	std::atomic<uint64_t> blockStartFrame_{0};
 	std::atomic<int64_t> blockStartNanos_{0};
+	// The input port's dialect, published for the device threads.
+	std::atomic<uint32_t> cachedDialect_{CLAP_NOTE_DIALECT_CLAP};
 	bool running_ = false;
 
 	mutable std::mutex scheduleMutex_;

@@ -160,3 +160,91 @@ TEST(the_port_index_reaches_the_events) {
 	const auto *note = reinterpret_cast<const clap_event_note_t *>(firstEvent(translation));
 	CHECK_EQ(note->port_index, int16_t(2));
 }
+
+// --- the other direction: what the host sends to a MIDI device --------------
+
+namespace {
+
+clap_event_note_t outgoingNote(uint16_t type, int16_t channel, int16_t key, double velocity) {
+	clap_event_note_t event{};
+	event.header.size = sizeof(event);
+	event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+	event.header.type = type;
+	event.port_index = 0;
+	event.channel = channel;
+	event.key = key;
+	event.note_id = -1;
+	event.velocity = velocity;
+	return event;
+}
+
+clap_event_note_expression_t outgoingExpression(uint32_t id, int16_t channel, int16_t key, double value) {
+	clap_event_note_expression_t event{};
+	event.header.size = sizeof(event);
+	event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+	event.header.type = CLAP_EVENT_NOTE_EXPRESSION;
+	event.expression_id = id;
+	event.port_index = 0;
+	event.channel = channel;
+	event.key = key;
+	event.note_id = -1;
+	event.value = value;
+	return event;
+}
+
+} // namespace
+
+TEST(a_clap_note_becomes_a_midi_note) {
+	const clap_event_note_t on = outgoingNote(CLAP_EVENT_NOTE_ON, 2, 60, 1.0);
+	const std::vector<nch::MidiMessage> messages = nch::encodeToMidi(&on.header);
+	CHECK_EQ(messages.size(), size_t(1));
+	CHECK_EQ(int(messages[0].bytes[0]), 0x92);
+	CHECK_EQ(int(messages[0].bytes[1]), 60);
+	CHECK_EQ(int(messages[0].bytes[2]), 127);
+
+	const clap_event_note_t off = outgoingNote(CLAP_EVENT_NOTE_OFF, 0, 64, 0.0);
+	const std::vector<nch::MidiMessage> offMessages = nch::encodeToMidi(&off.header);
+	CHECK_EQ(int(offMessages[0].bytes[0]), 0x80);
+}
+
+TEST(tuning_becomes_pitch_bend_and_survives_a_round_trip) {
+	const clap_event_note_expression_t up = outgoingExpression(CLAP_NOTE_EXPRESSION_TUNING, 0, -1, 1.0);
+	const std::vector<nch::MidiMessage> messages = nch::encodeToMidi(&up.header);
+	CHECK_EQ(messages.size(), size_t(1));
+	CHECK_EQ(int(messages[0].bytes[0]), 0xE0);
+
+	// Sending it back the other way should land where it started.
+	const NoteTranslation back = translateMidi(messages[0].bytes, 3, clapPort(), 0);
+	const auto *expression = reinterpret_cast<const clap_event_note_expression_t *>(firstEvent(back));
+	CHECK(std::fabs(expression->value - 1.0) < 0.001);
+}
+
+TEST(pressure_picks_its_midi_form_from_the_key) {
+	const clap_event_note_expression_t channelWide =
+	    outgoingExpression(CLAP_NOTE_EXPRESSION_PRESSURE, 0, -1, 1.0);
+	const std::vector<nch::MidiMessage> channelMessages = nch::encodeToMidi(&channelWide.header);
+	CHECK_EQ(int(channelMessages[0].size), 2);
+	CHECK_EQ(int(channelMessages[0].bytes[0]), 0xD0);
+
+	const clap_event_note_expression_t perKey = outgoingExpression(CLAP_NOTE_EXPRESSION_PRESSURE, 0, 72, 1.0);
+	const std::vector<nch::MidiMessage> keyMessages = nch::encodeToMidi(&perKey.header);
+	CHECK_EQ(int(keyMessages[0].size), 3);
+	CHECK_EQ(int(keyMessages[0].bytes[0]), 0xA0);
+	CHECK_EQ(int(keyMessages[0].bytes[1]), 72);
+}
+
+TEST(an_expression_midi_cannot_carry_produces_nothing) {
+	const clap_event_note_expression_t vibrato = outgoingExpression(CLAP_NOTE_EXPRESSION_VIBRATO, 0, 60, 0.5);
+	CHECK(nch::encodeToMidi(&vibrato.header).empty());
+}
+
+TEST(a_wildcard_channel_becomes_a_real_one) {
+	const clap_event_note_t note = outgoingNote(CLAP_EVENT_NOTE_ON, -1, 60, 0.5);
+	const std::vector<nch::MidiMessage> messages = nch::encodeToMidi(&note.header);
+	CHECK_EQ(int(messages[0].bytes[0]), 0x90);
+}
+
+TEST(a_note_without_a_key_cannot_be_sent) {
+	const clap_event_note_t note = outgoingNote(CLAP_EVENT_NOTE_ON, 0, -1, 0.5);
+	CHECK(nch::encodeToMidi(&note.header).empty());
+}
