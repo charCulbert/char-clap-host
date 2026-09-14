@@ -1,0 +1,9 @@
+# State survives a round trip through a file, and a changed value comes back.
+load @FIXTURES@/state.clap
+params.list
+param.set 0 0.25
+state.save @TMP@/patch.clapstate
+param.set 0 0.75
+param.get 0
+state.load @TMP@/patch.clapstate
+param.get 0

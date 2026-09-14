@@ -1,0 +1,7 @@
+# The thread-check fixture asks the host which thread it is on from both, and
+# the validator should see nothing wrong in a correct host.
+load @FIXTURES@/thread-check.clap
+activate 48000 256
+render 0.1
+callbacks
+validate

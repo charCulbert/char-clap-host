@@ -1,0 +1,3 @@
+{"cmd":"load","args":["@FIXTURES@/parameters.clap"]}
+{"cmd":"param.set","id":0,"value":440}
+{"cmd":"param.get","id":0}

@@ -1,0 +1,10 @@
+# Notes reach an instrument and produce sound; the tail decays after note off.
+load @FIXTURES@/instrument.clap
+activate 48000 512
+note.on 60 100
+notes
+render 0.25
+note.off all
+notes
+render 0.25
+validate

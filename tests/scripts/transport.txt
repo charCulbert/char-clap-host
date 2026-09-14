@@ -1,0 +1,10 @@
+# The transport the plug-in sees advances while playing and stops when stopped.
+load @FIXTURES@/transport.clap
+tempo 90
+timesig 3 4
+transport play
+render 1.0
+transport info
+transport stop
+render 1.0
+transport info

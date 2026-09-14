@@ -1,6 +1,7 @@
 // Commands that move audio and time: transport, notes, rendering and file I/O.
 #include "engine.h"
 #include "session.h"
+#include "midi-file.h"
 #include "wav.h"
 
 #include <cmath>
@@ -234,6 +235,57 @@ void Session::registerAudioCommands() {
 		               const uint64_t delay = framesFromArgument(request.arg("at"), session.sampleRate(), 0);
 		               session.engine().scheduleAfter(&event.header, delay);
 		               return Response::success();
+	               }});
+
+	commands_.add({"midi.load", "<file.mid> [--tempo] [--at=<seconds>]",
+	               "Schedule a MIDI file's events from the playhead.",
+	               [](Session &session, const Request &request) -> Response {
+		               Response ready = needPlugin(session);
+		               if (!ready.ok)
+			               return ready;
+		               const std::string path = request.arg(0, "file").asString();
+		               if (path.empty())
+			               return Response::failure("usage: midi.load <file.mid>");
+		               MidiFile file;
+		               std::string error;
+		               if (!readMidiFile(path, file, error))
+			               return Response::failure(error);
+
+		               // Unless asked otherwise the host adopts the file's
+		               // tempo, so the transport the plug-in sees agrees with
+		               // the notes it receives.
+		               const bool useFileTempo = request.arg("tempo").asBool(true);
+		               if (useFileTempo)
+			               session.engine().transport().tempo = file.initialTempo;
+		               const double tempoRatio =
+		                   useFileTempo ? 1.0 : file.initialTempo / session.engine().transport().tempo;
+		               const uint64_t offset = framesFromArgument(request.arg("at"), session.sampleRate(), 0);
+
+		               uint64_t scheduled = 0;
+		               for (const auto &event : file.events) {
+			               clap_event_midi_t midi{};
+			               midi.header.size = sizeof(midi);
+			               midi.header.time = 0;
+			               midi.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+			               midi.header.type = CLAP_EVENT_MIDI;
+			               midi.header.flags = 0;
+			               midi.port_index = 0;
+			               midi.data[0] = event.data[0];
+			               midi.data[1] = event.data[1];
+			               midi.data[2] = event.data[2];
+			               const auto delay = static_cast<uint64_t>(
+			                   std::llround(event.seconds / tempoRatio * session.sampleRate()));
+			               session.engine().scheduleAfter(&midi.header, offset + delay);
+			               ++scheduled;
+		               }
+
+		               Object out;
+		               out["file"] = Value(path);
+		               out["events"] = Value(scheduled);
+		               out["tracks"] = Value(file.trackCount);
+		               out["tempo"] = Value(file.initialTempo);
+		               out["seconds"] = Value(file.durationSeconds / tempoRatio);
+		               return Response::success(Value(std::move(out)));
 	               }});
 
 	commands_.add({"audio.input", "<file.wav|clear>", "Feed a WAV file into the plug-in's main input.",

@@ -1,0 +1,37 @@
+id: com.charlieculbert.wclap-runtime-audio-ports-example
+name: WCLAP Runtime Audio Ports Example
+vendor: Charlie Culbert
+version: 0.1.0
+description: Selectable mono or stereo pass-through
+features:
+  audio-effect
+  mono
+  stereo
+audio:
+  inputs:
+    index  id          name                channels  type  main
+    0      1095780686  Mono Input (ready)  1         mono  true
+  outputs:
+    index  id          name                 channels  type  main
+    0      1095782229  Mono Output (ready)  1         mono  true
+note:
+configs:
+  id  name            inputs  outputs  mainInputChannels  mainOutputChannels
+  1   Mono (ready)    1       1        1                  1
+  2   Stereo (ready)  1       1        2                  2
+id: com.charlieculbert.wclap-runtime-audio-ports-activation-example
+name: WCLAP Runtime Port Activation Example
+vendor: Charlie Culbert
+version: 0.1.0
+description: Two independently activatable polyBLEP oscillator outputs
+features:
+  instrument
+  synthesizer
+audio:
+  inputs:
+  outputs:
+    index  id          name                   channels  type  main
+    0      1096171824  Left oscillator bank   1         mono  true
+    1      1096171825  Right oscillator bank  1         mono  false
+note:
+error: the plug-in refused that port change

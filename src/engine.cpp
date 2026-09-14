@@ -119,11 +119,49 @@ bool sameNote(const clap_event_note_t &a, const clap_event_note_t &b) {
 	return a.port_index == b.port_index && a.channel == b.channel && a.key == b.key;
 }
 
+clap_event_midi_t makeMidiNote(bool on, int16_t port, int16_t channel, int16_t key, double velocity) {
+	clap_event_midi_t event{};
+	event.header.size = sizeof(event);
+	event.header.time = 0;
+	event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+	event.header.type = CLAP_EVENT_MIDI;
+	event.header.flags = 0;
+	event.port_index = static_cast<uint16_t>(port < 0 ? 0 : port);
+	event.data[0] = static_cast<uint8_t>((on ? 0x90 : 0x80) | (channel & 0x0F));
+	event.data[1] = static_cast<uint8_t>(key & 0x7F);
+	event.data[2] = static_cast<uint8_t>(std::lround(std::min(1.0, std::max(0.0, velocity)) * 127.0));
+	return event;
+}
+
 } // namespace
+
+// A plug-in only receives notes in a dialect its port declares. Instruments
+// that speak only MIDI would otherwise sit silent through every CLAP note the
+// host sends, so the host translates rather than the caller.
+bool Engine::portWantsMidiNotes(int16_t port) const {
+	const auto *ports = session_.pluginExtension<clap_plugin_note_ports_t>(CLAP_EXT_NOTE_PORTS);
+	if (ports == nullptr || ports->count == nullptr || ports->get == nullptr)
+		return false;
+	const uint32_t count = ports->count(session_.plugin(), true);
+	const uint32_t index = port < 0 ? 0 : static_cast<uint32_t>(port);
+	if (index >= count)
+		return false;
+	clap_note_port_info_t info{};
+	if (!ports->get(session_.plugin(), index, true, &info))
+		return false;
+	if ((info.supported_dialects & CLAP_NOTE_DIALECT_CLAP) != 0)
+		return false;
+	return (info.supported_dialects & (CLAP_NOTE_DIALECT_MIDI | CLAP_NOTE_DIALECT_MIDI_MPE)) != 0;
+}
 
 void Engine::noteOn(int16_t port, int16_t channel, int16_t key, double velocity, int32_t noteId, uint64_t delayFrames) {
 	const clap_event_note_t event = makeNote(CLAP_EVENT_NOTE_ON, port, channel, key, velocity, noteId);
-	scheduleAfter(&event.header, delayFrames);
+	if (portWantsMidiNotes(port)) {
+		const clap_event_midi_t midi = makeMidiNote(true, port, channel, key, velocity);
+		scheduleAfter(&midi.header, delayFrames);
+	} else {
+		scheduleAfter(&event.header, delayFrames);
+	}
 	for (auto &active : activeNotes_)
 		if (sameNote(active, event))
 			return;
@@ -132,7 +170,12 @@ void Engine::noteOn(int16_t port, int16_t channel, int16_t key, double velocity,
 
 void Engine::noteOff(int16_t port, int16_t channel, int16_t key, double velocity, int32_t noteId, uint64_t delayFrames) {
 	const clap_event_note_t event = makeNote(CLAP_EVENT_NOTE_OFF, port, channel, key, velocity, noteId);
-	scheduleAfter(&event.header, delayFrames);
+	if (portWantsMidiNotes(port)) {
+		const clap_event_midi_t midi = makeMidiNote(false, port, channel, key, velocity);
+		scheduleAfter(&midi.header, delayFrames);
+	} else {
+		scheduleAfter(&event.header, delayFrames);
+	}
 	for (auto it = activeNotes_.begin(); it != activeNotes_.end(); ++it) {
 		if (sameNote(*it, event)) {
 			activeNotes_.erase(it);

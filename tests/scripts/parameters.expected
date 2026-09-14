@@ -1,0 +1,58 @@
+id: com.charlieculbert.wclap-runtime-parameters-example
+name: WCLAP Runtime Parameters Example
+vendor: Charlie Culbert
+version: 0.1.0
+description: Sine frequency parameter example
+features:
+  instrument
+  stereo
+params:
+  id  name                  module       value  text    min  max      default  flags
+  0   Frequency             Oscillator   220    220 Hz  100  1000     220      automatable,modulatable,requires-process
+  1   Trigger Plug-in Edit  Diagnostics  0      0       0    2        0        stepped,hidden
+  2   Event Diagnostics     Diagnostics  0      0       0    511      0        stepped,hidden,readonly
+  3   Gesture Begin Time    Diagnostics  0      0       0    1000000  0        stepped,hidden,readonly
+  4   Gesture End Time      Diagnostics  0      0       0    1000000  0        stepped,hidden,readonly
+  5   Flush Count           Diagnostics  0      0       0    1000000  0        stepped,hidden,readonly
+id: 0
+value: 300
+text: 300 Hz
+id: 0
+name: Frequency
+module: Oscillator
+value: 300
+text: 300 Hz
+min: 100
+max: 1000
+default: 220
+flags:
+  automatable
+  modulatable
+  requires-process
+extensions:
+  extension                 present  via
+  audio-ports               true     clap.audio-ports
+  audio-ports-config        false
+  audio-ports-config-info   false
+  audio-ports-activation    false
+  configurable-audio-ports  false
+  note-ports                false
+  note-name                 false
+  params                    true     clap.params
+  param-indication          false
+  remote-controls           false
+  state                     false
+  state-context             false
+  preset-load               false
+  latency                   false
+  tail                      false
+  render                    false
+  voice-info                false
+  gui                       false
+  timer-support             false
+  posix-fd-support          false
+  thread-pool               false
+  context-menu              false
+  track-info                false
+  surround                  false
+  ambisonic                 false

@@ -16,7 +16,9 @@ set(CLAP_SDK_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/external/clap" CACHE PATH "CLAP S
 if(NOT EXISTS "${CLAP_SDK_ROOT}/include/clap/clap.h")
     message(FATAL_ERROR "The CLAP SDK is missing. Run: git submodule update --init --recursive")
 endif()
+set(CLAP_HELPERS_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/external/clap-helpers" CACHE PATH "clap-helpers")
 add_subdirectory("${CLAP_SDK_ROOT}" clap-sdk EXCLUDE_FROM_ALL)
+add_subdirectory("${CLAP_HELPERS_ROOT}" clap-helpers EXCLUDE_FROM_ALL)
 
 # RtAudio and RtMidi cover every target platform's device APIs, which is the
 # same reason clap-wrapper's standalone uses them.
@@ -50,6 +52,7 @@ add_library(nch-core STATIC
     src/devices.cpp
     src/commands-state.cpp
     src/engine.cpp
+    src/midi-file.cpp
     src/presets.cpp
     src/state-stream.cpp
     src/process-buffers.cpp
@@ -78,6 +81,8 @@ endif()
 
 add_executable(clap-host src/main.cpp)
 target_link_libraries(clap-host PRIVATE nch-core)
+
+add_subdirectory(fixtures)
 
 include(CTest)
 if(BUILD_TESTING)

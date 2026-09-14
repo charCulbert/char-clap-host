@@ -1,0 +1,29 @@
+id: com.charlieculbert.wclap-runtime-sine-example
+name: WCLAP Runtime Sine Example
+vendor: Charlie Culbert
+version: 0.1.0
+description: Minimal MIDI sine example
+features:
+  instrument
+  synthesizer
+  stereo
+sampleRate: 48000
+blockSize: 512
+notes:
+  port  channel  key  velocity            noteId
+  0     0        60   0.7874015748031497  -1
+frames: 12000
+channels: 2
+sampleRate: 48000
+peak: 0.15748031437397003
+rms: 0.11141646707087964
+silent: false
+notes:
+frames: 12000
+channels: 2
+sampleRate: 48000
+peak: 0.1176471933722496
+rms: 0.008277000307423267
+silent: false
+violations:
+count: 0

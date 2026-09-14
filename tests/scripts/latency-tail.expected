@@ -1,0 +1,8 @@
+id: com.charlieculbert.char-clap-latency-probe
+name: Char CLAP Latency Probe
+vendor: Charlie Culbert
+version: 0.1.0
+description: Dynamic 32/64-sample latency example
+features:
+  audio-effect
+  stereo

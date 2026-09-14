@@ -91,6 +91,9 @@ public:
 	void noteOff(int16_t port, int16_t channel, int16_t key, double velocity, int32_t noteId, uint64_t delayFrames);
 	void allNotesOff(uint64_t delayFrames);
 	std::vector<clap_event_note_t> activeNotes() const;
+	// True when the port accepts MIDI but not CLAP notes, so the host sends
+	// MIDI note messages instead.
+	bool portWantsMidiNotes(int16_t port) const;
 
 	// Events the plug-in emitted during the last block.
 	const EventList &lastOutputEvents() const { return outEvents_; }

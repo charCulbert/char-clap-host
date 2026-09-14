@@ -1,0 +1,19 @@
+id: com.charlieculbert.wclap-runtime-state-example
+name: WCLAP Runtime State Example
+vendor: Charlie Culbert
+version: 0.1.0
+description: Complete CLAP state example
+features:
+  audio-effect
+  stereo
+error: plug-in does not implement clap.params
+error: no parameter with id 0
+bytes: 12
+via: clap.state
+file: @TMP@/patch.clapstate
+sidecar: @TMP@/patch.clapstate.json
+error: no parameter with id 0
+error: no parameter with id 0
+bytes: 12
+file: @TMP@/patch.clapstate
+error: no parameter with id 0

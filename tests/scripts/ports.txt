@@ -1,0 +1,8 @@
+# Port layout, configurations and per-port activation.
+load @FIXTURES@/audio-ports.clap
+ports
+ports.configs
+unload
+load @FIXTURES@/audio-ports-activation.clap
+ports
+ports.activate 0 off

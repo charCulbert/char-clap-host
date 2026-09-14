@@ -1,0 +1,15 @@
+# What the plug-in reports about its own timing.
+load @FIXTURES@/latency.clap
+latency
+unload
+load @FIXTURES@/tail.clap
+tail
+unload
+load @FIXTURES@/voice-info.clap
+voices
+unload
+load @FIXTURES@/note-name.clap
+note.names
+unload
+load @FIXTURES@/remote-controls.clap
+remote.pages

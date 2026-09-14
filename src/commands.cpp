@@ -1,5 +1,6 @@
 // The command set. Each handler returns structured data; the session renders
 // it as text or JSON, so nothing here formats output.
+#include "engine.h"
 #include "event-list.h"
 #include "session.h"
 #include "thread-role.h"
@@ -132,8 +133,11 @@ Value describeParam(Session &session, const clap_param_info_t &info) {
 	return Value(std::move(out));
 }
 
-// Sends one parameter change to the plug-in. While inactive the change goes
-// through params.flush; while active it is queued for the next process block.
+// Sends one parameter change to the plug-in.
+//
+// clap.params.flush belongs to the main thread only while the plug-in is
+// deactivated; once active, a parameter change has to arrive as an event in
+// the next process block instead.
 Response setParamValue(Session &session, clap_id id, double value) {
 	clap_param_info_t info{};
 	if (!paramInfoById(session, id, info))
@@ -157,20 +161,26 @@ Response setParamValue(Session &session, clap_id id, double value) {
 	event.value = value;
 
 	const auto *params = paramsExtension(session);
-	if (params == nullptr || params->flush == nullptr)
+	if (params == nullptr)
 		return Response::failure("plug-in does not implement clap.params");
-
-	EventList in;
-	EventList out;
-	in.push(event);
-	params->flush(session.plugin(), in.input(), out.output());
 
 	Object result;
 	result["id"] = Value(static_cast<uint64_t>(id));
 	result["value"] = Value(value);
-	const std::string display = paramDisplay(session, info, value);
-	if (!display.empty())
-		result["text"] = Value(display);
+	if (session.isActive()) {
+		session.engine().scheduleAfter(&event.header, 0);
+		result["appliesAt"] = Value("next block");
+	} else {
+		if (params->flush == nullptr)
+			return Response::failure("plug-in implements clap.params without flush");
+		EventList in;
+		EventList out;
+		in.push(event);
+		params->flush(session.plugin(), in.input(), out.output());
+		const std::string display = paramDisplay(session, info, value);
+		if (!display.empty())
+			result["text"] = Value(display);
+	}
 	return Response::success(Value(std::move(result)));
 }
 

@@ -1,0 +1,28 @@
+id: com.charlieculbert.wclap-runtime-thread-check-example
+name: WCLAP Runtime Thread Check Example
+vendor: Charlie Culbert
+version: 0.1.0
+description: CLAP symbolic thread-role diagnostics
+features:
+  utility
+sampleRate: 48000
+blockSize: 256
+frames: 4800
+channels: 2
+sampleRate: 48000
+peak: 0.05000000074505806
+rms: 0.05000000074505473
+silent: false
+calls:
+hoveredParam: -
+backgroundProgress: 0
+lastPreset:
+  seen: false
+  locationKind: file
+  location:
+  loadKey:
+registeredFds:
+scratchBytes: 0
+resourceDirectory:
+violations:
+count: 0

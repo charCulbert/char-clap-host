@@ -1,0 +1,4 @@
+# Preset discovery indexes the bundle, and preset-load applies one.
+load @FIXTURES@/presets.clap
+presets.list
+params.list

@@ -1,0 +1,6 @@
+# Parameters: read, change and read back through clap.params.
+load @FIXTURES@/parameters.clap
+params.list
+param.set 0 300
+param.get 0
+extensions

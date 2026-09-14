@@ -1,5 +1,9 @@
 #include "harness.h"
 
+#include <atomic>
+#include <filesystem>
+#include <unistd.h>
+
 namespace nchtest {
 
 std::vector<Case> &cases() {
@@ -9,6 +13,14 @@ std::vector<Case> &cases() {
 
 namespace {
 int failures = 0;
+}
+
+std::string scratchFile(const std::string &suffix) {
+	static std::atomic<int> counter{0};
+	const std::filesystem::path directory = std::filesystem::temp_directory_path();
+	return (directory / ("nch-test-" + std::to_string(::getpid()) + "-" +
+	                     std::to_string(counter.fetch_add(1)) + suffix))
+	    .string();
 }
 
 void fail(const char *file, int line, const std::string &message) {

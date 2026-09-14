@@ -9,6 +9,10 @@
 
 namespace nchtest {
 
+// A unique path in the system temp directory for a test to write to. The file
+// is not created, only named, so callers choose the format.
+std::string scratchFile(const std::string &suffix);
+
 struct Case {
 	std::string name;
 	std::function<void()> run;

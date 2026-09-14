@@ -1,0 +1,23 @@
+id: com.charlieculbert.wclap-runtime-parameters-example
+name: WCLAP Runtime Parameters Example
+vendor: Charlie Culbert
+version: 0.1.0
+description: Sine frequency parameter example
+features:
+  instrument
+  stereo
+id: 0
+value: 440
+text: 440 Hz
+id: 0
+name: Frequency
+module: Oscillator
+value: 440
+text: 440 Hz
+min: 100
+max: 1000
+default: 220
+flags:
+  automatable
+  modulatable
+  requires-process
