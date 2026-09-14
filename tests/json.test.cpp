@@ -54,3 +54,31 @@ TEST(strings_coerce_to_numbers) {
 	CHECK_EQ(Value("0.75").asNumber(), 0.75);
 	CHECK(Value("true").asBool());
 }
+
+TEST(invalid_utf8_from_the_system_becomes_valid_json) {
+	// CoreAudio hands back MacRoman bytes for a curly apostrophe, so device
+	// names are not always valid UTF-8. JSON has to be, or the page that reads
+	// it cannot parse the reply at all.
+	nch::Object out;
+	out["name"] = Value(std::string("Charlie\xd5s iPhone Microphone"));
+	const std::string json = Value(std::move(out)).toJson();
+
+	bool valid = true;
+	for (size_t i = 0; i < json.size();) {
+		const unsigned char lead = static_cast<unsigned char>(json[i]);
+		size_t length = 1;
+		if (lead >= 0xF0) length = 4;
+		else if (lead >= 0xE0) length = 3;
+		else if (lead >= 0xC0) length = 2;
+		else if (lead >= 0x80) valid = false;
+		for (size_t j = 1; j < length && valid; ++j)
+			valid = i + j < json.size() && (static_cast<unsigned char>(json[i + j]) & 0xC0) == 0x80;
+		i += length;
+	}
+	CHECK(valid);
+
+	Value parsed;
+	std::string error;
+	CHECK(Value::parse(json, parsed, error));
+	CHECK(parsed["name"].asString().find("iPhone Microphone") != std::string::npos);
+}
