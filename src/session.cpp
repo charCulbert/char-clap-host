@@ -16,7 +16,7 @@ uint64_t nowMs() {
 } // namespace
 
 Session::Session(Options options)
-    : options_(std::move(options)), host_(*this, validator_), engine_(*this), audioDevice_(*this), midiInput_(*this) {
+    : options_(std::move(options)), host_(*this, validator_), engine_(*this), audioDevice_(*this), midiInput_(*this), gui_(*this) {
 	sampleRate_ = options_.sampleRate;
 	maxFrames_ = options_.blockSize;
 	registerCommands();
@@ -69,6 +69,11 @@ bool Session::load(const std::string &path, const std::string &id, uint32_t inde
 
 void Session::unload() {
 	if (plugin_ != nullptr) {
+		// The interface has to go before the instance it belongs to; a plug-in
+		// destroyed with its gui still live rightly complains.
+		gui_.close();
+		audioDevice_.stop();
+		midiInput_.close();
 		deactivate();
 		host_.setPluginReady(false);
 		plugin_->destroy(plugin_);
@@ -285,28 +290,26 @@ void Session::onGuiResizeHintsChanged() {
 bool Session::onGuiRequestResize(uint32_t width, uint32_t height) {
 	requestedGuiWidth_ = width;
 	requestedGuiHeight_ = height;
-	return false; // no window layer yet
+	return gui_.requestResize(width, height);
 }
 
 bool Session::onGuiRequestShow() {
-	return false;
+	return gui_.requestShow();
 }
 
 bool Session::onGuiRequestHide() {
-	return false;
+	return gui_.requestHide();
 }
 
 bool Session::onWebviewMessage(const void *buffer, uint32_t size) {
-	// Without a webview open there is nowhere for the message to go; record it
-	// so a test can still see that the plug-in tried.
-	(void)buffer;
-	webviewMessagesSent_ += size != 0 ? 1 : 0;
-	return false;
+	++webviewMessagesSent_;
+	return gui_.sendWebviewMessage(buffer, size);
 }
 
 void Session::onGuiClosed(bool wasDestroyed) {
 	guiClosedByPlugin_ = true;
 	guiDestroyedByPlugin_ = wasDestroyed;
+	gui_.onPluginClosed(wasDestroyed);
 }
 
 Value Session::statusReport() const {
@@ -347,6 +350,48 @@ bool Session::runLine(const std::string &line) {
 	if (options_.strict && response.ok && validator_.violationCount() != violationsBefore && validator_.hasErrors())
 		response = Response::failure("plug-in violated the CLAP contract; see `validate`");
 	writeResponse(request, response);
+	return !quit_;
+}
+
+void Session::postLine(std::string line) {
+	{
+		std::lock_guard<std::mutex> lock(lineMutex_);
+		lines_.push_back(std::move(line));
+	}
+	lineArrived_.notify_one();
+}
+
+void Session::closeInput() {
+	{
+		std::lock_guard<std::mutex> lock(lineMutex_);
+		inputClosed_ = true;
+	}
+	lineArrived_.notify_one();
+}
+
+bool Session::tick(int timeoutMs) {
+	std::string line;
+	bool haveLine = false;
+	{
+		std::unique_lock<std::mutex> lock(lineMutex_);
+		if (lines_.empty() && !inputClosed_)
+			lineArrived_.wait_for(lock, std::chrono::milliseconds(timeoutMs));
+		if (!lines_.empty()) {
+			line = std::move(lines_.front());
+			lines_.erase(lines_.begin());
+			haveLine = true;
+		} else if (inputClosed_) {
+			return false;
+		}
+	}
+
+	if (haveLine && !runLine(line))
+		return false;
+
+	runMainThreadWork();
+	gui_.pumpEvents();
+	if (gui_.wantsClose())
+		gui_.close();
 	return !quit_;
 }
 

@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.21)
 project(nativeClapHost VERSION 0.1.0 LANGUAGES C CXX)
 
+if(APPLE)
+    enable_language(OBJCXX)  # the Cocoa window layer
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -29,7 +33,14 @@ set(RTMIDI_BUILD_STATIC_LIBS ON CACHE BOOL "" FORCE)
 add_subdirectory(external/rtaudio EXCLUDE_FROM_ALL)
 add_subdirectory(external/rtmidi EXCLUDE_FROM_ALL)
 
+if(APPLE)
+    set(nch_window_source src/native-window-mac.mm)
+else()
+    set(nch_window_source src/native-window-stub.cpp)
+endif()
+
 add_library(nch-core STATIC
+    ${nch_window_source}
     src/bundle.cpp
     src/command.cpp
     src/commands.cpp
@@ -44,6 +55,7 @@ add_library(nch-core STATIC
     src/process-buffers.cpp
     src/wav.cpp
     src/event-list.cpp
+    src/gui.cpp
     src/host.cpp
     src/host-extensions.cpp
     src/host-services.cpp
@@ -59,7 +71,7 @@ find_package(Threads REQUIRED)
 target_link_libraries(nch-core PUBLIC Threads::Threads)
 
 if(APPLE)
-    target_link_libraries(nch-core PUBLIC "-framework CoreFoundation")
+    target_link_libraries(nch-core PUBLIC "-framework CoreFoundation" "-framework Cocoa")
 elseif(UNIX)
     target_link_libraries(nch-core PUBLIC ${CMAKE_DL_LIBS})
 endif()

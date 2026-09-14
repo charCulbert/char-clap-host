@@ -10,6 +10,7 @@
 #include "command.h"
 #include "devices.h"
 #include "engine.h"
+#include "gui.h"
 #include "host-services.h"
 #include "host.h"
 #include "validator.h"
@@ -17,6 +18,7 @@
 #include <atomic>
 #include <functional>
 #include <map>
+#include <condition_variable>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -66,6 +68,7 @@ public:
 	Engine &engine() { return engine_; }
 	AudioDevice &audioDevice() { return audioDevice_; }
 	MidiInput &midiInput() { return midiInput_; }
+	PluginGui &gui() { return gui_; }
 
 	// Activates the plug-in at a device's rate and block size and enters
 	// processing, so the first callback has somewhere to write.
@@ -133,6 +136,15 @@ public:
 	// Runs one input line and writes its reply. Returns false when the session
 	// should stop.
 	bool runLine(const std::string &line);
+
+	// Queues a line from the reader thread.
+	void postLine(std::string line);
+	// One turn of the main loop: runs a queued line if one arrives within
+	// `timeoutMs`, services the plug-in's main-thread work and its window.
+	// Returns false when the session should stop.
+	bool tick(int timeoutMs);
+	// Called by the reader thread when stdin ends.
+	void closeInput();
 	bool shouldQuit() const { return quit_; }
 	void requestQuit() { quit_ = true; }
 	void writeResponse(const Request &request, const Response &response);
@@ -155,6 +167,7 @@ private:
 	Engine engine_;
 	AudioDevice audioDevice_;
 	MidiInput midiInput_;
+	PluginGui gui_;
 	std::atomic<uint64_t> audioCallbacks_{0};
 	std::atomic<uint64_t> audioUnderruns_{0};
 	std::atomic<uint64_t> midiMessages_{0};
@@ -192,6 +205,11 @@ private:
 
 	std::mutex workMutex_;
 	std::vector<std::function<void()>> work_;
+
+	std::mutex lineMutex_;
+	std::condition_variable lineArrived_;
+	std::vector<std::string> lines_;
+	bool inputClosed_ = false;
 	std::atomic<bool> callbackRequested_{false};
 
 	std::vector<Timer> timers_;

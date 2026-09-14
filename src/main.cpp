@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #if defined(_WIN32)
@@ -139,16 +140,24 @@ int main(int argc, char **argv) {
 	if (interactive && !options.quiet)
 		std::puts("clap-host 0.1.0 — type `help` for commands, `quit` to leave.");
 
-	std::string line;
-	while (true) {
-		if (interactive && !options.quiet) {
-			std::fputs("> ", stdout);
-			std::fflush(stdout);
+	// The main thread belongs to the plug-in: CLAP main-thread calls, timers
+	// and the window all run here. stdin gets a thread of its own.
+	std::thread reader([&session, interactive, quiet = options.quiet] {
+		std::string line;
+		while (true) {
+			if (interactive && !quiet) {
+				std::fputs("> ", stdout);
+				std::fflush(stdout);
+			}
+			if (!std::getline(std::cin, line))
+				break;
+			session.postLine(line);
 		}
-		if (!std::getline(std::cin, line))
-			break;
-		if (!feed(session, line))
-			break;
-	}
-	return 0;
+		session.closeInput();
+	});
+	reader.detach(); // a blocking read on stdin cannot be interrupted portably
+
+	while (session.tick(20))
+		;
+	return session.validator().hasErrors() && options.strict ? 1 : 0;
 }

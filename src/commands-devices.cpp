@@ -53,6 +53,39 @@ void Session::registerDeviceCommands() {
 		               session.midiInput().close();
 		               return Response::success();
 	               }});
+
+	commands_.add({"gui.open", "[native|webview] [floating]", "Open the plug-in's interface in a window.",
+	               [](Session &session, const Request &request) -> Response {
+		               const std::string api = request.arg(0, "api").asString();
+		               const bool floating =
+		                   request.arg(1, "floating").asString() == "floating" || request.arg("floating").asBool(false);
+		               std::string error;
+		               if (!session.gui().open(api, floating, error))
+			               return Response::failure(error);
+		               return Response::success(session.gui().report());
+	               }});
+
+	commands_.add({"gui.close", "", "Close the plug-in's interface.",
+	               [](Session &session, const Request &) -> Response {
+		               session.gui().close();
+		               return Response::success();
+	               }});
+
+	commands_.add({"gui.resize", "<width> <height>", "Resize the plug-in's interface.",
+	               [](Session &session, const Request &request) -> Response {
+		               if (!request.hasArg(0, "width") || !request.hasArg(1, "height"))
+			               return Response::failure("usage: gui.resize <width> <height>");
+		               std::string error;
+		               if (!session.gui().resize(static_cast<uint32_t>(request.arg(0, "width").asNumber()),
+		                                         static_cast<uint32_t>(request.arg(1, "height").asNumber()), error))
+			               return Response::failure(error);
+		               return Response::success(session.gui().report());
+	               }});
+
+	commands_.add({"gui", "", "Report the state of the plug-in's interface.",
+	               [](Session &session, const Request &) -> Response {
+		               return Response::success(session.gui().report());
+	               }});
 }
 
 } // namespace nch
