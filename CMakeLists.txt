@@ -35,15 +35,14 @@ set(RTMIDI_BUILD_STATIC_LIBS ON CACHE BOOL "" FORCE)
 add_subdirectory(external/rtaudio EXCLUDE_FROM_ALL)
 add_subdirectory(external/rtmidi EXCLUDE_FROM_ALL)
 
-if(APPLE)
+# macOS keeps a file of its own because the application bundle, menu bar,
+# activation policy and quit handling live there. Everywhere else choc's
+# DesktopWindow covers Win32 and GTK in one implementation.
+option(NCH_FORCE_CHOC_WINDOW "Use the choc window layer even on macOS" OFF)
+if(APPLE AND NOT NCH_FORCE_CHOC_WINDOW)
     set(nch_window_source src/native-window-mac.mm)
 else()
-    find_package(X11)
-    if(X11_FOUND)
-        set(nch_window_source src/native-window-x11.cpp)
-    else()
-        set(nch_window_source src/native-window-stub.cpp)
-    endif()
+    set(nch_window_source src/native-window-choc.cpp)
 endif()
 
 add_library(nch-core STATIC

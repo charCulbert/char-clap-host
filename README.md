@@ -134,15 +134,19 @@ MIDI dialect.
 
 ## Platforms
 
-macOS is the platform this has been built and run on. The window layer sits
-behind one small interface, so each platform needs one file rather than changes
-above it:
+macOS is the platform this has been built and run on. Windows and Linux share
+choc's window layer, which macOS can also build and run
+(`-DNCH_FORCE_CHOC_WINDOW=ON`) — so that path is exercised rather than left as
+code nobody has compiled.
 
 | Platform | Audio and MIDI | Window | Webview |
 | --- | --- | --- | --- |
 | macOS | working | Cocoa, working | WebKit, working |
-| Linux | RtAudio/RtMidi, unexercised | X11, written but never compiled or run | needs gtk and webkit2gtk; off by default |
-| Windows | RtAudio/RtMidi, unexercised | not written | choc supports it; not wired up |
+| Linux | RtAudio/RtMidi, unexercised | choc/GTK, builds and runs on macOS, unexercised on Linux | needs gtk and webkit2gtk; off by default |
+| Windows | RtAudio/RtMidi, unexercised | choc/Win32, same code path | choc supports it |
 
-Everything but the window is platform-neutral, so a Linux or Windows build
-should run headless today.
+macOS keeps a window file of its own because the application bundle, menu bar,
+activation policy and quit handling live there. On macOS the host must be an
+application bundle: WebKit will not composite a webview in a bare executable
+with no bundle identifier, so `clap-host` builds as `clap-host.app` and the
+binary inside it is what you run.
