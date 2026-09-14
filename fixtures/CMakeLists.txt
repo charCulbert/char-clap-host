@@ -5,10 +5,13 @@
 # them worth hosting: the host's own tests drive real plug-ins rather than
 # mocks.
 
-# add_fixture(<directory name>)
+# add_fixture(<directory name> [RESOURCES])
 #   Builds <directory>/Plugin.cpp and <directory>/Entry.cpp into
-#   <build>/fixtures/<directory>.clap.
+#   <build>/fixtures/<directory>.clap. With RESOURCES, the contents of
+#   <directory>/resources are copied into the bundle, where the plug-in finds
+#   them relative to the path clap_entry->init was given.
 function(add_fixture name)
+    cmake_parse_arguments(FIXTURE "RESOURCES" "" "" ${ARGN})
     set(target "fixture-${name}")
     add_library(${target} MODULE
         "${CMAKE_CURRENT_SOURCE_DIR}/${name}/Plugin.cpp"
@@ -35,12 +38,24 @@ function(add_fixture name)
         # Everywhere else a .clap is just the shared object under that name.
         set_target_properties(${target} PROPERTIES PREFIX "" SUFFIX ".clap")
     endif()
+    if(FIXTURE_RESOURCES)
+        if(APPLE)
+            set(bundle_root "$<TARGET_BUNDLE_DIR:${target}>")
+        else()
+            set(bundle_root "${CMAKE_BINARY_DIR}/fixtures/${name}.clap.resources")
+        endif()
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                    "${CMAKE_CURRENT_SOURCE_DIR}/${name}/resources" "${bundle_root}"
+            COMMENT "Copying ${name} resources into its bundle")
+    endif()
     set_property(GLOBAL APPEND PROPERTY NCH_FIXTURES ${target})
 endfunction()
 
 add_fixture(audio-ports)
 add_fixture(audio-ports-activation)
 add_fixture(effect)
+add_fixture(gui-webview RESOURCES)
 add_fixture(instrument)
 add_fixture(latency)
 add_fixture(log)

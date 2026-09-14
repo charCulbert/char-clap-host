@@ -57,6 +57,7 @@ add_library(nch-core STATIC
     src/state-stream.cpp
     src/process-buffers.cpp
     src/wav.cpp
+    src/webview.cpp
     src/event-list.cpp
     src/gui.cpp
     src/host.cpp
@@ -77,6 +78,24 @@ if(APPLE)
     target_link_libraries(nch-core PUBLIC "-framework CoreFoundation" "-framework Cocoa")
 elseif(UNIX)
     target_link_libraries(nch-core PUBLIC ${CMAKE_DL_LIBS})
+endif()
+
+# choc's WebView needs WebKit on macOS and gtk+webkit2gtk on Linux, so the
+# webview path is opt-out where it is cheap and opt-in where it is not.
+if(APPLE)
+    set(nch_webview_default ON)
+else()
+    set(nch_webview_default OFF)
+endif()
+option(NCH_WITH_WEBVIEW "Display clap.webview interfaces with choc" ${nch_webview_default})
+if(NCH_WITH_WEBVIEW)
+    set(CHOC_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/external/choc" CACHE PATH "choc")
+    target_compile_definitions(nch-core PUBLIC NCH_WITH_WEBVIEW)
+    target_include_directories(nch-core PUBLIC "${CHOC_ROOT}")
+    if(APPLE)
+        set_source_files_properties(src/webview.cpp PROPERTIES LANGUAGE OBJCXX)
+        target_link_libraries(nch-core PUBLIC "-framework WebKit")
+    endif()
 endif()
 
 add_executable(clap-host src/main.cpp)

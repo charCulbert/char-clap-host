@@ -6,6 +6,7 @@
 #pragma once
 
 #include "json.h"
+#include "webview.h"
 
 #include <clap/clap.h>
 
@@ -61,6 +62,7 @@ private:
 
 	Session &session_;
 	std::unique_ptr<Window> window_;
+	WebviewHost webview_;
 	GuiApi api_ = GuiApi::None;
 	bool floating_ = false;
 	uint32_t width_ = 0;

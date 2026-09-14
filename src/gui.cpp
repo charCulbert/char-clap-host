@@ -18,7 +18,8 @@ struct PluginGui::Window {
 	std::unique_ptr<NativeWindow> native;
 };
 
-PluginGui::PluginGui(Session &session) : session_(session), window_(std::make_unique<Window>()) {}
+PluginGui::PluginGui(Session &session)
+    : session_(session), window_(std::make_unique<Window>()), webview_(session) {}
 
 PluginGui::~PluginGui() {
 	close();
@@ -147,8 +148,61 @@ bool PluginGui::openWebview(std::string &error) {
 	while (!uri.empty() && uri.back() == '\0')
 		uri.pop_back();
 	webviewUri_ = uri;
-	error = "this build cannot display a webview yet; the plug-in's URI is " + uri;
-	return false;
+
+	if (!WebviewHost::available()) {
+		error = "this build has no webview support; the plug-in's URI is " + uri;
+		return false;
+	}
+
+	const clap_plugin_gui_t *gui = extension();
+	uint32_t width = kFallbackWidth;
+	uint32_t height = kFallbackHeight;
+	if (gui != nullptr && gui->create != nullptr) {
+		if (!gui->create(session_.plugin(), CLAP_WINDOW_API_WEBVIEW, false)) {
+			error = "the plug-in refused to create its webview interface";
+			return false;
+		}
+		// clap.webview works in logical size, so set_scale is deliberately not
+		// called here.
+		if (gui->get_size != nullptr && !gui->get_size(session_.plugin(), &width, &height)) {
+			width = kFallbackWidth;
+			height = kFallbackHeight;
+		}
+	}
+
+	const std::string title = session_.descriptor()->name != nullptr ? session_.descriptor()->name : "CLAP plug-in";
+	window_->native = createNativeWindow(width, height, title, error);
+	if (window_->native == nullptr) {
+		if (gui != nullptr && gui->destroy != nullptr)
+			gui->destroy(session_.plugin());
+		return false;
+	}
+	if (!webview_.open(uri, window_->native->handle(), width, height, error)) {
+		window_->native.reset();
+		if (gui != nullptr && gui->destroy != nullptr)
+			gui->destroy(session_.plugin());
+		return false;
+	}
+	window_->native->attachChild(webview_.viewHandle());
+
+	if (gui != nullptr && gui->set_parent != nullptr) {
+		// The extension requires a null pointer for the webview API; the host
+		// still declares the parent so sizing callbacks have somewhere to go.
+		clap_window_t parent{};
+		parent.api = CLAP_WINDOW_API_WEBVIEW;
+		parent.ptr = nullptr;
+		gui->set_parent(session_.plugin(), &parent);
+	}
+
+	api_ = GuiApi::Webview;
+	floating_ = false;
+	width_ = width;
+	height_ = height;
+	window_->native->setSize(width, height);
+	window_->native->show();
+	if (gui != nullptr && gui->show != nullptr)
+		gui->show(session_.plugin());
+	return true;
 }
 
 void PluginGui::close() {
@@ -161,6 +215,7 @@ void PluginGui::close() {
 		if (gui->destroy != nullptr)
 			gui->destroy(session_.plugin());
 	}
+	webview_.close();
 	window_->native.reset();
 	api_ = GuiApi::None;
 	width_ = 0;
@@ -169,7 +224,7 @@ void PluginGui::close() {
 }
 
 bool PluginGui::resize(uint32_t width, uint32_t height, std::string &error) {
-	if (api_ != GuiApi::Native) {
+	if (api_ == GuiApi::None) {
 		error = "no interface is open";
 		return false;
 	}
@@ -227,9 +282,7 @@ void PluginGui::onPluginClosed(bool wasDestroyed) {
 }
 
 bool PluginGui::sendWebviewMessage(const void *buffer, uint32_t size) {
-	(void)buffer;
-	(void)size;
-	return false;
+	return api_ == GuiApi::Webview && webview_.send(buffer, size);
 }
 
 void PluginGui::pumpEvents() {
@@ -251,6 +304,10 @@ Value PluginGui::report() const {
 	out["height"] = Value(height_);
 	if (!webviewUri_.empty())
 		out["webviewUri"] = Value(webviewUri_);
+	if (api_ == GuiApi::Webview) {
+		out["resourcesServed"] = Value(webview_.resourcesServed());
+		out["messagesFromPage"] = Value(webview_.messagesFromPage());
+	}
 
 	if (session_.isLoaded()) {
 		const clap_plugin_gui_t *gui = extension();

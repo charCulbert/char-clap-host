@@ -18,6 +18,8 @@ public:
 	// HWND on Windows, an X11 Window id on Linux.
 	virtual void *handle() = 0;
 	virtual void setTitle(const std::string &title) = 0;
+	// Places another platform view inside this window, filling it.
+	virtual void attachChild(void *view) = 0;
 	virtual void setSize(uint32_t width, uint32_t height) = 0;
 	virtual void show() = 0;
 	virtual void hide() = 0;

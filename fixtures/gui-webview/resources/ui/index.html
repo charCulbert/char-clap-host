@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width,initial-scale=1">
+	<title>WCLAP GUI</title>
+	<link rel="stylesheet" href="style.css?v=1">
+</head>
+<body>
+	<h1>Tone generator</h1>
+	<p>This tone generator and its interface are bundled inside the WCLAP archive.</p>
+	<label>Frequency
+		<input data-param="0" type="range" min="80" max="1000" step="1" value="220">
+		<output data-value="0">220 Hz</output>
+	</label>
+	<label>Level
+		<input data-param="1" type="range" min="0" max="1" step="0.01" value="0">
+		<output data-value="1">0 %</output>
+	</label>
+	<hr>
+	<button data-command="2">Request another size</button>
+	<button data-command="3">Change resize hints</button>
+	<button data-command="4">Ask host to hide</button>
+	<button data-command="6">Close interface</button>
+	<p id="status" role="status">Connecting…</p>
+
+	<script type="module" src="main.js?v=2"></script>
+</body>
+</html>

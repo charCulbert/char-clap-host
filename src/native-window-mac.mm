@@ -68,6 +68,15 @@ public:
 
 	void *handle() override { return (__bridge void *)view_; }
 
+	void attachChild(void *view) override {
+		NSView *child = (__bridge NSView *)view;
+		if (child == nil)
+			return;
+		[child setFrame:[view_ bounds]];
+		[child setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+		[view_ addSubview:child];
+	}
+
 	void setTitle(const std::string &title) override {
 		[window_ setTitle:[NSString stringWithUTF8String:title.c_str()]];
 	}
