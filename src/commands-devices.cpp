@@ -82,6 +82,26 @@ void Session::registerDeviceCommands() {
 		               return Response::success(session.gui().report());
 	               }});
 
+	commands_.add({"gui.contents", "", "Describe the views inside the host's window.",
+	               [](Session &session, const Request &) -> Response {
+		               Object out;
+		               out["contents"] = Value(session.gui().describeContents());
+		               return Response::success(Value(std::move(out)));
+	               }});
+
+	commands_.add({"gui.snapshot", "<file.png>", "Write a PNG of the plug-in's interface.",
+	               [](Session &session, const Request &request) -> Response {
+		               const std::string path = request.arg(0, "file").asString();
+		               if (path.empty())
+			               return Response::failure("usage: gui.snapshot <file.png>");
+		               std::string error;
+		               if (!session.gui().writeSnapshot(path, error))
+			               return Response::failure(error);
+		               Object out;
+		               out["file"] = Value(path);
+		               return Response::success(Value(std::move(out)));
+	               }});
+
 	commands_.add({"gui", "", "Report the state of the plug-in's interface.",
 	               [](Session &session, const Request &) -> Response {
 		               return Response::success(session.gui().report());

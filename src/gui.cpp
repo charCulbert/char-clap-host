@@ -3,6 +3,8 @@
 #include "native-window.h"
 #include "session.h"
 
+#include <cstring>
+
 #include <clap/ext/draft/webview.h>
 
 namespace nch {
@@ -35,6 +37,10 @@ bool PluginGui::open(const std::string &api, bool floating, std::string &error) 
 		return false;
 	}
 	close();
+
+	// Before any plug-in code builds an interface, the process needs to be one
+	// that can have interfaces.
+	prepareApplication();
 
 	const clap_plugin_gui_t *gui = extension();
 	const bool wantsWebview = api == "webview";
@@ -83,8 +89,15 @@ bool PluginGui::openNative(bool floating, std::string &error) {
 	floating_ = floating;
 	closedByPlugin_ = false;
 
-	if (gui->set_scale != nullptr)
+	// The opening sequence is the one clap.gui documents, in that order.
+	// set_scale is deliberately skipped for cocoa and uikit, which work in
+	// logical size and say not to call it.
+	const bool wantsScale = std::strcmp(nativeWindowApi(), CLAP_WINDOW_API_COCOA) != 0 &&
+	                        std::strcmp(nativeWindowApi(), CLAP_WINDOW_API_UIKIT) != 0;
+	if (!floating && wantsScale && gui->set_scale != nullptr)
 		gui->set_scale(session_.plugin(), 1.0);
+
+	const bool resizable = gui->can_resize != nullptr && gui->can_resize(session_.plugin());
 
 	uint32_t width = kFallbackWidth;
 	uint32_t height = kFallbackHeight;
@@ -102,6 +115,12 @@ bool PluginGui::openNative(bool floating, std::string &error) {
 			api_ = GuiApi::None;
 			return false;
 		}
+		// The window goes on screen before the plug-in is told about it. A
+		// WebKit view added to a window that is not yet visible never starts
+		// compositing and stays blank, and it does not retry.
+		window_->native->setSize(width, height);
+		window_->native->show();
+
 		clap_window_t parent{};
 		parent.api = nativeWindowApi();
 		parent.ptr = window_->native->handle();
@@ -112,16 +131,13 @@ bool PluginGui::openNative(bool floating, std::string &error) {
 			error = "the plug-in refused to be embedded in the host's window";
 			return false;
 		}
-		if (gui->set_size != nullptr)
-			gui->set_size(session_.plugin(), width, height);
-		window_->native->setSize(width, height);
-		window_->native->show();
 	} else if (gui->set_transient != nullptr) {
 		// A floating window owns itself; the host only marks it transient when
 		// it has a window of its own to be transient for.
 		session_.validator().note(Severity::Info, "clap_plugin_gui.set_transient",
 		                          "the host has no parent window to offer a floating interface");
 	}
+	resizable_ = resizable;
 
 	width_ = width;
 	height_ = height;
@@ -177,6 +193,8 @@ bool PluginGui::openWebview(std::string &error) {
 			gui->destroy(session_.plugin());
 		return false;
 	}
+	window_->native->setSize(width, height);
+	window_->native->show();
 	if (!webview_.open(uri, window_->native->handle(), width, height, error)) {
 		window_->native.reset();
 		if (gui != nullptr && gui->destroy != nullptr)
@@ -198,8 +216,6 @@ bool PluginGui::openWebview(std::string &error) {
 	floating_ = false;
 	width_ = width;
 	height_ = height;
-	window_->native->setSize(width, height);
-	window_->native->show();
 	if (gui != nullptr && gui->show != nullptr)
 		gui->show(session_.plugin());
 	return true;
@@ -231,6 +247,12 @@ bool PluginGui::resize(uint32_t width, uint32_t height, std::string &error) {
 	const clap_plugin_gui_t *gui = extension();
 	if (gui == nullptr || gui->set_size == nullptr) {
 		error = "the plug-in cannot be resized";
+		return false;
+	}
+	if (!resizable_) {
+		// Calling set_size on a fixed-size interface is a host error, and
+		// plug-ins rightly log it as one.
+		error = "the plug-in's interface is a fixed size";
 		return false;
 	}
 	uint32_t adjustedWidth = width;
@@ -285,14 +307,24 @@ bool PluginGui::sendWebviewMessage(const void *buffer, uint32_t size) {
 	return api_ == GuiApi::Webview && webview_.send(buffer, size);
 }
 
-void PluginGui::pumpEvents() {
-	pumpApplicationEvents();
-}
-
 bool PluginGui::wantsClose() const {
 	if (closedByPlugin_)
 		return true;
 	return window_->native != nullptr && window_->native->wantsClose();
+}
+
+std::string PluginGui::describeContents() const {
+	if (window_->native == nullptr)
+		return "no host window is open\n";
+	return window_->native->describeContents();
+}
+
+bool PluginGui::writeSnapshot(const std::string &path, std::string &error) {
+	if (window_->native == nullptr) {
+		error = "no host window is open";
+		return false;
+	}
+	return window_->native->writeSnapshot(path, error);
 }
 
 Value PluginGui::report() const {
@@ -321,8 +353,8 @@ Value PluginGui::report() const {
 				supported.push_back(Value("webview"));
 		}
 		out["supported"] = Value(std::move(supported));
-		if (gui != nullptr && gui->can_resize != nullptr && api_ != GuiApi::None)
-			out["resizable"] = Value(gui->can_resize(session_.plugin()));
+		if (api_ != GuiApi::None)
+			out["resizable"] = Value(resizable_);
 	}
 	return Value(std::move(out));
 }

@@ -139,10 +139,10 @@ public:
 
 	// Queues a line from the reader thread.
 	void postLine(std::string line);
-	// One turn of the main loop: runs a queued line if one arrives within
-	// `timeoutMs`, services the plug-in's main-thread work and its window.
-	// Returns false when the session should stop.
-	bool tick(int timeoutMs);
+	// One turn of the main loop, called from the platform's application loop:
+	// runs whatever commands have arrived and services the plug-in's
+	// main-thread work. Returns false when the session should stop.
+	bool tick();
 	// Called by the reader thread when stdin ends.
 	void closeInput();
 	bool shouldQuit() const { return quit_; }

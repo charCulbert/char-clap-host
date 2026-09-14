@@ -6,7 +6,12 @@
 
 #include <clap/clap.h>
 
+#include <chrono>
+#include <thread>
+
 namespace nch {
+
+void prepareApplication() {}
 
 std::unique_ptr<NativeWindow> createNativeWindow(uint32_t, uint32_t, const std::string &, std::string &error) {
 	error = "this build has no window layer for this platform yet";
@@ -21,6 +26,9 @@ const char *nativeWindowApi() {
 #endif
 }
 
-void pumpApplicationEvents() {}
+void runApplicationLoop(const std::function<bool()> &tick, int intervalMs) {
+	while (tick())
+		std::this_thread::sleep_for(std::chrono::milliseconds(intervalMs));
+}
 
 } // namespace nch

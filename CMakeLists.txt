@@ -80,7 +80,7 @@ find_package(Threads REQUIRED)
 target_link_libraries(nch-core PUBLIC Threads::Threads)
 
 if(APPLE)
-    target_link_libraries(nch-core PUBLIC "-framework CoreFoundation" "-framework Cocoa")
+    target_link_libraries(nch-core PUBLIC "-framework CoreFoundation" "-framework Cocoa" "-framework QuartzCore")
 elseif(UNIX)
     target_link_libraries(nch-core PUBLIC ${CMAKE_DL_LIBS})
     if(X11_FOUND)
@@ -108,6 +108,25 @@ endif()
 
 add_executable(clap-host src/main.cpp)
 target_link_libraries(clap-host PRIVATE nch-core)
+
+if(APPLE)
+    # WebKit needs the process to be a real application bundle: a WKWebView in
+    # a bare executable with no bundle identifier never composites, and the
+    # plug-in's interface stays blank. The binary still runs from the terminal
+    # exactly as before, it just lives inside clap-host.app now.
+    set_target_properties(clap-host PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.charlieculbert.nativeclaphost"
+        MACOSX_BUNDLE_BUNDLE_NAME "clap-host"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Info.plist.in")
+    # A convenience symlink so `build/clap-host` keeps working.
+    add_custom_command(TARGET clap-host POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E create_symlink
+                "$<TARGET_FILE:clap-host>" "${CMAKE_BINARY_DIR}/clap-host-cli"
+        COMMENT "Linking build/clap-host-cli to the bundled executable")
+endif()
 
 add_subdirectory(fixtures)
 

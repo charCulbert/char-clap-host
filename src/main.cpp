@@ -1,4 +1,5 @@
 // clap-host — a single-plugin native CLAP host driven from the command line.
+#include "native-window.h"
 #include "session.h"
 #include "thread-role.h"
 
@@ -157,7 +158,7 @@ int main(int argc, char **argv) {
 	});
 	reader.detach(); // a blocking read on stdin cannot be interrupted portably
 
-	while (session.tick(20))
-		;
+	// The platform owns the loop; the host's own work is a timer on it.
+	nch::runApplicationLoop([&session] { return session.tick(); }, 20);
 	return session.validator().hasErrors() && options.strict ? 1 : 0;
 }

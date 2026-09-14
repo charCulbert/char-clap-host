@@ -13,8 +13,15 @@
 
 #include <cstring>
 #include <vector>
+#include <chrono>
+#include <thread>
+
+#include <sys/select.h>
 
 namespace nch {
+
+class X11Window;
+
 namespace {
 
 // One connection serves every window, and the event pump reads from it.
@@ -84,6 +91,25 @@ public:
 
 	bool wantsClose() const override { return closed_; }
 
+	std::string describeContents() const override {
+		Window root = 0;
+		Window parent = 0;
+		Window *children = nullptr;
+		unsigned int count = 0;
+		std::string out;
+		if (XQueryTree(display_, window_, &root, &parent, &children, &count) != 0) {
+			out = "child windows: " + std::to_string(count) + "\n";
+			if (children != nullptr)
+				XFree(children);
+		}
+		return out;
+	}
+
+	bool writeSnapshot(const std::string &, std::string &error) override {
+		error = "snapshots are not implemented on X11 yet";
+		return false;
+	}
+
 	Window id() const { return window_; }
 	void markClosed() { closed_ = true; }
 
@@ -101,6 +127,8 @@ private:
 
 } // namespace
 
+void prepareApplication() {}
+
 std::unique_ptr<NativeWindow> createNativeWindow(uint32_t width, uint32_t height, const std::string &title,
                                                  std::string &error) {
 	Display *display = sharedDisplay();
@@ -115,10 +143,8 @@ const char *nativeWindowApi() {
 	return CLAP_WINDOW_API_X11;
 }
 
-void pumpApplicationEvents() {
-	Display *display = sharedDisplay();
-	if (display == nullptr)
-		return;
+// Drains whatever the X connection has queued, noting closed windows.
+void drainX11Events(Display *display) {
 	while (XPending(display) > 0) {
 		XEvent event;
 		XNextEvent(display, &event);
@@ -129,6 +155,27 @@ void pumpApplicationEvents() {
 		for (auto *window : X11Window::windows())
 			if (window->id() == event.xclient.window)
 				window->markClosed();
+	}
+}
+
+void runApplicationLoop(const std::function<bool()> &tick, int intervalMs) {
+	Display *display = sharedDisplay();
+	while (tick()) {
+		if (display == nullptr) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(intervalMs));
+			continue;
+		}
+		// Wait on the connection rather than spinning.
+		if (XPending(display) == 0) {
+			const int fd = ConnectionNumber(display);
+			fd_set readable;
+			FD_ZERO(&readable);
+			FD_SET(fd, &readable);
+			timeval timeout{};
+			timeout.tv_usec = intervalMs * 1000;
+			select(fd + 1, &readable, nullptr, nullptr, &timeout);
+		}
+		drainX11Events(display);
 	}
 }
 

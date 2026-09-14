@@ -2,7 +2,11 @@
 
 #include <clap/clap.h>
 
+#include <cstdio>
+#include <string>
+
 #import <Cocoa/Cocoa.h>
+#import <QuartzCore/QuartzCore.h>
 
 namespace nch {
 namespace {
@@ -39,6 +43,20 @@ void ensureApplication() {
 
 namespace nch {
 namespace {
+
+void describeView(NSView *view, int depth, std::string &out) {
+	if (view == nil)
+		return;
+	const NSRect frame = [view frame];
+	char line[256];
+	std::snprintf(line, sizeof(line), "%*s%s  frame %.0f,%.0f %.0fx%.0f%s%s\n", depth * 2, "",
+	              [NSStringFromClass([view class]) UTF8String], frame.origin.x, frame.origin.y, frame.size.width,
+	              frame.size.height, [view isHidden] ? "  hidden" : "",
+	              [view layer] != nil ? "  layer" : "");
+	out += line;
+	for (NSView *child in [view subviews])
+		describeView(child, depth + 1, out);
+}
 
 class CocoaWindow : public NativeWindow {
 public:
@@ -100,6 +118,52 @@ public:
 
 	bool wantsClose() const override { return delegate_.closed == YES; }
 
+	std::string describeContents() const override {
+		std::string out;
+		describeView(view_, 0, out);
+		char line[512];
+		const NSRect frame = [window_ frame];
+		std::snprintf(line, sizeof(line),
+		              "window frame %.0f,%.0f %.0fx%.0f\nvisible %s  key %s  onActiveSpace %s  occluded %s\n"
+		              "screen %s\napp active %s  policy %ld\n",
+		              frame.origin.x, frame.origin.y, frame.size.width, frame.size.height,
+		              [window_ isVisible] ? "yes" : "no", [window_ isKeyWindow] ? "yes" : "no",
+		              [window_ isOnActiveSpace] ? "yes" : "no",
+		              ([window_ occlusionState] & NSWindowOcclusionStateVisible) == 0 ? "yes" : "no",
+		              [window_ screen] != nil ? [[[window_ screen] localizedName] UTF8String] : "none",
+		              [NSApp isActive] ? "yes" : "no", (long)[NSApp activationPolicy]);
+		out += line;
+		return out;
+	}
+
+	bool writeSnapshot(const std::string &path, std::string &error) override {
+		@autoreleasepool {
+			// CGWindowListCreateImage needs screen-recording rights; asking the
+			// window for its own contents does not.
+			const CGSize size = [window_ frame].size;
+			const NSRect content = [window_ contentRectForFrameRect:[window_ frame]];
+			(void)size;
+			NSBitmapImageRep *bitmap = [view_ bitmapImageRepForCachingDisplayInRect:[view_ bounds]];
+			if (bitmap == nil) {
+				error = "the window has no drawable contents";
+				return false;
+			}
+			[view_ cacheDisplayInRect:[view_ bounds] toBitmapImageRep:bitmap];
+			NSData *png = [bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+			if (png == nil) {
+				error = "could not encode the window contents";
+				return false;
+			}
+			(void)content;
+			NSString *file = [NSString stringWithUTF8String:path.c_str()];
+			if (![png writeToFile:file atomically:YES]) {
+				error = "could not write " + path;
+				return false;
+			}
+			return true;
+		}
+	}
+
 private:
 	NSWindow *window_ = nil;
 	NSView *view_ = nil;
@@ -107,6 +171,12 @@ private:
 };
 
 } // namespace
+
+void prepareApplication() {
+	@autoreleasepool {
+		ensureApplication();
+	}
+}
 
 std::unique_ptr<NativeWindow> createNativeWindow(uint32_t width, uint32_t height, const std::string &title,
                                                  std::string &error) {
@@ -124,21 +194,38 @@ const char *nativeWindowApi() {
 	return CLAP_WINDOW_API_COCOA;
 }
 
-void pumpApplicationEvents() {
+void runApplicationLoop(const std::function<bool()> &tick, int intervalMs) {
 	@autoreleasepool {
-		if (NSApp == nil)
-			return;
-		// Drain whatever is queued without blocking; the main loop decides how
-		// often to come back.
-		while (true) {
-			NSEvent *event = [NSApp nextEventMatchingMask:NSEventMaskAny
-			                                    untilDate:[NSDate distantPast]
-			                                       inMode:NSDefaultRunLoopMode
-			                                      dequeue:YES];
-			if (event == nil)
-				break;
-			[NSApp sendEvent:event];
-		}
+		ensureApplication();
+		__block bool running = true;
+		// Common modes so the host keeps ticking through window resizes and
+		// menu tracking, which otherwise starve it.
+		NSTimer *timer = [NSTimer timerWithTimeInterval:intervalMs / 1000.0
+		                                        repeats:YES
+		                                          block:^(NSTimer *firing) {
+			                                          if (!running)
+				                                          return;
+			                                          if (tick())
+				                                          return;
+			                                          running = false;
+			                                          [firing invalidate];
+			                                          [NSApp stop:nil];
+			                                          // -stop: only takes effect once the loop
+			                                          // handles another event, so give it one.
+			                                          [NSApp postEvent:[NSEvent otherEventWithType:NSEventTypeApplicationDefined
+			                                                                              location:NSZeroPoint
+			                                                                         modifierFlags:0
+			                                                                             timestamp:0
+			                                                                          windowNumber:0
+			                                                                               context:nil
+			                                                                               subtype:0
+			                                                                                 data1:0
+			                                                                                 data2:0]
+			                                                   atStart:YES];
+		                                          }];
+		[[NSRunLoop mainRunLoop] addTimer:timer forMode:NSRunLoopCommonModes];
+		[NSApp run];
+		[timer invalidate];
 	}
 }
 

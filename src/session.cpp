@@ -369,27 +369,25 @@ void Session::closeInput() {
 	lineArrived_.notify_one();
 }
 
-bool Session::tick(int timeoutMs) {
-	std::string line;
-	bool haveLine = false;
+bool Session::tick() {
+	// Everything queued runs before the loop goes back to waiting, so a burst
+	// of piped commands is not rationed one per tick.
+	std::vector<std::string> pending;
+	bool finished = false;
 	{
-		std::unique_lock<std::mutex> lock(lineMutex_);
-		if (lines_.empty() && !inputClosed_)
-			lineArrived_.wait_for(lock, std::chrono::milliseconds(timeoutMs));
-		if (!lines_.empty()) {
-			line = std::move(lines_.front());
-			lines_.erase(lines_.begin());
-			haveLine = true;
-		} else if (inputClosed_) {
-			return false;
-		}
+		std::lock_guard<std::mutex> lock(lineMutex_);
+		pending.swap(lines_);
+		finished = inputClosed_ && pending.empty();
 	}
-
-	if (haveLine && !runLine(line))
+	if (finished)
 		return false;
 
+	for (const auto &line : pending) {
+		if (!runLine(line))
+			return false;
+	}
+
 	runMainThreadWork();
-	gui_.pumpEvents();
 	if (gui_.wantsClose())
 		gui_.close();
 	return !quit_;

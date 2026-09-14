@@ -46,12 +46,13 @@ public:
 	// Sends one message to an open webview. False when none is open.
 	bool sendWebviewMessage(const void *buffer, uint32_t size);
 
-	// Called from the main loop so the window can service its platform events.
-	void pumpEvents();
 	// True once the user has closed the window, so the main loop can tidy up.
 	bool wantsClose() const;
 
 	Value report() const;
+	// What is actually inside the host's window, and a PNG of it.
+	std::string describeContents() const;
+	bool writeSnapshot(const std::string &path, std::string &error);
 
 private:
 	const clap_plugin_gui_t *extension() const;
@@ -68,6 +69,7 @@ private:
 	uint32_t width_ = 0;
 	uint32_t height_ = 0;
 	std::string webviewUri_;
+	bool resizable_ = false;
 	bool closedByPlugin_ = false;
 };
 
