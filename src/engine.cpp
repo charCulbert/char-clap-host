@@ -298,6 +298,7 @@ void Engine::buildTransportEvent() {
 
 	uint32_t flags = CLAP_TRANSPORT_HAS_TEMPO | CLAP_TRANSPORT_HAS_BEATS_TIMELINE |
 	                 CLAP_TRANSPORT_HAS_SECONDS_TIMELINE | CLAP_TRANSPORT_HAS_TIME_SIGNATURE;
+	flags &= ~transport_.suppressedFlags;
 	if (transport_.playing)
 		flags |= CLAP_TRANSPORT_IS_PLAYING;
 	if (transport_.recording)
@@ -306,20 +307,41 @@ void Engine::buildTransportEvent() {
 		flags |= CLAP_TRANSPORT_IS_LOOP_ACTIVE;
 	transportEvent_.flags = flags;
 
-	transportEvent_.tempo = transport_.tempo;
-	transportEvent_.tempo_inc = 0.0;
-	transportEvent_.tsig_num = transport_.timeSigNumerator;
-	transportEvent_.tsig_denom = transport_.timeSigDenominator;
-	transportEvent_.song_pos_beats = toBeatTime(transport_.songBeats);
-	transportEvent_.song_pos_seconds = toSecTime(transport_.songSeconds);
+	// A field whose flag is not set carries a value no plug-in could use, so
+	// one that reads it without checking shows up in the output immediately
+	// rather than months later.
+	const bool hasTempo = (flags & CLAP_TRANSPORT_HAS_TEMPO) != 0;
+	const bool hasBeats = (flags & CLAP_TRANSPORT_HAS_BEATS_TIMELINE) != 0;
+	const bool hasSeconds = (flags & CLAP_TRANSPORT_HAS_SECONDS_TIMELINE) != 0;
+	const bool hasTimeSig = (flags & CLAP_TRANSPORT_HAS_TIME_SIGNATURE) != 0;
 
-	const double barBeats = beatsPerBar(transport_.timeSigNumerator, transport_.timeSigDenominator);
-	transportEvent_.bar_start = toBeatTime(barStart(transport_.songBeats, barBeats));
-	transportEvent_.bar_number = barNumber(transport_.songBeats, barBeats);
-	transportEvent_.loop_start_beats = toBeatTime(transport_.loopStartBeats);
-	transportEvent_.loop_end_beats = toBeatTime(transport_.loopEndBeats);
-	transportEvent_.loop_start_seconds = toSecTime(transport_.loopStartBeats * 60.0 / transport_.tempo);
-	transportEvent_.loop_end_seconds = toSecTime(transport_.loopEndBeats * 60.0 / transport_.tempo);
+	transportEvent_.tempo = hasTempo ? transport_.tempo : std::nan("");
+	transportEvent_.tempo_inc = hasTempo ? 0.0 : std::nan("");
+	transportEvent_.tsig_num = hasTimeSig ? transport_.timeSigNumerator : UINT16_MAX;
+	transportEvent_.tsig_denom = hasTimeSig ? transport_.timeSigDenominator : 0;
+	transportEvent_.song_pos_beats = hasBeats ? toBeatTime(transport_.songBeats) : INT64_MIN;
+	transportEvent_.song_pos_seconds = hasSeconds ? toSecTime(transport_.songSeconds) : INT64_MIN;
+
+	if (hasBeats) {
+		const double barBeats = beatsPerBar(transport_.timeSigNumerator, transport_.timeSigDenominator);
+		transportEvent_.bar_start = toBeatTime(barStart(transport_.songBeats, barBeats));
+		transportEvent_.bar_number = barNumber(transport_.songBeats, barBeats);
+	} else {
+		transportEvent_.bar_start = INT64_MIN;
+		transportEvent_.bar_number = INT32_MIN;
+	}
+	if (transport_.loopActive) {
+		transportEvent_.loop_start_beats = toBeatTime(transport_.loopStartBeats);
+		transportEvent_.loop_end_beats = toBeatTime(transport_.loopEndBeats);
+		transportEvent_.loop_start_seconds = toSecTime(transport_.loopStartBeats * 60.0 / transport_.tempo);
+		transportEvent_.loop_end_seconds = toSecTime(transport_.loopEndBeats * 60.0 / transport_.tempo);
+	} else {
+		// No loop means no loop points, rather than stale ones.
+		transportEvent_.loop_start_beats = INT64_MAX;
+		transportEvent_.loop_end_beats = INT64_MIN;
+		transportEvent_.loop_start_seconds = INT64_MAX;
+		transportEvent_.loop_end_seconds = INT64_MIN;
+	}
 }
 
 void Engine::advanceTransport(uint32_t frames) {

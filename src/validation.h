@@ -86,6 +86,15 @@ struct SuiteOptions {
 	std::string filter;
 	uint64_t seed = Random::kDefaultSeed;
 	bool onlyFailures = false;
+	// Run each test in a child process. A plug-in that segfaults then costs
+	// one test rather than the whole run, and the verdict is Crashed rather
+	// than a core dump and no report at all.
+	bool isolate = false;
+	// The host's own executable, needed to relaunch it. Empty means the run
+	// stays in process whatever `isolate` says.
+	std::string hostPath;
+	// How long a single test may take before it is assumed hung.
+	double timeoutSeconds = 45.0;
 };
 
 struct SuiteReport {

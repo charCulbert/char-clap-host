@@ -28,6 +28,20 @@ tests:
   state-invalid-random  Random bytes do not crash the plug-in.
   state-round-trip  State saved and loaded returns the same parameters.
   state-buffered  State loads from a stream that returns short reads.
+  process-note-basic  A consistent stream of notes and expressions.
+  process-note-inconsistent  Notes ended that never started, and started twice.
+  process-note-wildcard  Notes addressed with wildcards in the tuple.
+  param-fuzz-basic  Every parameter changed every block.
+  param-fuzz-bounds  Every parameter at exactly its minimum or maximum.
+  param-fuzz-beyond  Values outside the range the plug-in declared.
+  param-fuzz-sample-accurate  Parameters swept many times within a block.
+  param-fuzz-no-cookies  Parameter events carrying no cookie.
+  param-fuzz-modulation  Polyphonic modulation alongside a live note stream.
+  param-set-events  flush() and process() put a parameter in the same place.
+  transport-null  Processing with no transport at all.
+  transport-fuzz  Tempo, metre, loops and withheld flags changing every block.
+  gui-open-close  The interface opens and closes twice.
+  gui-resize  The interface reports a size, and adjust_size settles.
 seed: 0x13376767
 tests:
   test  status  seconds

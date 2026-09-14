@@ -32,6 +32,9 @@ struct Options {
 	bool strict = false; // a validator error fails the command that caused it
 	bool quiet = false;  // suppress the banner and prompt
 	std::string pluginPath;
+	// This executable, so the validation suite can relaunch it to run a test
+	// in a child process.
+	std::string hostPath;
 	std::string pluginId;
 	uint32_t pluginIndex = 0;
 	double sampleRate = 48000.0;

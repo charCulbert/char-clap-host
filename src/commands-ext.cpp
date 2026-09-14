@@ -393,6 +393,11 @@ void Session::registerExtensionCommands() {
 		               SuiteOptions options;
 		               options.filter = request.arg(0, "test").asString();
 		               options.onlyFailures = request.arg("only-failures").asBool(false);
+		               // Isolation costs a process per test, so it is asked
+		               // for rather than assumed -- but it is what you want
+		               // when a plug-in might not survive a test.
+		               options.isolate = request.arg("isolate").asBool(false);
+		               options.hostPath = session.options().hostPath;
 		               const std::string seedText = request.arg("seed").asString();
 		               if (!seedText.empty() && !parseSeed(seedText, options.seed))
 			               return Response::failure("a seed must be decimal or 0x-prefixed hexadecimal");

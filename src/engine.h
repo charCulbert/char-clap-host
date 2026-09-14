@@ -26,6 +26,10 @@ class Session;
 
 struct Transport {
 	bool send = true;      // include a transport event in each block
+	// Flags to leave unset deliberately. A plug-in must check a flag before
+	// reading the field it guards, and the only way to find out whether it
+	// does is to withhold one and put something undrinkable in the field.
+	uint32_t suppressedFlags = 0;
 	bool playing = false;
 	bool recording = false;
 	bool loopActive = false;

@@ -104,6 +104,11 @@ int main(int argc, char **argv) {
 	if (!immediate.empty())
 		immediateCommands.push_back(immediate);
 
+	// Remembered so the validation suite can relaunch this same binary to run
+	// a test out of process.
+	if (argc > 0 && argv[0] != nullptr)
+		options.hostPath = argv[0];
+
 	Session session(options);
 	session.validator().setLive(options.strict);
 

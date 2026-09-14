@@ -5,6 +5,7 @@
 // neither reference tool performs -- the modulation family in particular, which
 // clap-validator names but does not actually send.
 #include "engine.h"
+#include "event-generator.h"
 #include "process-check.h"
 #include "session.h"
 #include "state-stream.h"
@@ -77,6 +78,23 @@ void processChecked(TestContext &context, uint32_t blocks, uint32_t frames) {
 			return;
 		}
 	}
+}
+
+// Hands a generated block to the plug-in at the times the generator chose.
+void scheduleAll(Session &session, const EventList &events) {
+	for (uint32_t i = 0; i < events.size(); ++i) {
+		const clap_event_header_t *header = events.at(i);
+		session.engine().scheduleAfter(header, header->time);
+	}
+}
+
+// The dialect the plug-in's note input accepts, or nothing if it has none.
+bool noteInputEncoding(Session &session, NoteEncoding &encoding) {
+	const auto *ports = session.pluginExtension<clap_plugin_note_ports_t>(CLAP_EXT_NOTE_PORTS);
+	if (ports == nullptr || ports->count == nullptr || ports->count(session.plugin(), true) == 0)
+		return false;
+	encoding = session.engine().noteEncoding(0);
+	return true;
 }
 
 // --- descriptor -----------------------------------------------------------
@@ -564,6 +582,426 @@ void stateBuffered(TestContext &context) {
 		             "return fewer bytes than asked for");
 }
 
+// --- generated event streams ----------------------------------------------
+
+// Drives `blocks` blocks of generated notes, checking each one.
+void runNoteStream(TestContext &context, bool inconsistent, double wildcardChance) {
+	Session &session = context.session();
+	NoteEncoding encoding;
+	if (!noteInputEncoding(session, encoding)) {
+		context.skip("the plug-in has no note input");
+		return;
+	}
+	std::string error;
+	if (!session.activate(48000.0, 1, 512, error)) {
+		context.fail("could not activate: " + error);
+		return;
+	}
+
+	NoteGenerator generator(context.random(), encoding);
+	generator.setInconsistent(inconsistent);
+	generator.setWildcardChance(wildcardChance);
+	// Overlapping notes are only legal when the plug-in says it can take them.
+	const auto *voiceInfo = session.pluginExtension<clap_plugin_voice_info_t>(CLAP_EXT_VOICE_INFO);
+	clap_voice_info_t info{};
+	if (voiceInfo != nullptr && voiceInfo->get != nullptr && voiceInfo->get(session.plugin(), &info))
+		generator.setAllowOverlap((info.flags & CLAP_VOICE_INFO_SUPPORTS_OVERLAPPING_NOTES) != 0);
+
+	session.engine().setProcessChecking(true);
+	if (!session.engine().start(error)) {
+		context.fail("could not start processing: " + error);
+		return;
+	}
+	for (uint32_t block = 0; block < 8 && !context.failed(); ++block) {
+		EventList events;
+		generator.fillBlock(events, 512, 6);
+		scheduleAll(session, events);
+		if (session.engine().processBlock(512, nullptr) == CLAP_PROCESS_ERROR) {
+			context.fail("process() returned CLAP_PROCESS_ERROR");
+			return;
+		}
+		for (const auto &violation : session.validator().violations())
+			if (violation.severity == Severity::Error) {
+				context.fail(violation.where + ": " + violation.message);
+				return;
+			}
+	}
+	EventList release;
+	generator.releaseAll(release, 512);
+	scheduleAll(session, release);
+	session.engine().processBlock(512, nullptr);
+}
+
+void processNoteBasic(TestContext &context) {
+	runNoteStream(context, false, 0.0);
+}
+
+void processNoteInconsistent(TestContext &context) {
+	// Note-offs for notes that were never on, and the same note started twice.
+	// A plug-in must survive a host that gets it wrong.
+	runNoteStream(context, true, 0.0);
+}
+
+void processNoteWildcard(TestContext &context) {
+	// Each part of the addressing tuple becomes -1 one time in ten. A wildcard
+	// matches every voice in that position.
+	runNoteStream(context, false, 0.1);
+}
+
+// Drives parameter changes in a given style, checking every block.
+void runParamFuzz(TestContext &context, ParamValueStyle style, bool nullCookies, uint32_t interval) {
+	Session &session = context.session();
+	std::vector<clap_param_info_t> params;
+	for (const auto &info : parameters(session))
+		if ((info.flags & CLAP_PARAM_IS_READONLY) == 0)
+			params.push_back(info);
+	if (params.empty()) {
+		context.skip("the plug-in has no writable parameters");
+		return;
+	}
+
+	std::string error;
+	if (!session.activate(48000.0, 1, 512, error)) {
+		context.fail("could not activate: " + error);
+		return;
+	}
+	ParamFuzzer fuzzer(context.random(), params);
+	fuzzer.setStyle(style);
+	fuzzer.setNullCookies(nullCookies);
+
+	session.engine().setProcessChecking(true);
+	if (!session.engine().start(error)) {
+		context.fail("could not start processing: " + error);
+		return;
+	}
+
+	uint32_t cursor = 0;
+	for (uint32_t block = 0; block < 10 && !context.failed(); ++block) {
+		EventList events;
+		if (interval == 0)
+			fuzzer.fillBlock(events, 0);
+		else
+			fuzzer.fillSampleAccurate(events, 512, interval, cursor);
+		scheduleAll(session, events);
+		if (session.engine().processBlock(512, nullptr) == CLAP_PROCESS_ERROR) {
+			context.fail("process() returned CLAP_PROCESS_ERROR");
+			return;
+		}
+		for (const auto &violation : session.validator().violations())
+			if (violation.severity == Severity::Error) {
+				context.fail(violation.where + ": " + violation.message);
+				return;
+			}
+	}
+}
+
+void paramFuzzBasic(TestContext &context) {
+	runParamFuzz(context, ParamValueStyle::Anywhere, false, 0);
+}
+
+void paramFuzzBounds(TestContext &context) {
+	runParamFuzz(context, ParamValueStyle::Bounds, false, 0);
+}
+
+void paramFuzzBeyond(TestContext &context) {
+	// Values outside the range the plug-in declared. It must clamp them rather
+	// than trust the host, and neither reference tool sends these.
+	runParamFuzz(context, ParamValueStyle::Beyond, false, 0);
+}
+
+void paramFuzzSampleAccurate(TestContext &context) {
+	// A full sweep of every parameter every ten samples: about fifty sweeps
+	// per block.
+	runParamFuzz(context, ParamValueStyle::Anywhere, false, 10);
+}
+
+void paramFuzzNoCookies(TestContext &context) {
+	// The cookie is an optimisation, not a promise. A plug-in that
+	// dereferences it without checking crashes here and nowhere else.
+	runParamFuzz(context, ParamValueStyle::Anywhere, true, 0);
+}
+
+void paramFuzzModulation(TestContext &context) {
+	Session &session = context.session();
+	std::vector<clap_param_info_t> modulatable;
+	for (const auto &info : parameters(session))
+		if ((info.flags & CLAP_PARAM_IS_MODULATABLE) != 0)
+			modulatable.push_back(info);
+	if (modulatable.empty()) {
+		context.skip("the plug-in has no modulatable parameters");
+		return;
+	}
+
+	std::string error;
+	if (!session.activate(48000.0, 1, 512, error)) {
+		context.fail("could not activate: " + error);
+		return;
+	}
+
+	NoteEncoding encoding;
+	const bool hasNotes = noteInputEncoding(session, encoding);
+	NoteGenerator notes(context.random(), encoding);
+	ParamFuzzer fuzzer(context.random(), modulatable);
+
+	session.engine().setProcessChecking(true);
+	if (!session.engine().start(error)) {
+		context.fail("could not start processing: " + error);
+		return;
+	}
+	for (uint32_t block = 0; block < 10 && !context.failed(); ++block) {
+		EventList events;
+		if (hasNotes)
+			notes.fillBlock(events, 512, 3);
+		// Real CLAP_EVENT_PARAM_MOD, addressed at a sounding voice half the
+		// time. This is the stream neither reference tool produces.
+		fuzzer.fillModulation(events, static_cast<uint32_t>(context.random().below(512)), notes.sounding());
+		events.sortByTime();
+		scheduleAll(session, events);
+		if (session.engine().processBlock(512, nullptr) == CLAP_PROCESS_ERROR) {
+			context.fail("process() returned CLAP_PROCESS_ERROR");
+			return;
+		}
+		for (const auto &violation : session.validator().violations())
+			if (violation.severity == Severity::Error) {
+				context.fail(violation.where + ": " + violation.message);
+				return;
+			}
+	}
+	context.note("sent polyphonic modulation alongside a live note stream");
+}
+
+void paramSetEvents(TestContext &context) {
+	Session &session = context.session();
+	std::vector<clap_param_info_t> params;
+	for (const auto &info : parameters(session))
+		if ((info.flags & CLAP_PARAM_IS_READONLY) == 0)
+			params.push_back(info);
+	if (params.empty()) {
+		context.skip("the plug-in has no writable parameters");
+		return;
+	}
+	const auto *ext = session.pluginExtension<clap_plugin_params_t>(CLAP_EXT_PARAMS);
+	if (ext == nullptr || ext->flush == nullptr) {
+		context.skip("the plug-in does not implement params.flush");
+		return;
+	}
+
+	// The same changes sent two ways must land in the same place: through
+	// flush while inactive, and through process while active.
+	ParamFuzzer fuzzer(context.random(), params);
+	EventList wanted;
+	fuzzer.fillBlock(wanted, 0);
+
+	EventList out;
+	ext->flush(session.plugin(), wanted.input(), out.output());
+	std::map<clap_id, double> viaFlush;
+	for (const auto &info : params) {
+		double value = 0.0;
+		if (readValue(session, info.id, value))
+			viaFlush[info.id] = value;
+	}
+
+	// A second instance, because cookies are per-instance.
+	std::string error;
+	if (!session.load(context.pluginPath(), {}, 0, error)) {
+		context.fail("could not load a second instance: " + error);
+		return;
+	}
+	if (!session.activate(48000.0, 1, 512, error)) {
+		context.fail("could not activate: " + error);
+		return;
+	}
+	// The parameters are the new instance's, so the events are rebuilt.
+	std::vector<clap_param_info_t> reloaded;
+	for (const auto &info : parameters(session))
+		if ((info.flags & CLAP_PARAM_IS_READONLY) == 0)
+			reloaded.push_back(info);
+	for (const auto &info : reloaded) {
+		if (viaFlush.count(info.id) == 0)
+			continue;
+		clap_event_param_value_t event{};
+		event.header.size = sizeof(event);
+		event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+		event.header.type = CLAP_EVENT_PARAM_VALUE;
+		event.param_id = info.id;
+		event.cookie = info.cookie;
+		event.note_id = -1;
+		event.port_index = -1;
+		event.channel = -1;
+		event.key = -1;
+		event.value = viaFlush[info.id];
+		session.engine().scheduleAfter(&event.header, 0);
+	}
+	processChecked(context, 2, 512);
+	if (context.failed())
+		return;
+
+	for (const auto &info : reloaded) {
+		double value = 0.0;
+		if (!readValue(session, info.id, value) || viaFlush.count(info.id) == 0)
+			continue;
+		if (!sameValue(info, value, viaFlush[info.id]))
+			context.fail(std::string(info.name) + " landed at " + std::to_string(value) +
+			             " through process() but at " + std::to_string(viaFlush[info.id]) +
+			             " through flush(); the two routes must agree");
+	}
+}
+
+// --- transport ------------------------------------------------------------
+
+void transportNull(TestContext &context) {
+	Session &session = context.session();
+	std::string error;
+	if (!session.activate(48000.0, 1, 128, error)) {
+		context.fail("could not activate: " + error);
+		return;
+	}
+	// A host without a timeline sends no transport at all, and a plug-in that
+	// assumes one is always there falls over here.
+	session.engine().transport().send = false;
+	NoteEncoding encoding;
+	const bool hasNotes = noteInputEncoding(session, encoding);
+	NoteGenerator notes(context.random(), encoding);
+
+	session.engine().setProcessChecking(true);
+	if (!session.engine().start(error)) {
+		context.fail("could not start processing: " + error);
+		return;
+	}
+	for (uint32_t block = 0; block < 5 && !context.failed(); ++block) {
+		EventList events;
+		if (hasNotes)
+			notes.fillBlock(events, 128, 3);
+		scheduleAll(session, events);
+		if (session.engine().processBlock(128, nullptr) == CLAP_PROCESS_ERROR)
+			context.fail("process() returned CLAP_PROCESS_ERROR with no transport");
+	}
+	for (const auto &violation : session.validator().violations())
+		if (violation.severity == Severity::Error)
+			context.fail(violation.where + ": " + violation.message);
+}
+
+void transportFuzz(TestContext &context) {
+	Session &session = context.session();
+	std::string error;
+	if (!session.activate(48000.0, 1, 128, error)) {
+		context.fail("could not activate: " + error);
+		return;
+	}
+	Transport &transport = session.engine().transport();
+	session.engine().setProcessChecking(true);
+	if (!session.engine().start(error)) {
+		context.fail("could not start processing: " + error);
+		return;
+	}
+
+	static const uint32_t optional[] = {CLAP_TRANSPORT_HAS_TEMPO, CLAP_TRANSPORT_HAS_BEATS_TIMELINE,
+	                                    CLAP_TRANSPORT_HAS_SECONDS_TIMELINE, CLAP_TRANSPORT_HAS_TIME_SIGNATURE};
+	for (uint32_t block = 0; block < 40 && !context.failed(); ++block) {
+		// Withhold a different subset each block. The fields behind a
+		// withheld flag carry NaN and extremes, so a plug-in that reads
+		// without checking produces something the output check catches.
+		uint32_t suppressed = 0;
+		for (const uint32_t flag : optional)
+			if (context.random().chance(0.3))
+				suppressed |= flag;
+		transport.suppressedFlags = suppressed;
+		transport.playing = context.random().chance(0.6);
+		transport.recording = context.random().chance(0.2);
+		transport.tempo = context.random().between(40.0, 480.0);
+		transport.timeSigNumerator = static_cast<uint16_t>(context.random().between(1, 16));
+		transport.timeSigDenominator = static_cast<uint16_t>(1u << context.random().below(4));
+		// Loops, which clap-validator never sends at all.
+		transport.loopActive = context.random().chance(0.4);
+		transport.loopStartBeats = context.random().between(0.0, 8.0);
+		transport.loopEndBeats = transport.loopStartBeats + context.random().between(0.0, 8.0);
+		if (context.random().chance(0.2)) {
+			// A seek, including backwards, which a loop or a locate does.
+			transport.songBeats = context.random().between(0.0, 240.0);
+			transport.songSeconds = transport.songBeats * 60.0 / transport.tempo;
+		}
+
+		if (session.engine().processBlock(128, nullptr) == CLAP_PROCESS_ERROR) {
+			context.fail("process() returned CLAP_PROCESS_ERROR while the transport was changing");
+			return;
+		}
+		for (const auto &violation : session.validator().violations())
+			if (violation.severity == Severity::Error) {
+				context.fail(violation.where + ": " + violation.message);
+				return;
+			}
+	}
+	transport.suppressedFlags = 0;
+	context.note("varied tempo, time signature, loop points and which flags were set");
+}
+
+// --- interface ------------------------------------------------------------
+
+void guiOpenClose(TestContext &context) {
+	Session &session = context.session();
+	const auto *gui = session.pluginExtension<clap_plugin_gui_t>(CLAP_EXT_GUI);
+	if (gui == nullptr) {
+		context.skip("the plug-in has no interface");
+		return;
+	}
+	// Twice, because the second time is the one that finds a plug-in whose
+	// teardown does not undo its setup.
+	for (int attempt = 0; attempt < 2; ++attempt) {
+		std::string error;
+		if (!session.gui().open({}, false, error)) {
+			context.skip("could not open the interface: " + error);
+			return;
+		}
+		session.gui().close();
+	}
+	context.note("opened and closed twice");
+}
+
+void guiResize(TestContext &context) {
+	Session &session = context.session();
+	const auto *gui = session.pluginExtension<clap_plugin_gui_t>(CLAP_EXT_GUI);
+	if (gui == nullptr || gui->get_size == nullptr) {
+		context.skip("the plug-in has no interface");
+		return;
+	}
+	std::string error;
+	if (!session.gui().open({}, false, error)) {
+		context.skip("could not open the interface: " + error);
+		return;
+	}
+
+	uint32_t width = 0;
+	uint32_t height = 0;
+	if (!gui->get_size(session.plugin(), &width, &height)) {
+		context.fail("the plug-in could not report the size of the interface it just created");
+		session.gui().close();
+		return;
+	}
+	if (width == 0 || height == 0)
+		context.fail("the plug-in reports an interface with no area");
+
+	if (gui->can_resize != nullptr && gui->can_resize(session.plugin())) {
+		// adjust_size must settle: a size it returns, fed back in, must come
+		// back unchanged, or a host dragging a window never converges.
+		uint32_t wanted = width + 137;
+		uint32_t wantedHeight = height + 71;
+		if (gui->adjust_size != nullptr) {
+			gui->adjust_size(session.plugin(), &wanted, &wantedHeight);
+			uint32_t again = wanted;
+			uint32_t againHeight = wantedHeight;
+			gui->adjust_size(session.plugin(), &again, &againHeight);
+			if (again != wanted || againHeight != wantedHeight)
+				context.fail("adjust_size does not settle: a size it returned came back different the second "
+				             "time, so a host resizing the window would never converge");
+		}
+		if (gui->set_size != nullptr && !gui->set_size(session.plugin(), wanted, wantedHeight))
+			context.fail("the plug-in refused a size its own adjust_size produced");
+	} else {
+		context.note("the interface is a fixed size");
+	}
+	session.gui().close();
+}
+
 const std::vector<TestCase> &tests() {
 	static const std::vector<TestCase> cases = {
 	    {"descriptor-consistency", "The factory and the created plug-in describe themselves the same way.",
@@ -592,6 +1030,21 @@ const std::vector<TestCase> &tests() {
 	    {"state-invalid-random", "Random bytes do not crash the plug-in.", stateInvalidRandom},
 	    {"state-round-trip", "State saved and loaded returns the same parameters.", stateRoundTrip},
 	    {"state-buffered", "State loads from a stream that returns short reads.", stateBuffered},
+	    {"process-note-basic", "A consistent stream of notes and expressions.", processNoteBasic},
+	    {"process-note-inconsistent", "Notes ended that never started, and started twice.",
+	     processNoteInconsistent},
+	    {"process-note-wildcard", "Notes addressed with wildcards in the tuple.", processNoteWildcard},
+	    {"param-fuzz-basic", "Every parameter changed every block.", paramFuzzBasic},
+	    {"param-fuzz-bounds", "Every parameter at exactly its minimum or maximum.", paramFuzzBounds},
+	    {"param-fuzz-beyond", "Values outside the range the plug-in declared.", paramFuzzBeyond},
+	    {"param-fuzz-sample-accurate", "Parameters swept many times within a block.", paramFuzzSampleAccurate},
+	    {"param-fuzz-no-cookies", "Parameter events carrying no cookie.", paramFuzzNoCookies},
+	    {"param-fuzz-modulation", "Polyphonic modulation alongside a live note stream.", paramFuzzModulation},
+	    {"param-set-events", "flush() and process() put a parameter in the same place.", paramSetEvents},
+	    {"transport-null", "Processing with no transport at all.", transportNull},
+	    {"transport-fuzz", "Tempo, metre, loops and withheld flags changing every block.", transportFuzz},
+	    {"gui-open-close", "The interface opens and closes twice.", guiOpenClose},
+	    {"gui-resize", "The interface reports a size, and adjust_size settles.", guiResize},
 	};
 	return cases;
 }

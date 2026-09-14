@@ -71,6 +71,7 @@ add_library(nch-core STATIC
     src/process-check.cpp
     src/wav.cpp
     src/webview.cpp
+    src/event-generator.cpp
     src/event-list.cpp
     src/gui.cpp
     src/host.cpp
