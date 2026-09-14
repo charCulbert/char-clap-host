@@ -48,7 +48,11 @@ public:
 		return true;
 	}
 
-	template <typename T> bool push(const T &event) { return push(&event.header); }
+	// Accepts any concrete clap event struct; the decltype keeps pointers out
+	// of this overload so they take the header overload above.
+	template <typename T> auto push(const T &event) -> decltype(event.header, bool()) {
+		return push(&event.header);
+	}
 
 	// Orders events by time, as CLAP requires of an input list. The order of
 	// events sharing a time is preserved.

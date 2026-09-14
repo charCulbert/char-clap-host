@@ -8,6 +8,7 @@
 
 #include "bundle.h"
 #include "command.h"
+#include "engine.h"
 #include "host.h"
 #include "validator.h"
 
@@ -58,6 +59,9 @@ public:
 	bool isLoaded() const { return plugin_ != nullptr; }
 	const clap_plugin_t *plugin() const { return plugin_; }
 	const clap_plugin_descriptor_t *descriptor() const { return descriptor_; }
+
+	Engine &engine() { return engine_; }
+	void setProcessing(bool processing) { processing_ = processing; }
 
 	bool activate(double sampleRate, uint32_t minFrames, uint32_t maxFrames, std::string &error);
 	void deactivate();
@@ -115,6 +119,7 @@ public:
 
 private:
 	void registerCommands();
+	void registerAudioCommands();
 	void refreshExtensions();
 
 	Options options_;
@@ -122,6 +127,8 @@ private:
 	Host host_;
 	Bundle bundle_;
 	CommandTable commands_;
+
+	Engine engine_;
 
 	const clap_plugin_descriptor_t *descriptor_ = nullptr;
 	const clap_plugin_t *plugin_ = nullptr;

@@ -16,10 +16,11 @@ uint64_t nowMs() {
 } // namespace
 
 Session::Session(Options options)
-    : options_(std::move(options)), host_(*this, validator_) {
+    : options_(std::move(options)), host_(*this, validator_), engine_(*this) {
 	sampleRate_ = options_.sampleRate;
 	maxFrames_ = options_.blockSize;
 	registerCommands();
+	registerAudioCommands();
 }
 
 Session::~Session() {
@@ -100,11 +101,7 @@ bool Session::activate(double sampleRate, uint32_t minFrames, uint32_t maxFrames
 void Session::deactivate() {
 	if (plugin_ == nullptr || !active_)
 		return;
-	if (processing_) {
-		ScopedThreadRole role(ThreadRole::Audio);
-		plugin_->stop_processing(plugin_);
-		processing_ = false;
-	}
+	engine_.stop();
 	plugin_->deactivate(plugin_);
 	active_ = false;
 }
@@ -327,6 +324,8 @@ void Session::writeResponse(const Request &request, const Response &response) {
 		std::fflush(stdout);
 		return;
 	}
+	if (response.data.isNull())
+		return;
 	const std::string text = response.data.toText();
 	if (!text.empty())
 		std::fputs(text.c_str(), stdout);

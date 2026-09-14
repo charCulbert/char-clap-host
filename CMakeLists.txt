@@ -18,6 +18,10 @@ add_library(nch-core STATIC
     src/bundle.cpp
     src/command.cpp
     src/commands.cpp
+    src/commands-audio.cpp
+    src/engine.cpp
+    src/process-buffers.cpp
+    src/wav.cpp
     src/event-list.cpp
     src/host.cpp
     src/json.cpp
