@@ -27,31 +27,22 @@ bool Engine::start(std::string &error) {
 		error = "no plug-in loaded";
 		return false;
 	}
-	if (!session_.isActive() &&
-	    !session_.activate(session_.sampleRate(), 1, session_.blockSize(), error))
+	if (!session_.isActive() && !session_.activate(session_.sampleRate(), 1, session_.blockSize(), error))
 		return false;
+	// Buffers are shaped by the port layout, which may only change while the
+	// plug-in is inactive, so building them after activation is safe.
 	buffers_.build(session_, session_.blockSize());
-	if (!running_) {
-		ScopedThreadRole role(ThreadRole::Audio);
-		if (!session_.plugin()->start_processing(session_.plugin())) {
-			error = "start_processing failed";
-			return false;
-		}
-		running_ = true;
-		session_.setProcessing(true);
-	}
+	if (!session_.instance().startProcessing(error))
+		return false;
+	running_ = true;
 	return true;
 }
 
 void Engine::stop() {
 	if (!running_)
 		return;
-	if (session_.isLoaded()) {
-		ScopedThreadRole role(ThreadRole::Audio);
-		session_.plugin()->stop_processing(session_.plugin());
-	}
+	session_.instance().stopProcessing();
 	running_ = false;
-	session_.setProcessing(false);
 }
 
 void Engine::resetPlayhead() {
@@ -431,19 +422,10 @@ bool Engine::runSilentBlock(std::string &error) {
 		// Already processing: the next block carries whatever is queued.
 		return true;
 	}
-	if (!session_.isActive() && !session_.activate(session_.sampleRate(), 1, session_.blockSize(), error))
-		return false;
-
 	buffers_.build(session_, session_.blockSize());
-	{
-		ScopedThreadRole role(ThreadRole::Audio);
-		if (!session_.plugin()->start_processing(session_.plugin())) {
-			error = "start_processing failed";
-			return false;
-		}
-	}
+	if (!session_.instance().startProcessing(error))
+		return false;
 	running_ = true;
-	session_.setProcessing(true);
 	processBlock(session_.blockSize(), nullptr);
 	stop();
 	return true;

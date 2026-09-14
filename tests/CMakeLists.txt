@@ -6,10 +6,17 @@ add_executable(nch-tests
     event-list.test.cpp
     midi-file.test.cpp
     note-encoding.test.cpp
+    plugin-instance.test.cpp
     wav.test.cpp
     main.cpp
 )
 target_link_libraries(nch-tests PRIVATE nch-core)
+# The unit tests drive real fixture plug-ins, which is what makes them worth
+# more than a mock would be.
+# The unit tests drive real fixture plug-ins rather than mocks, so they need
+# them built and need to know where they landed.
+add_dependencies(nch-tests fixtures)
+target_compile_definitions(nch-tests PRIVATE NCH_FIXTURE_DIR="${CMAKE_BINARY_DIR}/fixtures")
 add_test(NAME unit COMMAND nch-tests)
 
 find_package(Python3 COMPONENTS Interpreter)

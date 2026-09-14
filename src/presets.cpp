@@ -199,10 +199,10 @@ Value describePresets(const Indexing &indexing) {
 
 Value Session::presetReport() {
 	const auto *factory =
-	    static_cast<const clap_preset_discovery_factory_t *>(bundle_.getFactory(CLAP_PRESET_DISCOVERY_FACTORY_ID));
+	    static_cast<const clap_preset_discovery_factory_t *>(instance_.bundle().getFactory(CLAP_PRESET_DISCOVERY_FACTORY_ID));
 	if (factory == nullptr)
 		factory = static_cast<const clap_preset_discovery_factory_t *>(
-		    bundle_.getFactory(CLAP_PRESET_DISCOVERY_FACTORY_ID_COMPAT));
+		    instance_.bundle().getFactory(CLAP_PRESET_DISCOVERY_FACTORY_ID_COMPAT));
 	Object empty;
 	if (factory == nullptr || factory->count == nullptr) {
 		empty["presets"] = Value(Array{});

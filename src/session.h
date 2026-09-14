@@ -6,7 +6,6 @@
 // rules hold without the handlers thinking about it.
 #pragma once
 
-#include "bundle.h"
 #include "command.h"
 #include "devices.h"
 #include "engine.h"
@@ -15,6 +14,7 @@
 #include "settings-window.h"
 #include "host-services.h"
 #include "host.h"
+#include "plugin-instance.h"
 #include "validator.h"
 
 #include <atomic>
@@ -57,16 +57,20 @@ public:
 	Validator &validator() { return validator_; }
 	Host &host() { return host_; }
 	HostServices &services() { return services_; }
-	Bundle &bundle() { return bundle_; }
+	Bundle &bundle() { return instance_.bundle(); }
+	// The loaded plug-in. Everything that needs one takes this rather than the
+	// whole session.
+	PluginInstance &instance() { return instance_; }
 
 	// --- lifecycle -------------------------------------------------------
-	// Loads a bundle and creates a plug-in instance from it. Any previous
-	// plug-in is destroyed first.
+	// Loads a plug-in and brings the host's own state into line with it. The
+	// instance owns the CLAP state machine; the session owns the order the
+	// host's windows and devices are torn down in.
 	bool load(const std::string &path, const std::string &id, uint32_t index, std::string &error);
 	void unload();
-	bool isLoaded() const { return plugin_ != nullptr; }
-	const clap_plugin_t *plugin() const { return plugin_; }
-	const clap_plugin_descriptor_t *descriptor() const { return descriptor_; }
+	bool isLoaded() const { return instance_.isLoaded(); }
+	const clap_plugin_t *plugin() const { return instance_.plugin(); }
+	const clap_plugin_descriptor_t *descriptor() const { return instance_.descriptor(); }
 
 	Engine &engine() { return engine_; }
 	AudioDevice &audioDevice() { return audioDevice_; }
@@ -94,19 +98,16 @@ public:
 	// Messages the plug-in's note dialect has no form for, counted rather than
 	// silently discarded.
 	uint64_t midiDroppedCount() const { return midiDropped_.load(std::memory_order_relaxed); }
-	void setProcessing(bool processing) { processing_ = processing; }
-
 	bool activate(double sampleRate, uint32_t minFrames, uint32_t maxFrames, std::string &error);
 	void deactivate();
-	bool isActive() const { return active_; }
-	double sampleRate() const { return sampleRate_; }
-	uint32_t blockSize() const { return maxFrames_; }
+	bool isActive() const { return instance_.isActive(); }
+	double sampleRate() const { return instance_.sampleRate(); }
+	uint32_t blockSize() const { return instance_.blockSize(); }
 
-	// Cached plug-in extension pointers, refreshed on load.
 	template <typename T> const T *pluginExtension(const char *id) const {
-		return static_cast<const T *>(rawPluginExtension(id));
+		return instance_.extension<T>(id);
 	}
-	const void *rawPluginExtension(const char *id) const;
+	const void *rawPluginExtension(const char *id) const { return instance_.rawExtension(id); }
 
 	// --- main-thread work ------------------------------------------------
 	// Callable from any thread. The work runs on the main thread.
@@ -188,9 +189,9 @@ private:
 	Validator validator_;
 	Host host_;
 	HostServices services_;
-	Bundle bundle_;
 	CommandTable commands_;
 
+	PluginInstance instance_;
 	Engine engine_;
 	AudioDevice audioDevice_;
 	MidiInput midiInput_;
@@ -207,13 +208,6 @@ private:
 	uint64_t testToneLength_ = 0;
 	double testTonePhase_ = 0.0;
 
-	const clap_plugin_descriptor_t *descriptor_ = nullptr;
-	const clap_plugin_t *plugin_ = nullptr;
-	bool active_ = false;
-	bool processing_ = false;
-	double sampleRate_ = 48000.0;
-	uint32_t minFrames_ = 1;
-	uint32_t maxFrames_ = 512;
 	bool stateDirty_ = false;
 	bool quit_ = false;
 

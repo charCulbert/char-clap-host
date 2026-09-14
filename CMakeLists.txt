@@ -60,6 +60,7 @@ add_library(nch-core STATIC
     src/engine.cpp
     src/midi-file.cpp
     src/note-encoding.cpp
+    src/plugin-instance.cpp
     src/presets.cpp
     src/state-stream.cpp
     src/process-buffers.cpp

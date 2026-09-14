@@ -40,9 +40,8 @@ uint64_t nowMs() {
 } // namespace
 
 Session::Session(Options options)
-    : options_(std::move(options)), host_(*this, validator_), engine_(*this), audioDevice_(*this), midiInput_(*this), gui_(*this), settings_(*this) {
-	sampleRate_ = options_.sampleRate;
-	maxFrames_ = options_.blockSize;
+    : options_(std::move(options)), host_(*this, validator_), instance_(host_.clapHost(), validator_), engine_(*this), audioDevice_(*this), midiInput_(*this), gui_(*this), settings_(*this) {
+	instance_.setPreferredFormat(options_.sampleRate, options_.blockSize);
 	registerCommands();
 	registerAudioCommands();
 	registerStateCommands();
@@ -56,38 +55,9 @@ Session::~Session() {
 
 bool Session::load(const std::string &path, const std::string &id, uint32_t index, std::string &error) {
 	unload();
-	if (!bundle_.open(path, error))
+	if (!instance_.load(path, id, index, error))
 		return false;
-
-	const clap_plugin_descriptor_t *descriptor = bundle_.findPlugin(id, index);
-	if (descriptor == nullptr) {
-		error = id.empty() ? "no plug-in at index " + std::to_string(index) : "no plug-in with id " + id;
-		bundle_.close();
-		return false;
-	}
-	if (!clap_version_is_compatible(descriptor->clap_version)) {
-		error = std::string("plug-in ") + descriptor->id + " declares an incompatible CLAP version";
-		bundle_.close();
-		return false;
-	}
-
-	const clap_plugin_t *plugin = bundle_.factory()->create_plugin(bundle_.factory(), host_.clapHost(), descriptor->id);
-	if (plugin == nullptr) {
-		error = std::string("create_plugin returned null for ") + descriptor->id;
-		bundle_.close();
-		return false;
-	}
-	if (!plugin->init(plugin)) {
-		plugin->destroy(plugin);
-		error = std::string("init failed for ") + descriptor->id;
-		bundle_.close();
-		return false;
-	}
-
-	descriptor_ = descriptor;
-	plugin_ = plugin;
 	host_.setPluginReady(true);
-	refreshExtensions();
 	// Worked out here, on the main thread, so a MIDI message arriving on a
 	// device thread never has to ask the plug-in.
 	engine_.refreshNoteEncoding();
@@ -95,63 +65,43 @@ bool Session::load(const std::string &path, const std::string &id, uint32_t inde
 }
 
 void Session::unload() {
-	if (plugin_ != nullptr) {
-		// The interface has to go before the instance it belongs to; a plug-in
-		// destroyed with its gui still live rightly complains.
+	if (instance_.isLoaded()) {
+		// The host's own things go first: an interface outliving the instance
+		// it belongs to, or a device thread still calling process(), are both
+		// worse than any ordering inside the instance itself.
 		gui_.close();
 		audioDevice_.stop();
 		midiInput_.close();
 		midiOutput_.close();
-		deactivate();
+		engine_.stop();
 		host_.setPluginReady(false);
-		plugin_->destroy(plugin_);
-		plugin_ = nullptr;
 	}
-	descriptor_ = nullptr;
+	instance_.unload();
 	timers_.clear();
 	{
 		std::lock_guard<std::mutex> lock(workMutex_);
 		work_.clear();
 	}
-	bundle_.close();
 }
 
 bool Session::activate(double sampleRate, uint32_t minFrames, uint32_t maxFrames, std::string &error) {
-	if (plugin_ == nullptr) {
-		error = "no plug-in loaded";
+	if (!instance_.activate(sampleRate, minFrames, maxFrames, error))
 		return false;
-	}
-	if (active_)
-		deactivate();
-	if (!plugin_->activate(plugin_, sampleRate, minFrames, maxFrames)) {
-		error = "activate failed";
-		return false;
-	}
-	active_ = true;
-	sampleRate_ = sampleRate;
-	minFrames_ = minFrames;
-	maxFrames_ = maxFrames;
 	engine_.refreshNoteEncoding();
+	// clap.latency is [main-thread & (being-activated | active)], so the value
+	// a plug-in reported during activation is only readable now.
+	latencyChangedDuringActivate_ = false;
 	return true;
 }
 
 void Session::deactivate() {
-	if (plugin_ == nullptr || !active_)
-		return;
 	engine_.stop();
-	plugin_->deactivate(plugin_);
-	active_ = false;
-}
-
-const void *Session::rawPluginExtension(const char *id) const {
-	if (plugin_ == nullptr || plugin_->get_extension == nullptr || id == nullptr)
-		return nullptr;
-	return plugin_->get_extension(plugin_, id);
+	instance_.deactivate();
 }
 
 void Session::refreshExtensions() {
-	// Extension pointers are fetched on demand; this hook exists so a future
-	// cache has one place to rebuild from.
+	// Extensions are fetched on demand through the instance; this hook exists
+	// so a future cache has one place to rebuild from.
 }
 
 void Session::postToMainThread(std::function<void()> work) {
@@ -168,8 +118,8 @@ void Session::runMainThreadWork() {
 	for (auto &work : pending)
 		work();
 
-	if (plugin_ != nullptr && callbackRequested_.exchange(false, std::memory_order_acq_rel))
-		plugin_->on_main_thread(plugin_);
+	if (callbackRequested_.exchange(false, std::memory_order_acq_rel))
+		instance_.runMainThreadCallback();
 
 	serviceFlushRequest();
 
@@ -178,7 +128,7 @@ void Session::runMainThreadWork() {
 		engine_.refreshNoteEncoding();
 	}
 
-	if (plugin_ == nullptr || timers_.empty())
+	if (!instance_.isLoaded() || timers_.empty())
 		return;
 	const auto *timerSupport = pluginExtension<clap_plugin_timer_support_t>(CLAP_EXT_TIMER_SUPPORT);
 	if (timerSupport == nullptr || timerSupport->on_timer == nullptr)
@@ -198,19 +148,17 @@ void Session::runMainThreadWork() {
 	for (const clap_id id : due) {
 		const bool stillRegistered =
 		    std::any_of(timers_.begin(), timers_.end(), [id](const Timer &timer) { return timer.id == id; });
-		if (!stillRegistered || plugin_ == nullptr)
+		if (!stillRegistered || !instance_.isLoaded())
 			continue;
-		timerSupport->on_timer(plugin_, id);
+		timerSupport->on_timer(instance_.plugin(), id);
 	}
 }
 
 bool Session::prepareForDevice(double sampleRate, uint32_t blockSize, std::string &error) {
 	options_.sampleRate = sampleRate;
 	options_.blockSize = blockSize;
-	if (active_)
-		deactivate();
-	sampleRate_ = sampleRate;
-	maxFrames_ = blockSize;
+	deactivate();
+	instance_.setPreferredFormat(sampleRate, blockSize);
 	return engine_.start(error);
 }
 
@@ -230,7 +178,7 @@ bool Session::startTestTone(double seconds, double frequency, std::string &error
 		error = "a test tone needs a positive length and frequency";
 		return false;
 	}
-	const auto length = static_cast<uint64_t>(seconds * sampleRate_);
+	const auto length = static_cast<uint64_t>(seconds * instance_.sampleRate());
 	testToneFrequency_.store(frequency, std::memory_order_relaxed);
 	testToneLength_ = length;
 	// Published last, so the audio thread never sees a length without the
@@ -245,10 +193,10 @@ void Session::renderTestTone(float *output, uint32_t frames, uint32_t channels) 
 		return;
 
 	const double frequency = testToneFrequency_.load(std::memory_order_relaxed);
-	const double step = 6.283185307179586 * frequency / sampleRate_;
+	const double step = 6.283185307179586 * frequency / instance_.sampleRate();
 	// A short ramp at each end, because a tone that starts and stops at full
 	// amplitude tests the listener's speakers more than their output device.
-	const auto ramp = static_cast<uint64_t>(sampleRate_ * 0.005);
+	const auto ramp = static_cast<uint64_t>(instance_.sampleRate() * 0.005);
 	const float peak = 0.25f;
 
 	for (uint32_t frame = 0; frame < frames && remaining != 0; ++frame, --remaining) {
@@ -285,12 +233,12 @@ void Session::onMidiMessage(const uint8_t *bytes, uint32_t size, std::chrono::st
 
 void Session::onRequestRestart() {
 	postToMainThread([this] {
-		if (!active_)
+		if (!instance_.isActive())
 			return;
 		std::string error;
-		const double rate = sampleRate_;
-		const uint32_t minFrames = minFrames_;
-		const uint32_t maxFrames = maxFrames_;
+		const double rate = instance_.sampleRate();
+		const uint32_t minFrames = instance_.minBlockSize();
+		const uint32_t maxFrames = instance_.blockSize();
 		// deactivate() stops processing on the way through, so whether to
 		// resume has to be remembered before it runs; otherwise a plug-in that
 		// asks for a restart falls silent for good.
@@ -311,7 +259,7 @@ void Session::onRequestProcess() {
 	// 'sleep'." A plug-in that returned CLAP_PROCESS_SLEEP has no other way
 	// back, so the host resumes rather than counting the request.
 	postToMainThread([this] {
-		if (plugin_ == nullptr || engine_.isRunning())
+		if (!instance_.isLoaded() || engine_.isRunning())
 			return;
 		std::string error;
 		if (!engine_.start(error))
@@ -329,7 +277,7 @@ void Session::onParamsRescan(clap_param_rescan_flags flags) {
 	services_.recordCall("clap_host_params.rescan" + paramRescanFlagNames(flags));
 	// "[CLAP_PARAM_RESCAN_ALL] can only be used while the plugin is
 	// deactivated."
-	if ((flags & CLAP_PARAM_RESCAN_ALL) != 0 && active_)
+	if ((flags & CLAP_PARAM_RESCAN_ALL) != 0 && instance_.isActive())
 		validator_.error("clap_host_params.rescan",
 		                 "CLAP_PARAM_RESCAN_ALL while the plug-in is active; it may only be used while deactivated");
 }
@@ -347,13 +295,13 @@ void Session::onParamsRequestFlush() {
 }
 
 void Session::serviceFlushRequest() {
-	if (!flushRequested_.exchange(false, std::memory_order_acq_rel) || plugin_ == nullptr)
+	if (!flushRequested_.exchange(false, std::memory_order_acq_rel) || !instance_.isLoaded())
 		return;
 	const auto *params = pluginExtension<clap_plugin_params_t>(CLAP_EXT_PARAMS);
 	if (params == nullptr || params->flush == nullptr)
 		return;
 
-	if (active_) {
+	if (instance_.isActive()) {
 		// While active, flush belongs to the audio thread, so the delivery
 		// route is a process block rather than a direct call.
 		std::string error;
@@ -364,7 +312,7 @@ void Session::serviceFlushRequest() {
 
 	EventList in;
 	EventList out;
-	params->flush(plugin_, in.input(), out.output());
+	params->flush(instance_.plugin(), in.input(), out.output());
 	absorbOutputEvents(out);
 }
 
@@ -505,7 +453,7 @@ void Session::onAudioPortsRescan(uint32_t flags) {
 	constexpr uint32_t layoutFlags = CLAP_AUDIO_PORTS_RESCAN_FLAGS | CLAP_AUDIO_PORTS_RESCAN_CHANNEL_COUNT |
 	                                 CLAP_AUDIO_PORTS_RESCAN_PORT_TYPE | CLAP_AUDIO_PORTS_RESCAN_IN_PLACE_PAIR |
 	                                 CLAP_AUDIO_PORTS_RESCAN_LIST;
-	if ((flags & layoutFlags) != 0 && active_)
+	if ((flags & layoutFlags) != 0 && instance_.isActive())
 		validator_.error("clap_host_audio_ports.rescan",
 		                 "a layout-changing rescan while the plug-in is active; those flags require deactivation");
 	audioPortsChanged_ = true;
@@ -592,14 +540,14 @@ void Session::onGuiClosed(bool wasDestroyed) {
 Value Session::statusReport() const {
 	Object out;
 	out["loaded"] = Value(isLoaded());
-	if (descriptor_ != nullptr) {
-		out["id"] = Value(descriptor_->id ? descriptor_->id : "");
-		out["name"] = Value(descriptor_->name ? descriptor_->name : "");
+	if (instance_.descriptor() != nullptr) {
+		out["id"] = Value(instance_.descriptor()->id ? instance_.descriptor()->id : "");
+		out["name"] = Value(instance_.descriptor()->name ? instance_.descriptor()->name : "");
 	}
-	out["active"] = Value(active_);
-	out["processing"] = Value(processing_);
-	out["sampleRate"] = Value(sampleRate_);
-	out["blockSize"] = Value(maxFrames_);
+	out["active"] = Value(instance_.isActive());
+	out["processing"] = Value(instance_.isProcessing());
+	out["sampleRate"] = Value(instance_.sampleRate());
+	out["blockSize"] = Value(instance_.blockSize());
 	out["stateDirty"] = Value(stateDirty_);
 	out["timers"] = Value(static_cast<uint64_t>(timers_.size()));
 	out["restartRequests"] = Value(services_.callCount("clap_host.request_restart"));
