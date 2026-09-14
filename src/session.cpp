@@ -2,6 +2,7 @@
 
 #include "thread-role.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -148,12 +149,24 @@ void Session::runMainThreadWork() {
 	const auto *timerSupport = pluginExtension<clap_plugin_timer_support_t>(CLAP_EXT_TIMER_SUPPORT);
 	if (timerSupport == nullptr || timerSupport->on_timer == nullptr)
 		return;
+	// A plug-in may register or unregister a timer from inside on_timer, which
+	// would move the vector under an iterator. The ids that are due are taken
+	// first, and each is re-checked before firing so one cancelled by an
+	// earlier callback does not fire after all.
 	const uint64_t now = nowMs();
+	std::vector<clap_id> due;
 	for (auto &timer : timers_) {
 		if (now < timer.nextDueMs)
 			continue;
 		timer.nextDueMs = now + timer.periodMs;
-		timerSupport->on_timer(plugin_, timer.id);
+		due.push_back(timer.id);
+	}
+	for (const clap_id id : due) {
+		const bool stillRegistered =
+		    std::any_of(timers_.begin(), timers_.end(), [id](const Timer &timer) { return timer.id == id; });
+		if (!stillRegistered || plugin_ == nullptr)
+			continue;
+		timerSupport->on_timer(plugin_, id);
 	}
 }
 
@@ -228,17 +241,12 @@ void Session::renderTestTone(float *output, uint32_t frames, uint32_t channels) 
 void Session::onMidiMessage(const uint8_t *bytes, uint32_t size, std::chrono::steady_clock::time_point arrival) {
 	midiMessages_.fetch_add(1, std::memory_order_relaxed);
 	if (size == 0 || size > 3)
-		return; // sysex has no CLAP MIDI 1.0 event shape
-	clap_event_midi_t event{};
-	event.header.size = sizeof(event);
-	event.header.time = 0;
-	event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-	event.header.type = CLAP_EVENT_MIDI;
-	event.header.flags = CLAP_EVENT_IS_LIVE;
-	event.port_index = 0;
-	for (uint32_t i = 0; i < size; ++i)
-		event.data[i] = bytes[i];
-	engine_.scheduleLive(&event.header, arrival);
+		return; // sysex arrives here only as a truncated fragment
+	// Encoded for whatever the plug-in's note port accepts, so a keyboard
+	// reaches a CLAP-only instrument rather than playing to nobody.
+	const NoteTranslation translation = engine_.scheduleLiveMidi(bytes, size, 0, arrival);
+	if (translation.dropped)
+		midiDropped_.fetch_add(1, std::memory_order_relaxed);
 }
 
 void Session::onRequestRestart() {
@@ -361,7 +369,9 @@ bool Session::onWebviewMessage(const void *buffer, uint32_t size) {
 void Session::onGuiClosed(bool wasDestroyed) {
 	guiClosedByPlugin_ = true;
 	guiDestroyedByPlugin_ = wasDestroyed;
-	gui_.onPluginClosed(wasDestroyed);
+	// clap.gui marks closed() [thread-safe], so this can arrive on any thread,
+	// while the destroy() it obliges the host to make is main-thread only.
+	postToMainThread([this, wasDestroyed] { gui_.onPluginClosed(wasDestroyed); });
 }
 
 Value Session::statusReport() const {
@@ -383,6 +393,8 @@ Value Session::statusReport() const {
 	out["paramRescans"] = Value(paramRescanCount_);
 	out["violations"] = Value(static_cast<uint64_t>(validator_.violationCount()));
 	out["webviewMessages"] = Value(webviewMessagesSent_);
+	out["midiMessages"] = Value(midiMessageCount());
+	out["midiDropped"] = Value(midiDroppedCount());
 	return Value(std::move(out));
 }
 

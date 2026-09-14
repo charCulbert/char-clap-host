@@ -3,6 +3,12 @@
 //
 // Events are stored by value in one byte buffer so a block's events stay
 // contiguous and the plug-in sees them in ascending time order.
+//
+// A sysex event carries its payload behind a pointer that is only valid for
+// the duration of the try_push call, so the list copies those bytes too. It
+// records where they went as an offset rather than an address: the buffer
+// reallocates as more events arrive, and an address stored now would dangle
+// the moment it did.
 #pragma once
 
 #include <clap/clap.h>
@@ -28,23 +34,44 @@ public:
 	void clear() {
 		storage_.clear();
 		offsets_.clear();
+		payloadOffsets_.clear();
 	}
 
 	bool empty() const { return offsets_.empty(); }
 	uint32_t size() const { return static_cast<uint32_t>(offsets_.size()); }
 
+	// The event at `index`. A sysex event's payload pointer is resolved here,
+	// which is what keeps it valid however much the storage has grown since.
 	const clap_event_header_t *at(uint32_t index) const {
-		return reinterpret_cast<const clap_event_header_t *>(storage_.data() + offsets_[index]);
+		auto *header = reinterpret_cast<clap_event_header_t *>(
+		    const_cast<uint8_t *>(storage_.data()) + offsets_[index]);
+		if (payloadOffsets_[index] != kNoPayload) {
+			auto *sysex = reinterpret_cast<clap_event_midi_sysex_t *>(header);
+			sysex->buffer = storage_.data() + payloadOffsets_[index];
+		}
+		return header;
 	}
 
-	// Copies one event in. Returns false if the header size is implausible.
+	// Copies one event in, including a sysex payload. Returns false if the
+	// header size is implausible.
 	bool push(const clap_event_header_t *header) {
 		if (header == nullptr || header->size < sizeof(clap_event_header_t))
 			return false;
+
+		const bool isSysex = header->space_id == CLAP_CORE_EVENT_SPACE_ID &&
+		                     header->type == CLAP_EVENT_MIDI_SYSEX &&
+		                     header->size >= sizeof(clap_event_midi_sysex_t);
+		const auto *sysex = isSysex ? reinterpret_cast<const clap_event_midi_sysex_t *>(header) : nullptr;
+		const uint32_t payloadSize = sysex != nullptr && sysex->buffer != nullptr ? sysex->size : 0;
+
 		const size_t offset = storage_.size();
-		storage_.resize(offset + header->size);
+		storage_.resize(offset + header->size + payloadSize);
 		std::memcpy(storage_.data() + offset, header, header->size);
+		if (payloadSize != 0)
+			std::memcpy(storage_.data() + offset + header->size, sysex->buffer, payloadSize);
+
 		offsets_.push_back(offset);
+		payloadOffsets_.push_back(payloadSize != 0 ? offset + header->size : kNoPayload);
 		return true;
 	}
 
@@ -74,8 +101,13 @@ private:
 
 	clap_input_events_t input_{};
 	clap_output_events_t output_{};
+	static constexpr size_t kNoPayload = static_cast<size_t>(-1);
+
 	std::vector<uint8_t> storage_;
 	std::vector<size_t> offsets_;
+	// Parallel to offsets_: where each event's sysex payload was copied, or
+	// kNoPayload for every other kind of event.
+	std::vector<size_t> payloadOffsets_;
 };
 
 } // namespace nch

@@ -152,32 +152,44 @@ clap_event_midi_t makeMidiNote(bool on, int16_t port, int16_t channel, int16_t k
 
 } // namespace
 
-// A plug-in only receives notes in a dialect its port declares. Instruments
-// that speak only MIDI would otherwise sit silent through every CLAP note the
-// host sends, so the host translates rather than the caller.
-bool Engine::portWantsMidiNotes(int16_t port) const {
-	const auto *ports = session_.pluginExtension<clap_plugin_note_ports_t>(CLAP_EXT_NOTE_PORTS);
-	if (ports == nullptr || ports->count == nullptr || ports->get == nullptr)
-		return false;
-	const uint32_t count = ports->count(session_.plugin(), true);
-	const uint32_t index = port < 0 ? 0 : static_cast<uint32_t>(port);
-	if (index >= count)
-		return false;
-	clap_note_port_info_t info{};
-	if (!ports->get(session_.plugin(), index, true, &info))
-		return false;
-	if ((info.supported_dialects & CLAP_NOTE_DIALECT_CLAP) != 0)
-		return false;
-	return (info.supported_dialects & (CLAP_NOTE_DIALECT_MIDI | CLAP_NOTE_DIALECT_MIDI_MPE)) != 0;
+// A plug-in only receives notes in the dialect its port declares, so the
+// choice is made once here and every caller inherits it.
+NoteEncoding Engine::noteEncoding(int16_t port) const {
+	return encodingForPort(session_.plugin(),
+	                       session_.pluginExtension<clap_plugin_note_ports_t>(CLAP_EXT_NOTE_PORTS), port);
+}
+
+NoteTranslation Engine::scheduleMidi(const uint8_t *bytes, uint32_t size, int16_t port, uint32_t flags,
+                                     uint64_t delayFrames) {
+	NoteTranslation translation = translateMidi(bytes, size, noteEncoding(port), flags);
+	size_t offset = 0;
+	for (uint32_t i = 0; i < translation.produced; ++i) {
+		const auto *header = reinterpret_cast<const clap_event_header_t *>(translation.storage.data() + offset);
+		scheduleAfter(header, delayFrames);
+		offset += header->size;
+	}
+	return translation;
+}
+
+NoteTranslation Engine::scheduleLiveMidi(const uint8_t *bytes, uint32_t size, int16_t port,
+                                         std::chrono::steady_clock::time_point arrival) {
+	NoteTranslation translation = translateMidi(bytes, size, noteEncoding(port), CLAP_EVENT_IS_LIVE);
+	size_t offset = 0;
+	for (uint32_t i = 0; i < translation.produced; ++i) {
+		const auto *header = reinterpret_cast<const clap_event_header_t *>(translation.storage.data() + offset);
+		scheduleLive(header, arrival);
+		offset += header->size;
+	}
+	return translation;
 }
 
 void Engine::noteOn(int16_t port, int16_t channel, int16_t key, double velocity, int32_t noteId, uint64_t delayFrames) {
 	const clap_event_note_t event = makeNote(CLAP_EVENT_NOTE_ON, port, channel, key, velocity, noteId);
-	if (portWantsMidiNotes(port)) {
+	if (noteEncoding(port).wantsClapNotes()) {
+		scheduleAfter(&event.header, delayFrames);
+	} else {
 		const clap_event_midi_t midi = makeMidiNote(true, port, channel, key, velocity);
 		scheduleAfter(&midi.header, delayFrames);
-	} else {
-		scheduleAfter(&event.header, delayFrames);
 	}
 	for (auto &active : activeNotes_)
 		if (sameNote(active, event))
@@ -187,11 +199,11 @@ void Engine::noteOn(int16_t port, int16_t channel, int16_t key, double velocity,
 
 void Engine::noteOff(int16_t port, int16_t channel, int16_t key, double velocity, int32_t noteId, uint64_t delayFrames) {
 	const clap_event_note_t event = makeNote(CLAP_EVENT_NOTE_OFF, port, channel, key, velocity, noteId);
-	if (portWantsMidiNotes(port)) {
+	if (noteEncoding(port).wantsClapNotes()) {
+		scheduleAfter(&event.header, delayFrames);
+	} else {
 		const clap_event_midi_t midi = makeMidiNote(false, port, channel, key, velocity);
 		scheduleAfter(&midi.header, delayFrames);
-	} else {
-		scheduleAfter(&event.header, delayFrames);
 	}
 	for (auto it = activeNotes_.begin(); it != activeNotes_.end(); ++it) {
 		if (sameNote(*it, event)) {
@@ -257,9 +269,17 @@ void Engine::buildTransportEvent(uint32_t frames) {
 	transportEvent_.tsig_denom = transport_.timeSigDenominator;
 	transportEvent_.song_pos_beats = toBeatTime(transport_.songBeats);
 	transportEvent_.song_pos_seconds = toSecTime(transport_.songSeconds);
-	transportEvent_.bar_start = toBeatTime(0.0);
-	transportEvent_.bar_number = static_cast<int32_t>(transport_.songBeats /
-	                                                  std::max(1.0, static_cast<double>(transport_.timeSigNumerator)));
+
+	// A beat is a quarter note, so a bar is only tsig_num beats long in x/4.
+	// In 6/8 it is three, and a plug-in working out its position within the
+	// bar as song_pos_beats - bar_start gets that wrong for the whole session
+	// if the host leaves bar_start at zero.
+	const double beatsPerBar =
+	    std::max(1.0, static_cast<double>(transport_.timeSigNumerator) * 4.0 /
+	                      std::max(1.0, static_cast<double>(transport_.timeSigDenominator)));
+	const double barsElapsed = std::floor(transport_.songBeats / beatsPerBar);
+	transportEvent_.bar_start = toBeatTime(barsElapsed * beatsPerBar);
+	transportEvent_.bar_number = static_cast<int32_t>(barsElapsed);
 	transportEvent_.loop_start_beats = toBeatTime(transport_.loopStartBeats);
 	transportEvent_.loop_end_beats = toBeatTime(transport_.loopEndBeats);
 	transportEvent_.loop_start_seconds = toSecTime(transport_.loopStartBeats * 60.0 / transport_.tempo);

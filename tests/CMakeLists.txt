@@ -3,7 +3,9 @@
 add_executable(nch-tests
     json.test.cpp
     command.test.cpp
+    event-list.test.cpp
     midi-file.test.cpp
+    note-encoding.test.cpp
     wav.test.cpp
     main.cpp
 )

@@ -46,6 +46,18 @@ Value measure(const AudioData &audio) {
 	return Value(std::move(out));
 }
 
+// A control change has no CLAP note form, so the reply says what happened
+// rather than reporting success for a message that went nowhere.
+Value describeTranslation(const NoteTranslation &translation) {
+	if (translation.produced != 0)
+		return {};
+	Object out;
+	out["delivered"] = Value(false);
+	out["reason"] = Value(translation.unrecognised ? "not a MIDI 1.0 channel-voice message"
+	                                               : "the plug-in's note port has no form for this message");
+	return Value(std::move(out));
+}
+
 SampleFormat formatFromName(const std::string &name) {
 	if (name == "pcm16" || name == "16")
 		return SampleFormat::Pcm16;
@@ -199,19 +211,17 @@ void Session::registerAudioCommands() {
 			               return ready;
 		               if (!request.hasArg(0, "status") || !request.hasArg(1, "data1"))
 			               return Response::failure("usage: midi <status> <data1> [data2] [port]");
-		               clap_event_midi_t event{};
-		               event.header.size = sizeof(event);
-		               event.header.time = 0;
-		               event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-		               event.header.type = CLAP_EVENT_MIDI;
-		               event.header.flags = 0;
-		               event.port_index = static_cast<uint16_t>(request.arg(3, "port").asNumber(0));
-		               event.data[0] = static_cast<uint8_t>(request.arg(0, "status").asNumber());
-		               event.data[1] = static_cast<uint8_t>(request.arg(1, "data1").asNumber());
-		               event.data[2] = static_cast<uint8_t>(request.arg(2, "data2").asNumber(0));
+		               const uint8_t bytes[3] = {
+		                   static_cast<uint8_t>(request.arg(0, "status").asNumber()),
+		                   static_cast<uint8_t>(request.arg(1, "data1").asNumber()),
+		                   static_cast<uint8_t>(request.arg(2, "data2").asNumber(0))};
+		               const auto port = static_cast<int16_t>(request.arg(3, "port").asNumber(0));
 		               const uint64_t delay = framesFromArgument(request.arg("at"), session.sampleRate(), 0);
-		               session.engine().scheduleAfter(&event.header, delay);
-		               return Response::success();
+		               // Encoded for the port rather than sent raw, so the same
+		               // message reaches a CLAP-only instrument too.
+		               const NoteTranslation translation =
+		                   session.engine().scheduleMidi(bytes, 3, port, 0, delay);
+		               return Response::success(describeTranslation(translation));
 	               }});
 
 	commands_.add({"cc", "<controller> <value> [channel] [port]", "Send one MIDI control change.",
@@ -222,19 +232,14 @@ void Session::registerAudioCommands() {
 		               if (!request.hasArg(0, "controller") || !request.hasArg(1, "value"))
 			               return Response::failure("usage: cc <controller> <value> [channel] [port]");
 		               const auto channel = static_cast<uint8_t>(request.arg(2, "channel").asNumber(0));
-		               clap_event_midi_t event{};
-		               event.header.size = sizeof(event);
-		               event.header.time = 0;
-		               event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-		               event.header.type = CLAP_EVENT_MIDI;
-		               event.header.flags = 0;
-		               event.port_index = static_cast<uint16_t>(request.arg(3, "port").asNumber(0));
-		               event.data[0] = static_cast<uint8_t>(0xB0 | (channel & 0x0F));
-		               event.data[1] = static_cast<uint8_t>(request.arg(0, "controller").asNumber());
-		               event.data[2] = static_cast<uint8_t>(request.arg(1, "value").asNumber());
+		               const uint8_t bytes[3] = {static_cast<uint8_t>(0xB0 | (channel & 0x0F)),
+		                                         static_cast<uint8_t>(request.arg(0, "controller").asNumber()),
+		                                         static_cast<uint8_t>(request.arg(1, "value").asNumber())};
+		               const auto port = static_cast<int16_t>(request.arg(3, "port").asNumber(0));
 		               const uint64_t delay = framesFromArgument(request.arg("at"), session.sampleRate(), 0);
-		               session.engine().scheduleAfter(&event.header, delay);
-		               return Response::success();
+		               const NoteTranslation translation =
+		                   session.engine().scheduleMidi(bytes, 3, port, 0, delay);
+		               return Response::success(describeTranslation(translation));
 	               }});
 
 	commands_.add({"midi.load", "<file.mid> [--tempo] [--at=<seconds>]",

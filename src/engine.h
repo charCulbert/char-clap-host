@@ -6,6 +6,7 @@
 #pragma once
 
 #include "event-list.h"
+#include "note-encoding.h"
 #include "process-buffers.h"
 #include "wav.h"
 
@@ -102,9 +103,18 @@ public:
 	void noteOff(int16_t port, int16_t channel, int16_t key, double velocity, int32_t noteId, uint64_t delayFrames);
 	void allNotesOff(uint64_t delayFrames);
 	std::vector<clap_event_note_t> activeNotes() const;
-	// True when the port accepts MIDI but not CLAP notes, so the host sends
-	// MIDI note messages instead.
-	bool portWantsMidiNotes(int16_t port) const;
+
+	// How the plug-in's note port wants notes encoded. Every path into the
+	// plug-in asks this, so a note is only ever sent one way.
+	NoteEncoding noteEncoding(int16_t port) const;
+
+	// Schedules one MIDI 1.0 message, encoded for the port. `arrival` places a
+	// live message at the frame it happened; pass nothing for `delayFrames`
+	// scheduling from the playhead. Returns what could not be delivered.
+	NoteTranslation scheduleMidi(const uint8_t *bytes, uint32_t size, int16_t port, uint32_t flags,
+	                             uint64_t delayFrames);
+	NoteTranslation scheduleLiveMidi(const uint8_t *bytes, uint32_t size, int16_t port,
+	                                 std::chrono::steady_clock::time_point arrival);
 
 	// Events the plug-in emitted during the last block.
 	const EventList &lastOutputEvents() const { return outEvents_; }

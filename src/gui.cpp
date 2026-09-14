@@ -316,12 +316,22 @@ bool PluginGui::requestHide() {
 
 void PluginGui::onPluginClosed(bool wasDestroyed) {
 	closedByPlugin_ = true;
-	if (wasDestroyed) {
-		// The plug-in has already destroyed its side; only the host's window
-		// is left to tidy away.
-		window_->native.reset();
-		api_ = GuiApi::None;
-	}
+	if (!wasDestroyed)
+		return;
+
+	// "If was_destroyed is true, then the host must call
+	// clap_plugin_gui->destroy() to acknowledge the gui destruction."
+	// The plug-in is waiting for that call, so hide() is skipped -- there is
+	// nothing left to hide -- but destroy() is not optional.
+	const clap_plugin_gui_t *gui = extension();
+	if (gui != nullptr && gui->destroy != nullptr)
+		gui->destroy(session_.plugin());
+
+	webview_.close();
+	window_->native.reset();
+	api_ = GuiApi::None;
+	width_ = 0;
+	height_ = 0;
 }
 
 bool PluginGui::sendWebviewMessage(const void *buffer, uint32_t size) {

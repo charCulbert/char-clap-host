@@ -398,7 +398,18 @@ const char *nativeWindowApi() {
 
 void runApplicationLoop(const std::function<bool()> &tick, int intervalMs) {
 	@autoreleasepool {
-		ensureApplication();
+		// A run that never opens a window should not become an application:
+		// NSApplicationActivationPolicyRegular takes a Dock icon and an
+		// activation handshake with the window server, which a headless render
+		// has no use for and which does not always complete when several such
+		// processes start and exit in quick succession. So the loop stays a
+		// plain run loop until something actually asks for a window.
+		while (NSApp == nil) {
+			if (!tick())
+				return;
+			CFRunLoopRunInMode(kCFRunLoopDefaultMode, intervalMs / 1000.0, false);
+		}
+
 		__block bool running = true;
 		// Common modes so the host keeps ticking through window resizes and
 		// menu tracking, which otherwise starve it.
