@@ -1,9 +1,12 @@
 # nativeClapHost
 
-A single-plugin native CLAP host you drive from the command line. It hosts one
-`.clap` at a time, implements every host-side extension the CLAP SDK defines,
-and answers in either human text or JSON — so the same host serves a person at
-a prompt and an agent driving a pipe.
+A native CLAP host for **one plug-in at a time**, built to be complete and to be
+driven — by a person at a prompt, by an agent over a pipe, or by hand in a
+window. It implements every host-side extension the CLAP SDK defines, and it
+checks what the plug-in does against the specification while it runs.
+
+It exists to answer one question well: *is this plug-in correct, and does it
+sound right?*
 
 ```console
 $ clap-host ~/Library/Audio/Plug-Ins/CLAP/MySynth.clap
@@ -11,13 +14,16 @@ $ clap-host ~/Library/Audio/Plug-Ins/CLAP/MySynth.clap
   id  name   module  value  text   min  max  default  flags
   0   Level          0.7    70.0%  0    1    0.7      automatable,modulatable
   1   Tone           0.5    50.0%  0    1    0.5      automatable,modulatable
+> activate 48000 512
 > note on 60 100
 > render 1.0 out.wav
   frames: 48000
   peak: 0.13042423
   rms: 0.053109267
+> validate
+  violations:
+  count: 0
 > gui open
-> quit
 ```
 
 ## Building
@@ -28,26 +34,46 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ```
 
-The binary lands at `build/clap-host` and the fixture plug-ins at
-`build/fixtures/*.clap`.
-
 Dependencies are submodules under `external/`: the CLAP SDK and clap-helpers,
-RtAudio and RtMidi for devices, and choc for the webview.
+RtAudio and RtMidi for devices, choc for webviews and non-macOS windows, and
+Compost for the device selector. Nothing else is linked.
 
-## Driving it
-
-Commands are read from stdin, one per line. There are three ways in, all the
-same grammar:
+On macOS the binary is inside an application bundle, because WebKit refuses to
+composite a webview in a process with no bundle identifier:
 
 ```sh
-clap-host plugin.clap                       # interactive prompt
-clap-host plugin.clap --script take.txt     # replay a file, then continue
-clap-host plugin.clap -- render 2.0 a.wav   # one command, then exit
-echo "params list" | clap-host plugin.clap  # a pipe
+build/clap-host.app/Contents/MacOS/clap-host   # the binary
+build/fixtures/*.clap                          # 22 test plug-ins
 ```
 
-A line beginning with `{` is read as a JSON request instead of argv words, and
-`--json` makes every reply a JSON object. These do the same thing:
+## Three ways in
+
+Every capability is reachable from the command line, as JSON, or — for the core
+of *using* a plug-in — from a window. The first two share one implementation: a
+single command table and a single reply renderer, so they cannot drift apart.
+
+```sh
+clap-host plugin.clap                        # interactive prompt
+clap-host plugin.clap --script take.txt      # replay a file, then continue
+clap-host plugin.clap -- render 2.0 a.wav    # one command, then exit
+echo "params list" | clap-host plugin.clap   # a pipe
+clap-host --json plugin.clap                 # replies as JSON
+```
+
+### For a person
+
+Commands are argv words. `help` lists them; `help <command>` explains one.
+
+```text
+param set 1 0.8
+note on 60 100
+render 2.0 out.wav
+```
+
+### For an agent or a script
+
+A line beginning with `{` is read as JSON instead, and `--json` makes every
+reply a JSON object. These three are the same command:
 
 ```text
 param set 1 0.8
@@ -55,77 +81,107 @@ param set 1 0.8
 {"cmd":"param.set","id":1,"value":0.8}
 ```
 
-`--strict` turns any CLAP contract violation into a failed command and a
-non-zero exit status, which is what you want in CI. `help` lists every command;
-`help <command>` explains one.
+Every reply has the same envelope, one per line:
 
-### The commands
+```json
+{"ok":true,"cmd":"param.set","data":{"id":1,"value":0.8,"text":"80.0%"}}
+{"ok":false,"cmd":"param.get","error":"no parameter with id 7"}
+```
+
+`--strict` turns any CLAP contract violation into a failed command and a
+non-zero exit status, which is what you want in CI:
+
+```sh
+clap-host --strict --json plugin.clap -- validate ; echo "exit $?"
+```
+
+Positional arguments and named ones are interchangeable: `render 2.0 out.wav`
+is `{"cmd":"render","args":[2.0,"out.wav"]}`, and any argument can be given by
+name. Durations are seconds, or frames with an `f` suffix (`480f`). Lines
+beginning with `#` are comments.
+
+### In a window
+
+`settings` opens the device selector; `gui.open` opens the plug-in's own
+interface. On macOS there is a menu bar: **File → Load Plug-in…** (⌘O), a
+`.clap` dropped on a window, **Settings → Audio/MIDI Settings…** (⌘,), and ⌘Q.
+
+The window deliberately covers *using* a plug-in — load, play, parameters,
+devices, state, presets. The validator, the event log and the extension probes
+stay on the command line.
+
+## Commands
 
 | Area | Commands |
 | --- | --- |
-| Plug-in | `load`, `unload`, `plugins`, `info`, `extensions`, `status` |
-| Parameters | `params.list`, `param.get`, `param.set`, `params.dump`, `param.indication` |
-| Audio | `activate`, `deactivate`, `render`, `process`, `audio.input`, `playhead` |
-| Notes and MIDI | `note.on`, `note.off`, `notes`, `midi`, `cc`, `midi.load`, `events` |
-| Transport | `tempo`, `timesig`, `transport` |
-| State | `state.save`, `state.load`, `state.info`, `presets.list`, `preset.load` |
-| Ports | `ports`, `ports.configs`, `ports.select`, `ports.activate`, `surround`, `ambisonic` |
-| Reported by the plug-in | `latency`, `tail`, `voices`, `note.names`, `remote.pages`, `triggers`, `render.mode` |
-| Devices | `audio.devices`, `audio.start`, `audio.stop`, `audio.status`, `audio.test`, `midi.ports`, `midi.open`, `midi.close`, `midi.outputs`, `midi.out` |
-| Interface | `gui.open`, `gui.close`, `gui.resize`, `gui`, `gui.contents`, `gui.snapshot` |
-| Devices, visually | `settings`, `settings.close`, `audio.test` |
-| Host behaviour | `track.info`, `threadpool`, `undo`, `callbacks`, `validate`, `validate.clear` |
+| Plug-in | `load` `unload` `plugins` `info` `extensions` `status` |
+| Parameters | `params.list` `param.get` `param.set` `params.dump` `param.indication` |
+| Audio | `activate` `deactivate` `render` `process` `audio.input` `playhead` |
+| Notes and MIDI | `note.on` `note.off` `notes` `midi` `cc` `midi.load` `events` |
+| Transport | `tempo` `timesig` `transport` |
+| State and presets | `state.save` `state.load` `state.info` `presets.list` `preset.load` |
+| Ports | `ports` `ports.configs` `ports.select` `ports.activate` `surround` `ambisonic` |
+| Reported by the plug-in | `latency` `tail` `voices` `note.names` `remote.pages` `triggers` `render.mode` |
+| Devices | `audio.devices` `audio.start` `audio.stop` `audio.status` `audio.test` `midi.ports` `midi.open` `midi.close` `midi.outputs` `midi.out` |
+| Interface | `gui.open` `gui.close` `gui.resize` `gui` `gui.contents` `gui.snapshot` `settings` `settings.close` |
+| Host behaviour | `track.info` `threadpool` `undo` `callbacks` `validate` `validate.clear` |
 
 ## What it does
 
-**Every host-side extension.** All 34 in the SDK, drafts included. Several do
-real work rather than returning a stub: scratch memory hands out a per-thread
-slot, the thread pool fans tasks across real threads or runs them in order,
-resource directories are created and cleaned up, undo keeps the history the
-plug-in builds, and transport-control moves the engine's transport. `callbacks`
-counts every one, so you can see exactly which extensions a plug-in exercised.
+**Every host-side extension.** All 34 in the SDK, drafts included. Many do real
+work rather than returning a stub: scratch memory hands out a per-thread slot,
+the thread pool fans tasks across pre-created workers, resource directories are
+created and cleaned up, undo keeps the history the plug-in builds, and
+transport-control moves the real transport. `callbacks` counts every one, so
+you can see exactly which extensions a plug-in exercised.
 
-**One timeline for realtime and offline.** Events are scheduled at absolute
-frames and sliced into each block; the transport advances in beats and seconds
-alongside. A device callback and an offline render share the same processing
-path, so what you hear and what lands on disk agree — a note played live
-through a loopback device captures at the same peak the offline render writes.
-
-**Notes go both ways, in the dialect the plug-in asked for.** Every path into a
-plug-in — a typed command, a MIDI file, a physical keyboard — goes through one
-module that reads the port's `preferred_dialect` and encodes accordingly, so a
-note is only ever sent one way, as CLAP requires. Where the target is CLAP,
-pitch bend and pressure become note expressions. What a plug-in emits comes
-back out: `events` shows every output event with its frame and what it was, and
-a note effect's output can be sent to a MIDI device.
-
-**A validator, not just a host.** The host stays permissive: it notes a
-violation and carries on, so a misbehaving plug-in can still be inspected.
-Thread roles, lifecycle order and call legality are all tracked. `validate`
-reports what was seen. The host also refuses to *cause* violations: it will not
-read latency or voice info before activation, touch audio port activation on an
-active plug-in that forbids it, send a note with a key of 999, or let two
-threads into `process()` at once.
+**A validator, not just a host.** It stays permissive — a violation is noted and
+the run continues, so a misbehaving plug-in can still be inspected — but it also
+refuses to *cause* violations. It will not read latency before activation, touch
+port activation on a plug-in that forbids it, send a note with a key of 999, or
+let two threads into `process()` at once.
 
 ```console
 > validate
-  severity  where                            message                                       count
-  ERROR     clap_host_params.rescan          called from the audio thread; this call is…   1
+  severity  where                    message                                       count
+  ERROR     clap_host_params.rescan  CLAP_PARAM_RESCAN_ALL while the plug-in is…   1
 ```
 
-**A device selector of its own.** `settings` opens a window with Compost's
-device selector in it, over the same device layer the `audio.*` and `midi.*`
-commands use, so the window and the prompt cannot disagree about what is
-selected. It follows the system light and dark appearance, offers "All devices"
-for MIDI as a master toggle, and plays a test tone out of every channel of the
-chosen output. On macOS it is also under Settings → Audio/MIDI Settings (Cmd-,), and a
-plug-in can be loaded from File → Load Plug-in… (Cmd-O) or by dropping a
-`.clap` onto a host window.
+**Notes in the dialect the plug-in asked for.** Every path in — a typed command,
+a MIDI file, a physical keyboard — goes through one module that reads the port's
+`preferred_dialect`, so a note is only ever encoded one way, as CLAP requires.
+Where the target is CLAP, pitch bend and pressure become note expressions. What
+the plug-in emits comes back out: `events` shows each output event with its
+frame and what it was, and a note effect's output can be sent to a MIDI port.
+
+**One timeline for realtime and offline.** Events are scheduled at absolute
+frames and sliced into each block; live input is timestamped on arrival so two
+notes a millisecond apart stay a millisecond apart. A device callback and an
+offline render share one code path, so what you hear and what lands on disk
+cannot differ — a note played live through a loopback device captures at the
+same peak the offline render writes.
 
 **Interfaces in a real window.** A Cocoa window embeds the plug-in's NSView and
 resizes through `adjust_size`. For `clap.webview`, the host serves a wrapper
 page with the plug-in's own page in an iframe, so `window.parent.postMessage`
-works the way the extension describes, and relays messages both ways.
+works as the extension describes, and relays messages both ways.
+
+### CLAP coverage, honestly
+
+| | |
+| --- | --- |
+| Host-side extensions | **34 of 34** |
+| Plug-in-side extensions called | **23 of 40** |
+| Factories | **2 of 4** — plug-in and preset-discovery |
+
+Not yet called: `posix-fd-support` (the host answers but never delivers the
+callback), `context-menu`, `configurable-audio-ports`, `extensible-audio-ports`,
+`audio-ports-config-info`, `flush-events`, `params-origin`, `resource-directory`,
+`undo-context`, `undo-delta`, `tuning`, `gain-adjustment-metering`, and five
+that would need interface the host does not have (`mini-curve-display`,
+`project-location`, `octave-number`, `background-activation`,
+`background-state-context`). `plugin-invalidation` and `plugin-state-converter`
+factories are not asked for.
 
 ## Testing
 
@@ -133,33 +189,52 @@ works the way the extension describes, and relays messages both ways.
 cd build && ctest --output-on-failure
 ```
 
-Three layers, 84 unit cases and 14 CTest cases:
+Three layers — 84 unit cases and 14 CTest cases:
 
-- **Unit tests** for the host's own pieces, most of them driving real fixture
-  plug-ins rather than mocks: the CLAP state machine, the timeline arithmetic,
-  note encoding in both directions, the device decision, the thread pool, the
-  command table in process, plus the JSON value, command grammar, WAV codec and
-  MIDI file reader.
+- **Unit tests** for the host's own pieces, most driving real fixture plug-ins
+  rather than mocks: the CLAP state machine, the timeline arithmetic, note
+  encoding both ways, the device decision, the thread pool, the command table
+  in process, plus the JSON value, command grammar, WAV codec and MIDI reader.
+  Run one with `build/tests/nch-tests <name-fragment>`.
 - **Script transcripts.** `tests/scripts/*.txt` are host commands in the same
-  language you type; each is compared against the `.expected` transcript beside
-  it. Anything you do by hand becomes a regression test by pasting it in.
-  Regenerate one with `tests/run-script.py <script> --host build/clap-host
-  --fixtures build/fixtures --accept`.
-- **Golden audio.** Fixed performances rendered and compared sample by sample
-  against references in `tests/golden`.
+  language you type, compared against the `.expected` file beside them.
+  Anything you do by hand becomes a regression test by pasting it in:
 
-The fixtures in `fixtures/` are the
-[char-wclap-examples](https://github.com/charCulbert) sources built as native
-`.clap` bundles, each exercising a different corner of the specification. They
-are real plug-ins rather than mocks, which is how they caught two host bugs on
-their first run: `param.set` calling `clap.params.flush` while the plug-in was
-active, and notes never reaching an instrument whose port declares only the
-MIDI dialect.
+  ```sh
+  tests/run-script.py tests/scripts/mine.txt \
+      --host build/clap-host.app/Contents/MacOS/clap-host \
+      --fixtures build/fixtures --accept
+  ```
+
+- **Golden audio.** Fixed performances rendered and compared sample by sample
+  against `tests/golden`.
+
+The fixtures in `fixtures/` are real plug-ins, which is why they keep finding
+host bugs: a parameter flush called while active, notes never reaching a
+MIDI-only port, and a wrong-thread `clap.note-ports` call were all caught by a
+fixture's own assertion rather than by review.
+
+## Where things are
+
+| Path | What lives there |
+| --- | --- |
+| `src/plugin-instance.*` | The CLAP state machine: load, activate, process, unload, in that order |
+| `src/session.*` | The host's own state: queues, commands, teardown order, output |
+| `src/engine.*` | Driving `process()`: blocks, scheduled events, transport |
+| `src/timeline.*` | The arithmetic: bars, loop wrapping, arrival times, event offsets |
+| `src/note-encoding.*` | MIDI ⇄ CLAP notes, and which dialect a port wants |
+| `src/host.cpp`, `src/host-extensions.cpp` | The `clap_host` a plug-in sees |
+| `src/host-services.*` | State behind those callbacks, and the callback tally |
+| `src/validator.*` | What the plug-in did wrong, and what the host refused to do |
+| `src/command.*`, `src/commands*.cpp` | The grammar, and the command set |
+| `src/devices.*`, `src/device-settings.*` | Audio and MIDI I/O, and choosing between them |
+| `src/gui.*`, `src/native-window-*`, `src/webview.*` | Windows and plug-in interfaces |
+| `src/json.*`, `src/wav.*`, `src/midi-file.*`, `src/event-list.*` | Small, deep pieces with no host knowledge |
 
 ## Platforms
 
-macOS is the platform this has been built and run on. Windows and Linux share
-choc's window layer, which macOS can also build and run
+macOS is where this has been built and run. Windows and Linux share choc's
+window layer, which macOS can also build and run
 (`-DNCH_FORCE_CHOC_WINDOW=ON`) — so that path is exercised rather than left as
 code nobody has compiled.
 
@@ -170,7 +245,11 @@ code nobody has compiled.
 | Windows | RtAudio/RtMidi, unexercised | choc/Win32, same code path | choc supports it |
 
 macOS keeps a window file of its own because the application bundle, menu bar,
-activation policy and quit handling live there. On macOS the host must be an
-application bundle: WebKit will not composite a webview in a bare executable
-with no bundle identifier, so `clap-host` builds as `clap-host.app` and the
-binary inside it is what you run.
+activation policy and quit handling live there.
+
+## Known limits
+
+- Linux and Windows have never been built on those platforms.
+- The choc window path has no menu bar, so no ⌘Q equivalent off macOS.
+- One plug-in per process, by design. There is no graph and no routing.
+- `gui.snapshot` cannot capture a webview: WebKit renders out of process.
