@@ -25,6 +25,10 @@ clap_sectime toSecTime(double seconds) {
 Engine::Engine(Session &session) : session_(session) {}
 
 bool Engine::start(std::string &error) {
+	// Room for a block's events, so filling the list on the audio thread does
+	// not allocate.
+	inEvents_.reserve(1024, 64 * 1024);
+	outEvents_.reserve(1024, 64 * 1024);
 	if (!session_.isLoaded()) {
 		error = "no plug-in loaded";
 		return false;
@@ -77,14 +81,21 @@ void Engine::scheduleLive(const clap_event_header_t *event, std::chrono::steady_
 void Engine::scheduleAt(const clap_event_header_t *event, uint64_t frame) {
 	if (event == nullptr || event->size < sizeof(clap_event_header_t))
 		return;
+	// Built before the lock is taken, so the copy and the allocation happen
+	// off the critical section the audio thread wants.
 	ScheduledEvent scheduled;
 	scheduled.frame = frame;
 	scheduled.bytes.resize(event->size);
 	std::memcpy(scheduled.bytes.data(), event, event->size);
+
 	std::lock_guard<std::mutex> lock(scheduleMutex_);
-	schedule_.push_back(std::move(scheduled));
-	std::stable_sort(schedule_.begin(), schedule_.end(),
-	                 [](const ScheduledEvent &a, const ScheduledEvent &b) { return a.frame < b.frame; });
+	// Inserted in place rather than appended and re-sorted: the list is
+	// already ordered, so this is a walk rather than a sort, and it holds the
+	// lock for a fraction as long.
+	const auto position = std::upper_bound(
+	    schedule_.begin(), schedule_.end(), frame,
+	    [](uint64_t at, const ScheduledEvent &existing) { return at < existing.frame; });
+	schedule_.insert(position, std::move(scheduled));
 }
 
 void Engine::clearSchedule() {
@@ -243,7 +254,13 @@ void Engine::retireNote(int16_t port, int16_t channel, int16_t key) {
 
 void Engine::collectBlockEvents(uint32_t frames) {
 	inEvents_.clear();
-	std::lock_guard<std::mutex> lock(scheduleMutex_);
+	// Taking this lock is the one place the audio thread could be made to
+	// wait for the main thread, so it tries rather than blocks.
+	std::unique_lock<std::mutex> lock(scheduleMutex_, std::try_to_lock);
+	if (!lock.owns_lock()) {
+		missedCollections_.fetch_add(1, std::memory_order_relaxed);
+		return;
+	}
 	const uint64_t blockEnd = playhead_ + frames;
 	size_t consumed = 0;
 	for (const auto &scheduled : schedule_) {

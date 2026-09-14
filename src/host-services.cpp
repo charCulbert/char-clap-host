@@ -1,7 +1,9 @@
 #include "host-services.h"
 
 #include <cstdio>
+#include <algorithm>
 #include <cstring>
+#include <thread>
 #include <filesystem>
 
 namespace nch {
@@ -146,6 +148,14 @@ Value HostServices::undoReport() const {
 	out["redoRequests"] = Value(redoRequests_);
 	out["wantsContext"] = Value(wantsUndoContext_);
 	return Value(std::move(out));
+}
+
+void HostServices::setThreadPoolMode(ThreadPoolMode mode) {
+	threadPoolMode_ = mode;
+	if (mode == ThreadPoolMode::Parallel)
+		threadPool_.start(std::max(2u, std::thread::hardware_concurrency()));
+	else
+		threadPool_.stop();
 }
 
 bool HostServices::registerFd(int fd, uint32_t flags) {

@@ -144,6 +144,10 @@ public:
 	NoteTranslation scheduleLiveMidi(const uint8_t *bytes, uint32_t size, int16_t port,
 	                                 std::chrono::steady_clock::time_point arrival);
 
+	// Blocks that could not take the schedule lock and so carried no new
+	// events. Anything other than zero is worth knowing about.
+	uint64_t missedCollections() const { return missedCollections_.load(std::memory_order_relaxed); }
+
 	// Events the plug-in emitted during the last block.
 	const EventList &lastOutputEvents() const { return outEvents_; }
 
@@ -184,8 +188,13 @@ private:
 	std::atomic<bool> insideProcess_{false};
 	bool running_ = false;
 
+	// The schedule is written by the main thread and by device threads, and
+	// read by the audio thread. The audio thread never waits for it: CLAP
+	// names contended locks among the things process() must avoid, so a block
+	// that cannot take it carries no new events and the next one does.
 	mutable std::mutex scheduleMutex_;
 	std::vector<ScheduledEvent> schedule_;
+	std::atomic<uint64_t> missedCollections_{0};
 	std::vector<clap_event_note_t> activeNotes_;
 };
 

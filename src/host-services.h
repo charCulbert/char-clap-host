@@ -5,6 +5,7 @@
 #pragma once
 
 #include "json.h"
+#include "thread-pool.h"
 
 #include <clap/clap.h>
 
@@ -60,7 +61,10 @@ public:
 
 	// --- clap.thread-pool --------------------------------------------------
 	ThreadPoolMode threadPoolMode() const { return threadPoolMode_; }
-	void setThreadPoolMode(ThreadPoolMode mode) { threadPoolMode_ = mode; }
+	// Workers are created here, on the main thread. Creating them inside
+	// process() is the thing clap.thread-pool must not make a host do.
+	void setThreadPoolMode(ThreadPoolMode mode);
+	ThreadPool &threadPool() { return threadPool_; }
 
 	// --- clap.posix-fd-support ---------------------------------------------
 	bool registerFd(int fd, uint32_t flags);
@@ -108,6 +112,7 @@ private:
 	bool wantsUndoContext_ = false;
 
 	ThreadPoolMode threadPoolMode_ = ThreadPoolMode::Sequential;
+	ThreadPool threadPool_;
 	std::map<int, uint32_t> fds_;
 	std::map<std::string, uint64_t> calls_;
 

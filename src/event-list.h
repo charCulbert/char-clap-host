@@ -32,9 +32,19 @@ public:
 	const clap_output_events_t *output() const { return &output_; }
 
 	void clear() {
+		// Capacity is kept: the audio thread refills this list every block and
+		// must not allocate doing so.
 		storage_.clear();
 		offsets_.clear();
 		payloadOffsets_.clear();
+	}
+
+	// Reserves room for a block's events up front, so pushing them on the
+	// audio thread does not allocate.
+	void reserve(size_t events, size_t bytes) {
+		offsets_.reserve(events);
+		payloadOffsets_.reserve(events);
+		storage_.reserve(bytes);
 	}
 
 	bool empty() const { return offsets_.empty(); }

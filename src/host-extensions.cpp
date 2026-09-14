@@ -163,22 +163,12 @@ bool threadPoolRequestExec(const clap_host_t *host, uint32_t taskCount) {
 	case ThreadPoolMode::Reject:
 		return false;
 	case ThreadPoolMode::Parallel: {
-		// Real fan-out, so a plug-in's thread-pool path gets exercised. The
-		// worker threads take the audio role because that is what CLAP says
-		// exec() runs on.
-		const unsigned hardware = std::max(1u, std::thread::hardware_concurrency());
-		const uint32_t workers = std::min<uint32_t>(taskCount, hardware);
-		std::atomic<uint32_t> next{0};
-		std::vector<std::thread> threads;
-		for (uint32_t i = 0; i < workers; ++i) {
-			threads.emplace_back([&] {
-				ScopedThreadRole role(ThreadRole::Audio);
-				for (uint32_t task = next.fetch_add(1); task < taskCount; task = next.fetch_add(1))
-					pool->exec(session.plugin(), task);
-			});
-		}
-		for (auto &thread : threads)
-			thread.join();
+		// Real fan-out across workers that already exist. Creating them here
+		// would be worse than not fanning out at all: process() must not
+		// spawn threads.
+		const clap_plugin_t *plugin = session.plugin();
+		session.services().threadPool().run(taskCount,
+		                                    [pool, plugin](uint32_t task) { pool->exec(plugin, task); });
 		return true;
 	}
 	case ThreadPoolMode::Sequential:

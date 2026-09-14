@@ -9,6 +9,7 @@ add_executable(nch-tests
     note-encoding.test.cpp
     plugin-instance.test.cpp
     session-commands.test.cpp
+    thread-pool.test.cpp
     timeline.test.cpp
     wav.test.cpp
     main.cpp
