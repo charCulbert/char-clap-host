@@ -1,4 +1,6 @@
-// Commands for the realtime device paths: audio out and live MIDI in.
+// Commands for the device paths -- audio out, MIDI in and out -- and for the
+// host's own windows.
+#include "commands-common.h"
 #include "session.h"
 
 namespace nch {
@@ -11,7 +13,7 @@ void Session::registerDeviceCommands() {
 
 	commands_.add({"audio.start", "[device-name]", "Play the plug-in live through an audio device.",
 	               [](Session &session, const Request &request) -> Response {
-		               Response ready = session.isLoaded() ? Response::success() : Response::failure("no plug-in loaded");
+		               Response ready = needPlugin(session);
 		               if (!ready.ok)
 			               return ready;
 		               const std::string name = request.arg(0, "device").asString();

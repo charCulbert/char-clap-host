@@ -11,34 +11,26 @@ using nch::eventOffsetInBlock;
 using nch::frameForArrival;
 using nch::Playhead;
 
-namespace {
-
-bool nearly(double actual, double expected, double tolerance = 1e-9) {
-	return std::fabs(actual - expected) < tolerance;
-}
-
-} // namespace
-
 TEST(a_bar_is_measured_in_quarter_notes) {
-	CHECK(nearly(beatsPerBar(4, 4), 4.0));
-	CHECK(nearly(beatsPerBar(3, 4), 3.0));
+	CHECK_NEAR(beatsPerBar(4, 4), 4.0, 1e-9);
+	CHECK_NEAR(beatsPerBar(3, 4), 3.0, 1e-9);
 	// Six eighth notes are three quarter notes, which is the case that was
 	// wrong while bar_start was hardcoded to zero.
-	CHECK(nearly(beatsPerBar(6, 8), 3.0));
-	CHECK(nearly(beatsPerBar(7, 8), 3.5));
-	CHECK(nearly(beatsPerBar(2, 2), 4.0));
+	CHECK_NEAR(beatsPerBar(6, 8), 3.0, 1e-9);
+	CHECK_NEAR(beatsPerBar(7, 8), 3.5, 1e-9);
+	CHECK_NEAR(beatsPerBar(2, 2), 4.0, 1e-9);
 	// A nonsense signature must not produce a zero-length bar.
 	CHECK(beatsPerBar(0, 0) > 0.0);
 }
 
 TEST(bar_start_is_the_beat_the_bar_began_on) {
-	CHECK(nearly(barStart(0.0, 4.0), 0.0));
-	CHECK(nearly(barStart(3.99, 4.0), 0.0));
-	CHECK(nearly(barStart(4.0, 4.0), 4.0));
-	CHECK(nearly(barStart(9.5, 4.0), 8.0));
+	CHECK_NEAR(barStart(0.0, 4.0), 0.0, 1e-9);
+	CHECK_NEAR(barStart(3.99, 4.0), 0.0, 1e-9);
+	CHECK_NEAR(barStart(4.0, 4.0), 4.0, 1e-9);
+	CHECK_NEAR(barStart(9.5, 4.0), 8.0, 1e-9);
 	CHECK_EQ(barNumber(9.5, 4.0), 2);
 	// In 6/8 the second bar starts on beat three, not beat six.
-	CHECK(nearly(barStart(4.0, beatsPerBar(6, 8)), 3.0));
+	CHECK_NEAR(barStart(4.0, beatsPerBar(6, 8)), 3.0, 1e-9);
 	CHECK_EQ(barNumber(4.0, beatsPerBar(6, 8)), 1);
 }
 
@@ -46,8 +38,8 @@ TEST(the_playhead_advances_on_both_timelines_together) {
 	const Playhead start{0.0, 0.0};
 	// One second at 120 bpm is two beats.
 	const Playhead after = advancePlayhead(start, 48000, 48000.0, 120.0, false, 0.0, 4.0);
-	CHECK(nearly(after.seconds, 1.0));
-	CHECK(nearly(after.beats, 2.0));
+	CHECK_NEAR(after.seconds, 1.0, 1e-9);
+	CHECK_NEAR(after.beats, 2.0, 1e-9);
 }
 
 TEST(a_loop_wraps_and_keeps_the_timelines_agreeing) {
@@ -55,9 +47,9 @@ TEST(a_loop_wraps_and_keeps_the_timelines_agreeing) {
 	const Playhead start{3.5, 3.5 * 60.0 / 120.0};
 	const Playhead after = advancePlayhead(start, 48000, 48000.0, 120.0, true, 0.0, 4.0);
 	// 3.5 + 2 = 5.5, wrapped within a four-beat loop, is 1.5.
-	CHECK(nearly(after.beats, 1.5));
+	CHECK_NEAR(after.beats, 1.5, 1e-9);
 	// Seconds are re-derived, so they still describe the same instant.
-	CHECK(nearly(after.seconds, 1.5 * 60.0 / 120.0));
+	CHECK_NEAR(after.seconds, 1.5 * 60.0 / 120.0, 1e-9);
 }
 
 TEST(a_loop_that_cannot_wrap_is_left_alone) {
@@ -71,8 +63,8 @@ TEST(a_loop_that_cannot_wrap_is_left_alone) {
 
 TEST(a_stopped_or_nonsense_transport_does_not_move) {
 	const Playhead start{1.0, 0.5};
-	CHECK(nearly(advancePlayhead(start, 480, 0.0, 120.0, false, 0, 4).beats, 1.0));
-	CHECK(nearly(advancePlayhead(start, 480, 48000.0, 0.0, false, 0, 4).beats, 1.0));
+	CHECK_NEAR(advancePlayhead(start, 480, 0.0, 120.0, false, 0, 4).beats, 1.0, 1e-9);
+	CHECK_NEAR(advancePlayhead(start, 480, 48000.0, 0.0, false, 0, 4).beats, 1.0, 1e-9);
 }
 
 TEST(an_arrival_lands_on_the_frame_it_happened) {

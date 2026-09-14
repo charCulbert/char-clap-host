@@ -8,9 +8,11 @@ add_executable(nch-tests
     midi-file.test.cpp
     note-encoding.test.cpp
     plugin-instance.test.cpp
+    process-buffers.test.cpp
     session-commands.test.cpp
     thread-pool.test.cpp
     timeline.test.cpp
+    validator.test.cpp
     wav.test.cpp
     main.cpp
 )

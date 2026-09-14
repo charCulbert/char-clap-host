@@ -2,6 +2,7 @@
 // it as text or JSON, so nothing here formats output.
 #include "engine.h"
 #include "event-list.h"
+#include "commands-common.h"
 #include "session.h"
 #include "thread-role.h"
 
@@ -9,14 +10,6 @@
 
 namespace nch {
 namespace {
-
-Response needPlugin(Session &session) {
-	return session.isLoaded() ? Response::success() : Response::failure("no plug-in loaded");
-}
-
-std::string textOrEmpty(const char *text) {
-	return text != nullptr ? text : "";
-}
 
 Value describeDescriptor(const clap_plugin_descriptor_t &descriptor) {
 	Object out;

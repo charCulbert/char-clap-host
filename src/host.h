@@ -39,7 +39,6 @@ public:
 	void noteCall(const char *where);
 
 private:
-
 	clap_host_t host_{};
 	Session &session_;
 	Validator &validator_;

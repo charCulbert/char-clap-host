@@ -6,6 +6,7 @@
 #pragma once
 
 #include "json.h"
+#include "plugin-instance.h"
 #include "webview.h"
 
 #include <clap/clap.h>
@@ -22,7 +23,7 @@ enum class GuiApi { None, Native, Webview };
 
 class PluginGui {
 public:
-	explicit PluginGui(Session &session);
+	explicit PluginGui(PluginInstance &instance);
 	~PluginGui();
 	PluginGui(const PluginGui &) = delete;
 	PluginGui &operator=(const PluginGui &) = delete;
@@ -61,7 +62,7 @@ private:
 
 	struct Window;
 
-	Session &session_;
+	PluginInstance &instance_;
 	std::unique_ptr<Window> window_;
 	WebviewHost webview_;
 	GuiApi api_ = GuiApi::None;

@@ -20,7 +20,6 @@
 #include <atomic>
 #include <chrono>
 #include <functional>
-#include <map>
 #include <condition_variable>
 #include <mutex>
 #include <string>
@@ -87,7 +86,6 @@ public:
 	// top of whatever the plug-in is producing, so the tone tests the device
 	// and not the plug-in. Starts the stream if it is not already running.
 	bool startTestTone(double seconds, double frequency, std::string &error);
-	bool testToneActive() const { return testToneRemaining_.load(std::memory_order_relaxed) != 0; }
 
 	// Called from the device threads.
 	void onAudioCallback(const float *input, float *output, uint32_t frames, bool hadGlitch);
@@ -188,7 +186,6 @@ private:
 	void registerStateCommands();
 	void registerExtensionCommands();
 	void registerDeviceCommands();
-	void refreshExtensions();
 
 	Options options_;
 	Validator validator_;
@@ -219,14 +216,9 @@ private:
 	// What the plug-in has asked the host for is counted once, by
 	// HostServices, so `status`, `validate` and `callbacks` cannot disagree.
 	// Only the things the host has to act on are remembered here.
-	bool latencyChangedDuringActivate_ = false;
 	bool notePortsChanged_ = false;
-	bool audioPortsChanged_ = false;
 	uint64_t webviewMessagesSent_ = 0;
-	bool guiClosedByPlugin_ = false;
-	bool guiDestroyedByPlugin_ = false;
 	std::atomic<bool> flushRequested_{false};
-	bool wasProcessingBeforeRestart_ = false;
 
 	// A bounded log of what the plug-in emitted, so a test can see exactly
 	// what came back rather than a count of it.

@@ -23,7 +23,6 @@ public:
 
 	const clap_ostream_t *stream() const { return &stream_; }
 	const std::vector<uint8_t> &bytes() const { return bytes_; }
-	std::vector<uint8_t> take() { return std::move(bytes_); }
 
 private:
 	static int64_t write(const clap_ostream_t *stream, const void *buffer, uint64_t size) {

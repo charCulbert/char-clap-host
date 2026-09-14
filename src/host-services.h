@@ -45,7 +45,6 @@ public:
 
 	// --- clap.scratch-memory ----------------------------------------------
 	bool reserveScratch(uint32_t sizeBytes, uint32_t maxConcurrencyHint);
-	void releaseScratch();
 	void *accessScratch();
 	uint32_t scratchSize() const { return scratchSize_; }
 
@@ -53,7 +52,6 @@ public:
 	void beginChange();
 	void cancelChange();
 	void changeMade(const char *name, const void *delta, size_t deltaSize, bool deltaCanUndo);
-	bool undoRequested() const { return undoRequests_ != 0; }
 	void requestUndo() { ++undoRequests_; }
 	void requestRedo() { ++redoRequests_; }
 	void setWantsUndoContext(bool wants) { wantsUndoContext_ = wants; }
@@ -92,7 +90,6 @@ public:
 	void noteLoadedPreset(uint32_t locationKind, const char *location, const char *loadKey);
 	Value loadedPresetReport() const;
 	void setMiniCurveDynamic(bool dynamic) { miniCurveDynamic_ = dynamic; }
-	bool miniCurveDynamic() const { return miniCurveDynamic_; }
 
 private:
 	clap_track_info_t trackInfo_{};

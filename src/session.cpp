@@ -6,7 +6,6 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
-#include <cstdio>
 
 namespace nch {
 namespace {
@@ -40,7 +39,7 @@ uint64_t nowMs() {
 } // namespace
 
 Session::Session(Options options)
-    : options_(std::move(options)), host_(*this, validator_), instance_(host_.clapHost(), validator_), engine_(*this), audioDevice_(*this), midiInput_(*this), gui_(*this), settings_(*this) {
+    : options_(std::move(options)), host_(*this, validator_), instance_(host_.clapHost(), validator_), engine_(*this), audioDevice_(*this), midiInput_(*this), gui_(instance_), settings_(*this) {
 	instance_.setPreferredFormat(options_.sampleRate, options_.blockSize);
 	registerCommands();
 	registerAudioCommands();
@@ -94,20 +93,12 @@ bool Session::activate(double sampleRate, uint32_t minFrames, uint32_t maxFrames
 	if (!instance_.activate(sampleRate, minFrames, maxFrames, error))
 		return false;
 	engine_.refreshNoteEncoding();
-	// clap.latency is [main-thread & (being-activated | active)], so the value
-	// a plug-in reported during activation is only readable now.
-	latencyChangedDuringActivate_ = false;
 	return true;
 }
 
 void Session::deactivate() {
 	engine_.stop();
 	instance_.deactivate();
-}
-
-void Session::refreshExtensions() {
-	// Extensions are fetched on demand through the instance; this hook exists
-	// so a future cache has one place to rebuild from.
 }
 
 void Session::postToMainThread(std::function<void()> work) {
@@ -438,9 +429,9 @@ void Session::onStateMarkDirty() {
 }
 
 void Session::onLatencyChanged() {
-	// "[main-thread & being-activated]": the new latency is only meaningful
-	// once activation finishes, so the host re-reads it then rather than here.
-	latencyChangedDuringActivate_ = true;
+	// Recorded by the host callback. The value itself is [main-thread &
+	// (being-activated | active)], so `latency` reads it on demand rather than
+	// the host caching a number that is only valid in that window.
 }
 
 void Session::onTailChanged() {
@@ -462,7 +453,6 @@ void Session::onAudioPortsRescan(uint32_t flags) {
 	if ((flags & layoutFlags) != 0 && instance_.isActive())
 		validator_.error("clap_host_audio_ports.rescan",
 		                 "a layout-changing rescan while the plug-in is active; those flags require deactivation");
-	audioPortsChanged_ = true;
 }
 
 void Session::onVoiceInfoChanged() {
@@ -537,8 +527,6 @@ bool Session::onWebviewMessage(const void *buffer, uint32_t size) {
 }
 
 void Session::onGuiClosed(bool wasDestroyed) {
-	guiClosedByPlugin_ = true;
-	guiDestroyedByPlugin_ = wasDestroyed;
 	// clap.gui marks closed() [thread-safe], so this can arrive on any thread,
 	// while the destroy() it obliges the host to make is main-thread only.
 	postToMainThread([this, wasDestroyed] { gui_.onPluginClosed(wasDestroyed); });

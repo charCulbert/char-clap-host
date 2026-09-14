@@ -6,7 +6,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <algorithm>
 #include <cstring>
 
 namespace nch {
@@ -37,7 +36,7 @@ bool Engine::start(std::string &error) {
 		return false;
 	// Buffers are shaped by the port layout, which may only change while the
 	// plug-in is inactive, so building them after activation is safe.
-	buffers_.build(session_, session_.blockSize());
+	buffers_.build(session_.instance(), session_.blockSize());
 	if (!session_.instance().startProcessing(error))
 		return false;
 	running_ = true;
@@ -96,11 +95,6 @@ void Engine::scheduleAt(const clap_event_header_t *event, uint64_t frame) {
 	    schedule_.begin(), schedule_.end(), frame,
 	    [](uint64_t at, const ScheduledEvent &existing) { return at < existing.frame; });
 	schedule_.insert(position, std::move(scheduled));
-}
-
-void Engine::clearSchedule() {
-	std::lock_guard<std::mutex> lock(scheduleMutex_);
-	schedule_.clear();
 }
 
 size_t Engine::scheduledCount() const {
@@ -276,8 +270,7 @@ void Engine::collectBlockEvents(uint32_t frames) {
 	inEvents_.sortByTime();
 }
 
-void Engine::buildTransportEvent(uint32_t frames) {
-	(void)frames;
+void Engine::buildTransportEvent() {
 	transportEvent_ = {};
 	transportEvent_.header.size = sizeof(transportEvent_);
 	transportEvent_.header.time = 0;
@@ -377,7 +370,7 @@ int32_t Engine::processBlock(uint32_t frames, const BlockIo &io) {
 	}
 	collectBlockEvents(blockFrames);
 	outEvents_.clear();
-	buildTransportEvent(blockFrames);
+	buildTransportEvent();
 
 	clap_process_t process{};
 	process.steady_time = static_cast<int64_t>(playhead_);
@@ -434,7 +427,7 @@ bool Engine::runSilentBlock(std::string &error) {
 		// Already processing: the next block carries whatever is queued.
 		return true;
 	}
-	buffers_.build(session_, session_.blockSize());
+	buffers_.build(session_.instance(), session_.blockSize());
 	if (!session_.instance().startProcessing(error))
 		return false;
 	running_ = true;

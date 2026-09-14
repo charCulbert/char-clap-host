@@ -1,6 +1,6 @@
 #include "process-buffers.h"
 
-#include "session.h"
+
 
 #include <algorithm>
 #include <cstring>
@@ -17,10 +17,10 @@ void ProcessBuffers::clear() {
 	maxFrames_ = 0;
 }
 
-void ProcessBuffers::build(Session &session, uint32_t maxFrames) {
+void ProcessBuffers::build(const PluginInstance &instance, uint32_t maxFrames) {
 	clear();
 	maxFrames_ = maxFrames;
-	const auto *ports = session.pluginExtension<clap_plugin_audio_ports_t>(CLAP_EXT_AUDIO_PORTS);
+	const auto *ports = instance.extension<clap_plugin_audio_ports_t>(CLAP_EXT_AUDIO_PORTS);
 
 	const auto collect = [&](bool isInput, std::vector<Port> &into, uint32_t &mainIndex) {
 		if (ports == nullptr || ports->count == nullptr || ports->get == nullptr) {
@@ -29,10 +29,10 @@ void ProcessBuffers::build(Session &session, uint32_t maxFrames) {
 			into.push_back({2, {}, {}});
 			return;
 		}
-		const uint32_t count = ports->count(session.plugin(), isInput);
+		const uint32_t count = ports->count(instance.plugin(), isInput);
 		for (uint32_t i = 0; i < count; ++i) {
 			clap_audio_port_info_t info{};
-			if (!ports->get(session.plugin(), i, isInput, &info))
+			if (!ports->get(instance.plugin(), i, isInput, &info))
 				continue;
 			if ((info.flags & CLAP_AUDIO_PORT_IS_MAIN) != 0)
 				mainIndex = static_cast<uint32_t>(into.size());

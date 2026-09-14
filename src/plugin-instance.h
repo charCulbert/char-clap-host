@@ -40,6 +40,7 @@ public:
 	const clap_plugin_descriptor_t *descriptor() const { return descriptor_; }
 	Bundle &bundle() { return bundle_; }
 	const Bundle &bundle() const { return bundle_; }
+	// Where this instance reports what it did wrong; PluginGui notes through it.
 	Validator &validator() { return validator_; }
 
 	// --- the state machine -------------------------------------------------

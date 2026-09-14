@@ -4,6 +4,7 @@
 // sees a buffer that disagrees with what clap.audio-ports reported.
 #pragma once
 
+#include "plugin-instance.h"
 #include "wav.h"
 
 #include <clap/clap.h>
@@ -13,13 +14,11 @@
 
 namespace nch {
 
-class Session;
-
 class ProcessBuffers {
 public:
 	// Reads the port layout from the plug-in and allocates for `maxFrames`.
 	// A plug-in without clap.audio-ports gets one stereo output.
-	void build(Session &session, uint32_t maxFrames);
+	void build(const PluginInstance &instance, uint32_t maxFrames);
 	void clear();
 
 	uint32_t inputPortCount() const { return static_cast<uint32_t>(inputs_.size()); }

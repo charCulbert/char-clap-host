@@ -68,13 +68,11 @@ public:
 	// clock reading taken at the start of the last block, so two notes played
 	// a millisecond apart stay a millisecond apart.
 	void scheduleLive(const clap_event_header_t *event, std::chrono::steady_clock::time_point arrival);
-	void clearSchedule();
 	size_t scheduledCount() const;
 
 	// The audio fed to the main input port, consumed from the playhead.
 	void setInput(AudioData input);
 	void clearInput();
-	bool hasInput() const { return !input_.channels.empty(); }
 
 	// Renders `frames` frames, appending the main output to `out`. Runs on the
 	// calling thread with the audio thread role.
@@ -107,8 +105,6 @@ public:
 	// True while a block is being processed, so a caller on another thread can
 	// refuse rather than join in.
 	bool isInsideProcess() const { return insideProcess_.load(std::memory_order_acquire); }
-
-	uint32_t mainOutputChannels() const { return buffers_.mainOutputChannels(); }
 
 	// How many interleaved channels the device callback writes. Set once the
 	// stream's layout is known.
@@ -158,7 +154,7 @@ public:
 	bool runSilentBlock(std::string &error);
 
 private:
-	void buildTransportEvent(uint32_t frames);
+	void buildTransportEvent();
 	void markBlockStart();
 	void collectBlockEvents(uint32_t frames);
 	void advanceTransport(uint32_t frames);

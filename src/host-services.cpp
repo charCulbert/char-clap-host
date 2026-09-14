@@ -94,12 +94,6 @@ bool HostServices::reserveScratch(uint32_t sizeBytes, uint32_t maxConcurrencyHin
 	return true;
 }
 
-void HostServices::releaseScratch() {
-	scratch_.clear();
-	scratchSize_ = 0;
-	scratchSlots_ = 0;
-}
-
 void *HostServices::accessScratch() {
 	if (scratch_.empty())
 		return nullptr;

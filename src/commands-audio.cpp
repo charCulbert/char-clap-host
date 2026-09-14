@@ -1,5 +1,6 @@
 // Commands that move audio and time: transport, notes, rendering and file I/O.
 #include "engine.h"
+#include "commands-common.h"
 #include "session.h"
 #include "midi-file.h"
 #include "wav.h"
@@ -10,10 +11,6 @@
 
 namespace nch {
 namespace {
-
-Response needPlugin(Session &session) {
-	return session.isLoaded() ? Response::success() : Response::failure("no plug-in loaded");
-}
 
 // The shape a render or an input file is reported in.
 Value describeAudio(const AudioData &audio) {

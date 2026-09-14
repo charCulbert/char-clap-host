@@ -1,5 +1,6 @@
 // Commands for the rest of the extension surface: what the plug-in reports,
 // and what the host has been asked for.
+#include "commands-common.h"
 #include "session.h"
 
 #include <clap/ext/draft/triggers.h>
@@ -8,34 +9,6 @@
 
 namespace nch {
 namespace {
-
-Response needPlugin(Session &session) {
-	return session.isLoaded() ? Response::success() : Response::failure("no plug-in loaded");
-}
-
-// Several extensions may only be asked while the plug-in is active, because
-// the answer lives in the activated processor. Asking anyway returns stale
-// data or trips the plug-in's own assertion, so the host refuses first.
-Response needActive(Session &session, const char *what) {
-	Response ready = needPlugin(session);
-	if (!ready.ok)
-		return ready;
-	if (!session.isActive())
-		return Response::failure(std::string(what) + " is only readable while the plug-in is active; activate first");
-	return Response::success();
-}
-
-// Fetches an extension, trying the draft id and then its compat spelling.
-template <typename T> const T *extensionOf(Session &session, const char *id, const char *compatId = nullptr) {
-	const T *found = session.pluginExtension<T>(id);
-	if (found == nullptr && compatId != nullptr)
-		found = session.pluginExtension<T>(compatId);
-	return found;
-}
-
-std::string textOrEmpty(const char *text) {
-	return text != nullptr ? text : "";
-}
 
 } // namespace
 

@@ -1,4 +1,5 @@
 // State, presets and the parameter snapshot commands.
+#include "commands-common.h"
 #include "session.h"
 #include "state-stream.h"
 
@@ -6,10 +7,6 @@
 
 namespace nch {
 namespace {
-
-Response needPlugin(Session &session) {
-	return session.isLoaded() ? Response::success() : Response::failure("no plug-in loaded");
-}
 
 const clap_plugin_state_t *stateExtension(Session &session) {
 	return session.pluginExtension<clap_plugin_state_t>(CLAP_EXT_STATE);

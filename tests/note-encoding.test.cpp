@@ -30,10 +30,6 @@ const clap_event_header_t *firstEvent(const NoteTranslation &translation) {
 	           : reinterpret_cast<const clap_event_header_t *>(translation.storage.data());
 }
 
-bool nearly(double actual, double expected) {
-	return std::fabs(actual - expected) < 1e-9;
-}
-
 } // namespace
 
 TEST(a_clap_port_receives_note_events) {
@@ -46,7 +42,7 @@ TEST(a_clap_port_receives_note_events) {
 	CHECK_EQ(note->header.type, static_cast<uint16_t>(CLAP_EVENT_NOTE_ON));
 	CHECK_EQ(note->key, int16_t(60));
 	CHECK_EQ(note->channel, int16_t(0));
-	CHECK(nearly(note->velocity, 100.0 / 127.0));
+	CHECK_NEAR(note->velocity, 100.0 / 127.0, 1e-9);
 }
 
 TEST(a_midi_port_receives_the_bytes_unchanged) {
@@ -83,7 +79,7 @@ TEST(pitch_bend_becomes_tuning_in_semitones) {
 	const NoteTranslation centred = translateMidi(centre.data(), 3, clapPort(), 0);
 	const auto *atCentre = reinterpret_cast<const clap_event_note_expression_t *>(firstEvent(centred));
 	CHECK_EQ(atCentre->expression_id, static_cast<uint32_t>(CLAP_NOTE_EXPRESSION_TUNING));
-	CHECK(nearly(atCentre->value, 0.0));
+	CHECK_NEAR(atCentre->value, 0.0, 1e-9);
 	// A wildcard key, because channel bend applies to every sounding voice.
 	CHECK_EQ(atCentre->key, int16_t(-1));
 
@@ -93,7 +89,7 @@ TEST(pitch_bend_becomes_tuning_in_semitones) {
 
 	const NoteTranslation downward = translateMidi(down.data(), 3, clapPort(), 0);
 	const auto *bentDown = reinterpret_cast<const clap_event_note_expression_t *>(firstEvent(downward));
-	CHECK(nearly(bentDown->value, -2.0));
+	CHECK_NEAR(bentDown->value, -2.0, 1e-9);
 }
 
 TEST(channel_pressure_becomes_a_wildcard_pressure_expression) {
@@ -103,7 +99,7 @@ TEST(channel_pressure_becomes_a_wildcard_pressure_expression) {
 	const auto *expression = reinterpret_cast<const clap_event_note_expression_t *>(firstEvent(translation));
 	CHECK_EQ(expression->expression_id, static_cast<uint32_t>(CLAP_NOTE_EXPRESSION_PRESSURE));
 	CHECK_EQ(expression->key, int16_t(-1));
-	CHECK(nearly(expression->value, 64.0 / 127.0));
+	CHECK_NEAR(expression->value, 64.0 / 127.0, 1e-9);
 }
 
 TEST(poly_aftertouch_keeps_its_key) {

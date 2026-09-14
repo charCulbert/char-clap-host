@@ -44,11 +44,6 @@ as a JSON request instead of argv words, so `param set 1 0.8` and
 {"cmd":"param.set","args":[1,0.8]} do the same thing. Run `help` for the list.)");
 }
 
-// Runs one line and reports whether the session wants to continue.
-bool feed(Session &session, const std::string &line) {
-	return session.runLine(line);
-}
-
 } // namespace
 
 int main(int argc, char **argv) {
@@ -110,7 +105,7 @@ int main(int argc, char **argv) {
 			line += " --id=" + options.pluginId;
 		if (options.pluginIndex != 0)
 			line += " --index=" + std::to_string(options.pluginIndex);
-		if (!feed(session, line))
+		if (!session.runLine(line))
 			return 0;
 		if (!session.isLoaded())
 			return 1;
@@ -124,12 +119,12 @@ int main(int argc, char **argv) {
 		}
 		std::string line;
 		while (std::getline(script, line))
-			if (!feed(session, line))
+			if (!session.runLine(line))
 				return 0;
 	}
 
 	for (const auto &command : immediateCommands)
-		if (!feed(session, command))
+		if (!session.runLine(command))
 			return 0;
 
 	// With commands given on the argv line and no terminal attached, the run
