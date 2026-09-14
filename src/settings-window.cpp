@@ -1,5 +1,6 @@
 #include "settings-window.h"
 
+#include "device-settings.h"
 #include "devices.h"
 #include "native-window.h"
 #include "session.h"
@@ -10,10 +11,6 @@
 
 namespace nch {
 namespace {
-
-// The id the interface uses for "every MIDI input", which is a choice rather
-// than a device the system reports.
-constexpr const char *kAllMidiInputs = "__all__";
 
 constexpr uint32_t kWidth = 560;
 constexpr uint32_t kHeight = 460;
@@ -46,26 +43,6 @@ bool readFile(const std::filesystem::path &path, std::vector<uint8_t> &out) {
 		return false;
 	out.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
 	return true;
-}
-
-Array deviceArray(const std::vector<DeviceChoice> &devices) {
-	Array out;
-	for (const auto &device : devices) {
-		Object row;
-		row["id"] = Value(device.id);
-		row["name"] = Value(device.name);
-		if (device.channels != 0)
-			row["channels"] = Value(device.channels);
-		out.push_back(Value(std::move(row)));
-	}
-	return out;
-}
-
-Array numberArray(const std::vector<uint32_t> &values) {
-	Array out;
-	for (const uint32_t value : values)
-		out.push_back(Value(value));
-	return out;
 }
 
 const char *kPage = R"(<!doctype html>
@@ -314,108 +291,39 @@ std::optional<WebviewHost::Resource> SettingsWindow::fetch(const std::string &pa
 	return resource;
 }
 
-Value SettingsWindow::snapshot() const {
+DeviceState SettingsWindow::deviceState() const {
 	AudioDevice &audio = session_.audioDevice();
-	MidiInput &midi = session_.midiInput();
-	const DeviceSettings current = audio.currentSettings();
-
-	Object audioObject;
-	audioObject["outputDeviceId"] = Value(current.outputDeviceId);
-	audioObject["inputDeviceId"] = Value(current.inputDeviceId);
-	audioObject["outputDevices"] = Value(deviceArray(audio.outputDevices()));
-	audioObject["inputDevices"] = Value(deviceArray(audio.inputDevices()));
-	audioObject["sampleRate"] = Value(static_cast<uint64_t>(current.sampleRate));
-	audioObject["bufferSize"] = Value(current.bufferSize);
-	audioObject["sampleRates"] = Value(numberArray(audio.sampleRatesFor(current.outputDeviceId)));
-	audioObject["bufferSizes"] = Value(numberArray(audio.bufferSizes()));
-
-	const std::vector<DeviceChoice> midiPorts = midi.ports();
-	const std::vector<std::string> openPorts = midi.openPortIds();
-
-	// "All devices" is offered alongside the real ports so a player can take
-	// whatever is plugged in without ticking them one by one.
-	std::vector<DeviceChoice> offered;
-	if (!midiPorts.empty())
-		offered.push_back({kAllMidiInputs, "All devices", 0});
-	offered.insert(offered.end(), midiPorts.begin(), midiPorts.end());
-
-	Array openIds;
-	if (followAllMidiInputs_)
-		openIds.push_back(Value(kAllMidiInputs));
-	for (const auto &id : openPorts)
-		openIds.push_back(Value(id));
-
+	MidiInput &midiIn = session_.midiInput();
 	MidiOutput &midiOut = session_.midiOutput();
-	Array openOutputIds;
-	for (const auto &id : midiOut.openPortIds())
-		openOutputIds.push_back(Value(id));
 
-	Object midiObject;
-	midiObject["inputDevices"] = Value(deviceArray(offered));
-	midiObject["inputDeviceIds"] = Value(std::move(openIds));
-	midiObject["outputDevices"] = Value(deviceArray(midiOut.ports()));
-	midiObject["outputDeviceIds"] = Value(std::move(openOutputIds));
+	DeviceState state;
+	state.settings = audio.currentSettings();
+	state.audioOutputs = audio.outputDevices();
+	state.audioInputs = audio.inputDevices();
+	state.sampleRates = audio.sampleRatesFor(state.settings.outputDeviceId);
+	state.bufferSizes = audio.bufferSizes();
+	state.midiInputs = midiIn.ports();
+	state.midiOutputs = midiOut.ports();
+	state.openMidiInputs = midiIn.openPortIds();
+	state.openMidiOutputs = midiOut.openPortIds();
+	state.followAllMidiInputs = followAllMidiInputs_;
+	return state;
+}
 
-	Object out;
-	out["audio"] = Value(std::move(audioObject));
-	out["midi"] = Value(std::move(midiObject));
-	return Value(std::move(out));
+Value SettingsWindow::snapshot() const {
+	return describeDeviceState(deviceState());
 }
 
 Value SettingsWindow::apply(const Value &request, std::string &error) {
-	// The selector wraps a change as {requestId, changed, settings, snapshot};
-	// a plain {audio, midi} is also accepted so the command line can drive the
-	// same path.
-	const Value &settingsRequest = request.has("settings") ? request["settings"] : request;
-	const Value &audioRequest = settingsRequest["audio"];
-	const Value &midiRequest = settingsRequest["midi"];
+	const DeviceDecision decision = decideDeviceSettings(deviceState(), request);
+	followAllMidiInputs_ = decision.followAllMidiInputs;
 
-	DeviceSettings settings = session_.audioDevice().currentSettings();
-	if (audioRequest.has("outputDeviceId"))
-		settings.outputDeviceId = audioRequest["outputDeviceId"].asString();
-	if (audioRequest.has("inputDeviceId"))
-		settings.inputDeviceId = audioRequest["inputDeviceId"].asString();
-	if (audioRequest.has("sampleRate"))
-		settings.sampleRate = audioRequest["sampleRate"].asNumber(settings.sampleRate);
-	if (audioRequest.has("bufferSize"))
-		settings.bufferSize = static_cast<uint32_t>(audioRequest["bufferSize"].asNumber(settings.bufferSize));
-
-	if (!session_.audioDevice().apply(settings, error))
+	if (decision.audioChanged && !session_.audioDevice().apply(decision.settings, error))
 		return snapshot();
-
-	if (midiRequest.has("inputDeviceIds")) {
-		std::vector<std::string> ids;
-		bool wantsEveryPort = false;
-		for (const auto &id : midiRequest["inputDeviceIds"].array()) {
-			const std::string value = id.asString();
-			if (value == kAllMidiInputs)
-				wantsEveryPort = true;
-			else
-				ids.push_back(value);
-		}
-		// "All devices" reads as a master toggle: ticking it takes every port,
-		// and unticking it lets everything go rather than leaving the ports it
-		// happened to switch on still ticked.
-		const bool wasFollowingAll = followAllMidiInputs_;
-		followAllMidiInputs_ = wantsEveryPort;
-		if (wantsEveryPort) {
-			ids.clear();
-			for (const auto &port : session_.midiInput().ports())
-				ids.push_back(port.id);
-		} else if (wasFollowingAll) {
-			ids.clear();
-		}
-		if (!session_.midiInput().setOpenPorts(ids, error))
-			return snapshot();
-	}
-
-	if (midiRequest.has("outputDeviceIds")) {
-		std::vector<std::string> ids;
-		for (const auto &id : midiRequest["outputDeviceIds"].array())
-			ids.push_back(id.asString());
-		if (!session_.midiOutput().setOpenPorts(ids, error))
-			return snapshot();
-	}
+	if (decision.midiInputsChanged && !session_.midiInput().setOpenPorts(decision.midiInputsToOpen, error))
+		return snapshot();
+	if (decision.midiOutputsChanged && !session_.midiOutput().setOpenPorts(decision.midiOutputsToOpen, error))
+		return snapshot();
 	return snapshot();
 }
 

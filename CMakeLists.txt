@@ -55,6 +55,7 @@ add_library(nch-core STATIC
     src/commands-audio.cpp
     src/commands-devices.cpp
     src/commands-ext.cpp
+    src/device-settings.cpp
     src/devices.cpp
     src/commands-state.cpp
     src/engine.cpp

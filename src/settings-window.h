@@ -6,6 +6,7 @@
 // about what is selected.
 #pragma once
 
+#include "device-settings.h"
 #include "json.h"
 #include "webview.h"
 
@@ -33,6 +34,8 @@ public:
 	// The device state the interface shows, in the shape Compost's device
 	// selector expects.
 	Value snapshot() const;
+	// What the host's devices currently are, which the decision is made from.
+	DeviceState deviceState() const;
 	// Applies a change from the interface. Returns the resulting snapshot.
 	Value apply(const Value &request, std::string &error);
 
