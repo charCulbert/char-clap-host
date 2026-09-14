@@ -118,7 +118,9 @@ bool PluginGui::openNative(bool floating, std::string &error) {
 	if (!floating && wantsScale && gui->set_scale != nullptr)
 		gui->set_scale(session_.plugin(), 1.0);
 
-	const bool resizable = gui->can_resize != nullptr && gui->can_resize(session_.plugin());
+	// can_resize is [main-thread & !floating]; a floating window is the
+	// plug-in's own and the host does not size it.
+	const bool resizable = !floating && gui->can_resize != nullptr && gui->can_resize(session_.plugin());
 
 	uint32_t width = kFallbackWidth;
 	uint32_t height = kFallbackHeight;
@@ -152,11 +154,15 @@ bool PluginGui::openNative(bool floating, std::string &error) {
 			error = "the plug-in refused to be embedded in the host's window";
 			return false;
 		}
-	} else if (gui->set_transient != nullptr) {
-		// A floating window owns itself; the host only marks it transient when
-		// it has a window of its own to be transient for.
-		session_.validator().note(Severity::Info, "clap_plugin_gui.set_transient",
-		                          "the host has no parent window to offer a floating interface");
+	} else {
+		// Steps four and five of the sequence in gui.h: a floating window is
+		// told what it belongs to and what to call itself.
+		if (gui->set_transient != nullptr)
+			session_.validator().note(Severity::Info, "clap_plugin_gui.set_transient",
+			                          "the host has no parent window to offer a floating interface");
+		if (gui->suggest_title != nullptr && session_.descriptor() != nullptr &&
+		    session_.descriptor()->name != nullptr)
+			gui->suggest_title(session_.plugin(), session_.descriptor()->name);
 	}
 	resizable_ = resizable;
 

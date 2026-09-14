@@ -129,8 +129,15 @@ const clap_host_note_ports_t kNotePorts = {notePortsSupportedDialects, notePorts
 
 // --- clap.audio-ports ----------------------------------------------------
 
-bool audioPortsIsRescanFlagSupported(const clap_host_t *, uint32_t) {
-	return true;
+bool audioPortsIsRescanFlagSupported(const clap_host_t *host, uint32_t flag) {
+	Host::from(host).noteCall("clap_host_audio_ports.is_rescan_flag_supported");
+	// "It is illegal to ask the host to rescan with a flag that is not
+	// supported", so claiming every flag -- including bits that do not exist
+	// yet -- invites a plug-in to ask for something the host cannot do.
+	constexpr uint32_t supported = CLAP_AUDIO_PORTS_RESCAN_NAMES | CLAP_AUDIO_PORTS_RESCAN_FLAGS |
+	                               CLAP_AUDIO_PORTS_RESCAN_CHANNEL_COUNT | CLAP_AUDIO_PORTS_RESCAN_PORT_TYPE |
+	                               CLAP_AUDIO_PORTS_RESCAN_IN_PLACE_PAIR | CLAP_AUDIO_PORTS_RESCAN_LIST;
+	return (flag & ~supported) == 0;
 }
 
 void audioPortsRescan(const clap_host_t *host, uint32_t flags) {

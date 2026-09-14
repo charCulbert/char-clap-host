@@ -34,4 +34,4 @@ audio:
     0      1096171824  Left oscillator bank   1         mono  true
     1      1096171825  Right oscillator bank  1         mono  false
 note:
-error: the plug-in refused that port change
+canActivateWhileProcessing: false

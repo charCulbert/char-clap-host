@@ -6,3 +6,16 @@ description: Dynamic 32/64-sample latency example
 features:
   audio-effect
   stereo
+error: latency is only readable while the plug-in is active; activate first
+sampleRate: 48000
+blockSize: 512
+frames: 32
+seconds: 0.0006666666666666666
+id: com.charlieculbert.wclap-runtime-tail-example
+name: WCLAP Runtime Reverb Tail Example
+vendor: Charlie Culbert
+version: 0.1.0
+description: Schroeder room CLAP tail example
+features:
+  audio-effect
+  reverb

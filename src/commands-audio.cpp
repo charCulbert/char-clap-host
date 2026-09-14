@@ -133,14 +133,26 @@ void Session::registerAudioCommands() {
 			               return ready;
 		               if (!request.hasArg(0, "key"))
 			               return Response::failure("usage: note.on <key> [velocity] [channel] [port]");
-		               const auto key = static_cast<int16_t>(request.arg(0, "key").asNumber());
+		               const double requestedKey = request.arg(0, "key").asNumber(-1);
+		               // "A note-on event with a '-1' for port, channel or key
+		               // is invalid and can be rejected or ignored by a plugin
+		               // or host." Rejecting here beats sending nonsense.
+		               if (requestedKey < 0 || requestedKey > 127)
+			               return Response::failure("a key must be 0..127");
+		               const auto key = static_cast<int16_t>(requestedKey);
 		               // Velocity is 0..1 in CLAP; a value above 1 is read as
 		               // the MIDI 0..127 a musician is more likely to type.
 		               double velocity = request.arg(1, "velocity").asNumber(0.8);
 		               if (velocity > 1.0)
 			               velocity /= 127.0;
-		               const auto channel = static_cast<int16_t>(request.arg(2, "channel").asNumber(0));
-		               const auto port = static_cast<int16_t>(request.arg(3, "port").asNumber(0));
+		               const double requestedChannel = request.arg(2, "channel").asNumber(0);
+		               const double requestedPort = request.arg(3, "port").asNumber(0);
+		               if (requestedChannel < 0 || requestedChannel > 15)
+			               return Response::failure("a channel must be 0..15");
+		               if (requestedPort < 0)
+			               return Response::failure("a note-on needs a real port, not a wildcard");
+		               const auto channel = static_cast<int16_t>(requestedChannel);
+		               const auto port = static_cast<int16_t>(requestedPort);
 		               const auto noteId = static_cast<int32_t>(request.arg("noteId").asNumber(-1));
 		               const uint64_t delay = framesFromArgument(request.arg("at"), session.sampleRate(), 0);
 		               session.engine().noteOn(port, channel, key, velocity, noteId, delay);

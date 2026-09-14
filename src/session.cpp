@@ -55,9 +55,15 @@ Session::~Session() {
 
 bool Session::load(const std::string &path, const std::string &id, uint32_t index, std::string &error) {
 	unload();
-	if (!instance_.load(path, id, index, error))
-		return false;
+	// "It is forbidden to call it before plugin->init(). You can call it
+	// within plugin->init() call, and after." So the host must already be
+	// answering before load runs init, or a plug-in doing the legal thing is
+	// reported as doing the wrong one.
 	host_.setPluginReady(true);
+	if (!instance_.load(path, id, index, error)) {
+		host_.setPluginReady(false);
+		return false;
+	}
 	// Worked out here, on the main thread, so a MIDI message arriving on a
 	// device thread never has to ask the plug-in.
 	engine_.refreshNoteEncoding();

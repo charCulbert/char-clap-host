@@ -13,6 +13,18 @@ Response needPlugin(Session &session) {
 	return session.isLoaded() ? Response::success() : Response::failure("no plug-in loaded");
 }
 
+// Several extensions may only be asked while the plug-in is active, because
+// the answer lives in the activated processor. Asking anyway returns stale
+// data or trips the plug-in's own assertion, so the host refuses first.
+Response needActive(Session &session, const char *what) {
+	Response ready = needPlugin(session);
+	if (!ready.ok)
+		return ready;
+	if (!session.isActive())
+		return Response::failure(std::string(what) + " is only readable while the plug-in is active; activate first");
+	return Response::success();
+}
+
 // Fetches an extension, trying the draft id and then its compat spelling.
 template <typename T> const T *extensionOf(Session &session, const char *id, const char *compatId = nullptr) {
 	const T *found = session.pluginExtension<T>(id);
@@ -30,7 +42,8 @@ std::string textOrEmpty(const char *text) {
 void Session::registerExtensionCommands() {
 	commands_.add({"latency", "", "Report the plug-in's reported latency in frames.",
 	               [](Session &session, const Request &) -> Response {
-		               Response ready = needPlugin(session);
+		               // "[main-thread & (being-activated | active)]"
+		               Response ready = needActive(session, "latency");
 		               if (!ready.ok)
 			               return ready;
 		               const auto *latency = session.pluginExtension<clap_plugin_latency_t>(CLAP_EXT_LATENCY);
@@ -87,7 +100,8 @@ void Session::registerExtensionCommands() {
 
 	commands_.add({"voices", "", "Report the plug-in's voice configuration.",
 	               [](Session &session, const Request &) -> Response {
-		               Response ready = needPlugin(session);
+		               // "[main-thread & active]"
+		               Response ready = needActive(session, "voice info");
 		               if (!ready.ok)
 			               return ready;
 		               const auto *voiceInfo = session.pluginExtension<clap_plugin_voice_info_t>(CLAP_EXT_VOICE_INFO);
@@ -234,12 +248,24 @@ void Session::registerExtensionCommands() {
 		               const auto index = static_cast<uint32_t>(request.arg(0, "port").asNumber());
 		               const bool active = request.arg(1, "active").asBool(true);
 		               const bool isInput = request.arg(2, "input").asBool(false);
-		               if (!activation->set_active(session.plugin(), isInput, index, active, session.blockSize()))
+
+		               // "Audio ports can only be activated or deactivated
+		               // when the plugin is deactivated, unless
+		               // can_activate_while_processing() returns true."
+		               const bool whileProcessing =
+		                   activation->can_activate_while_processing != nullptr &&
+		                   activation->can_activate_while_processing(session.plugin());
+		               if (session.isActive() && !whileProcessing)
+			               return Response::failure(
+			                   "this plug-in only allows port activation while deactivated");
+
+		               // sample_size is 32, 64, or 0 when unspecified -- not a
+		               // block size, which is what the host used to pass.
+		               constexpr uint32_t hostSampleSize = 32;
+		               if (!activation->set_active(session.plugin(), isInput, index, active, hostSampleSize))
 			               return Response::failure("the plug-in refused that port change");
 		               Object out;
-		               out["canActivateWhileProcessing"] =
-		                   Value(activation->can_activate_while_processing != nullptr &&
-		                         activation->can_activate_while_processing(session.plugin()));
+		               out["canActivateWhileProcessing"] = Value(whileProcessing);
 		               return Response::success(Value(std::move(out)));
 	               }});
 
