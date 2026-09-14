@@ -16,13 +16,14 @@ uint64_t nowMs() {
 } // namespace
 
 Session::Session(Options options)
-    : options_(std::move(options)), host_(*this, validator_), engine_(*this) {
+    : options_(std::move(options)), host_(*this, validator_), engine_(*this), audioDevice_(*this), midiInput_(*this) {
 	sampleRate_ = options_.sampleRate;
 	maxFrames_ = options_.blockSize;
 	registerCommands();
 	registerAudioCommands();
 	registerStateCommands();
 	registerExtensionCommands();
+	registerDeviceCommands();
 }
 
 Session::~Session() {
@@ -148,6 +149,39 @@ void Session::runMainThreadWork() {
 		timer.nextDueMs = now + timer.periodMs;
 		timerSupport->on_timer(plugin_, timer.id);
 	}
+}
+
+bool Session::prepareForDevice(double sampleRate, uint32_t blockSize, std::string &error) {
+	options_.sampleRate = sampleRate;
+	options_.blockSize = blockSize;
+	if (active_)
+		deactivate();
+	sampleRate_ = sampleRate;
+	maxFrames_ = blockSize;
+	return engine_.start(error);
+}
+
+void Session::onAudioCallback(const float *input, float *output, uint32_t frames, bool hadGlitch) {
+	audioCallbacks_.fetch_add(1, std::memory_order_relaxed);
+	if (hadGlitch)
+		audioUnderruns_.fetch_add(1, std::memory_order_relaxed);
+	engine_.processInterleaved(input, input != nullptr ? 2 : 0, output, engine_.deviceOutputChannels(), frames);
+}
+
+void Session::onMidiMessage(const uint8_t *bytes, uint32_t size, uint64_t delayFrames) {
+	midiMessages_.fetch_add(1, std::memory_order_relaxed);
+	if (size == 0 || size > 3)
+		return; // sysex has no CLAP MIDI 1.0 event shape
+	clap_event_midi_t event{};
+	event.header.size = sizeof(event);
+	event.header.time = 0;
+	event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+	event.header.type = CLAP_EVENT_MIDI;
+	event.header.flags = CLAP_EVENT_IS_LIVE;
+	event.port_index = 0;
+	for (uint32_t i = 0; i < size; ++i)
+		event.data[i] = bytes[i];
+	engine_.scheduleAfter(&event.header, delayFrames);
 }
 
 void Session::onRequestRestart() {

@@ -72,6 +72,18 @@ public:
 	// advanced. Returns the clap_process status.
 	int32_t processBlock(uint32_t frames, AudioData *output);
 
+	// One block driven by a device callback: interleaved in, interleaved out.
+	// Runs entirely on the calling thread, which must be the audio thread.
+	int32_t processInterleaved(const float *input, uint32_t inputChannels, float *output, uint32_t outputChannels,
+	                           uint32_t frames);
+
+	uint32_t mainOutputChannels() const { return buffers_.mainOutputChannels(); }
+
+	// How many interleaved channels the device callback writes. Set once the
+	// stream's layout is known.
+	void setDeviceOutputChannels(uint32_t channels) { deviceOutputChannels_ = channels; }
+	uint32_t deviceOutputChannels() const { return deviceOutputChannels_; }
+
 	// --- notes ------------------------------------------------------------
 	// Note helpers keep track of what is sounding, so `note off all` can end
 	// exactly the notes the host started.
@@ -102,6 +114,7 @@ private:
 	AudioData input_;
 	uint64_t inputPosition_ = 0;
 	uint64_t playhead_ = 0;
+	uint32_t deviceOutputChannels_ = 2;
 	bool running_ = false;
 
 	mutable std::mutex scheduleMutex_;

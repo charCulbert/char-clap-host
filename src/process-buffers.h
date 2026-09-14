@@ -39,6 +39,10 @@ public:
 	// Appends `frames` of the main output port to `destination`.
 	void appendMainOutput(AudioData &destination, uint32_t frames) const;
 
+	// The interleaved forms a realtime device callback works in.
+	void writeMainInput(const float *interleaved, uint32_t frames, uint32_t sourceChannels);
+	void readMainOutput(float *interleaved, uint32_t frames, uint32_t destinationChannels) const;
+
 private:
 	struct Port {
 		uint32_t channelCount = 0;

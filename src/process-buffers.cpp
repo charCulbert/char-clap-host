@@ -102,6 +102,39 @@ void ProcessBuffers::fillMainInput(const AudioData &source, uint64_t sourceFrame
 	}
 }
 
+void ProcessBuffers::writeMainInput(const float *interleaved, uint32_t frames, uint32_t sourceChannels) {
+	if (mainInputIndex_ >= inputPorts_.size() || interleaved == nullptr || sourceChannels == 0)
+		return;
+	Port &port = inputPorts_[mainInputIndex_];
+	for (uint32_t channel = 0; channel < port.channelCount; ++channel) {
+		// A mono device feeds every plug-in channel; extra plug-in channels
+		// beyond what the device delivers stay silent.
+		const uint32_t sourceChannel = sourceChannels == 1 ? 0 : channel;
+		if (sourceChannel >= sourceChannels)
+			continue;
+		for (uint32_t frame = 0; frame < frames; ++frame)
+			port.channels[channel][frame] = interleaved[frame * sourceChannels + sourceChannel];
+	}
+}
+
+void ProcessBuffers::readMainOutput(float *interleaved, uint32_t frames, uint32_t destinationChannels) const {
+	if (interleaved == nullptr || destinationChannels == 0)
+		return;
+	const Port *port = mainOutputIndex_ < outputPorts_.size() ? &outputPorts_[mainOutputIndex_] : nullptr;
+	for (uint32_t frame = 0; frame < frames; ++frame) {
+		for (uint32_t channel = 0; channel < destinationChannels; ++channel) {
+			float sample = 0.0f;
+			if (port != nullptr && port->channelCount != 0) {
+				// A mono plug-in fills every device channel.
+				const uint32_t sourceChannel = port->channelCount == 1 ? 0 : channel;
+				if (sourceChannel < port->channelCount)
+					sample = port->channels[sourceChannel][frame];
+			}
+			interleaved[frame * destinationChannels + channel] = sample;
+		}
+	}
+}
+
 void ProcessBuffers::appendMainOutput(AudioData &destination, uint32_t frames) const {
 	if (mainOutputIndex_ >= outputPorts_.size())
 		return;

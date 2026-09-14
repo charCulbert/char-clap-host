@@ -8,6 +8,7 @@
 
 #include "bundle.h"
 #include "command.h"
+#include "devices.h"
 #include "engine.h"
 #include "host-services.h"
 #include "host.h"
@@ -63,6 +64,19 @@ public:
 	const clap_plugin_descriptor_t *descriptor() const { return descriptor_; }
 
 	Engine &engine() { return engine_; }
+	AudioDevice &audioDevice() { return audioDevice_; }
+	MidiInput &midiInput() { return midiInput_; }
+
+	// Activates the plug-in at a device's rate and block size and enters
+	// processing, so the first callback has somewhere to write.
+	bool prepareForDevice(double sampleRate, uint32_t blockSize, std::string &error);
+
+	// Called from the device threads.
+	void onAudioCallback(const float *input, float *output, uint32_t frames, bool hadGlitch);
+	void onMidiMessage(const uint8_t *bytes, uint32_t size, uint64_t delayFrames);
+	uint64_t audioCallbackCount() const { return audioCallbacks_.load(std::memory_order_relaxed); }
+	uint64_t audioUnderrunCount() const { return audioUnderruns_.load(std::memory_order_relaxed); }
+	uint64_t midiMessageCount() const { return midiMessages_.load(std::memory_order_relaxed); }
 	void setProcessing(bool processing) { processing_ = processing; }
 
 	bool activate(double sampleRate, uint32_t minFrames, uint32_t maxFrames, std::string &error);
@@ -128,6 +142,7 @@ private:
 	void registerAudioCommands();
 	void registerStateCommands();
 	void registerExtensionCommands();
+	void registerDeviceCommands();
 	void refreshExtensions();
 
 	Options options_;
@@ -138,6 +153,11 @@ private:
 	CommandTable commands_;
 
 	Engine engine_;
+	AudioDevice audioDevice_;
+	MidiInput midiInput_;
+	std::atomic<uint64_t> audioCallbacks_{0};
+	std::atomic<uint64_t> audioUnderruns_{0};
+	std::atomic<uint64_t> midiMessages_{0};
 
 	const clap_plugin_descriptor_t *descriptor_ = nullptr;
 	const clap_plugin_t *plugin_ = nullptr;

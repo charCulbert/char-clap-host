@@ -259,6 +259,42 @@ int32_t Engine::processBlock(uint32_t frames, AudioData *output) {
 	return status;
 }
 
+int32_t Engine::processInterleaved(const float *input, uint32_t inputChannels, float *output,
+                                   uint32_t outputChannels, uint32_t frames) {
+	if (!running_ || !session_.isLoaded()) {
+		if (output != nullptr)
+			std::memset(output, 0, static_cast<size_t>(frames) * outputChannels * sizeof(float));
+		return CLAP_PROCESS_ERROR;
+	}
+	buffers_.silence(frames);
+	if (input != nullptr)
+		buffers_.writeMainInput(input, frames, inputChannels);
+	else if (!input_.channels.empty()) {
+		buffers_.fillMainInput(input_, inputPosition_, frames);
+		inputPosition_ += frames;
+	}
+	collectBlockEvents(frames);
+	outEvents_.clear();
+	buildTransportEvent(frames);
+
+	clap_process_t process{};
+	process.steady_time = static_cast<int64_t>(playhead_);
+	process.frames_count = frames;
+	process.transport = transport_.send ? &transportEvent_ : nullptr;
+	process.audio_inputs = buffers_.inputs();
+	process.audio_outputs = buffers_.outputs();
+	process.audio_inputs_count = buffers_.inputPortCount();
+	process.audio_outputs_count = buffers_.outputPortCount();
+	process.in_events = inEvents_.input();
+	process.out_events = outEvents_.output();
+
+	const int32_t status = session_.plugin()->process(session_.plugin(), &process);
+	buffers_.readMainOutput(output, frames, outputChannels);
+	playhead_ += frames;
+	advanceTransport(frames);
+	return status;
+}
+
 bool Engine::render(uint64_t frames, AudioData &out, std::string &error) {
 	if (!start(error))
 		return false;
