@@ -102,7 +102,10 @@ a note effect's output can be sent to a MIDI device.
 **A validator, not just a host.** The host stays permissive: it notes a
 violation and carries on, so a misbehaving plug-in can still be inspected.
 Thread roles, lifecycle order and call legality are all tracked. `validate`
-reports what was seen.
+reports what was seen. The host also refuses to *cause* violations: it will not
+read latency or voice info before activation, touch audio port activation on an
+active plug-in that forbids it, send a note with a key of 999, or let two
+threads into `process()` at once.
 
 ```console
 > validate
@@ -130,10 +133,13 @@ works the way the extension describes, and relays messages both ways.
 cd build && ctest --output-on-failure
 ```
 
-Three layers:
+Three layers, 84 unit cases and 14 CTest cases:
 
-- **Unit tests** for the host's own pieces — the JSON value, the command
-  grammar, the WAV codec, the MIDI file reader.
+- **Unit tests** for the host's own pieces, most of them driving real fixture
+  plug-ins rather than mocks: the CLAP state machine, the timeline arithmetic,
+  note encoding in both directions, the device decision, the thread pool, the
+  command table in process, plus the JSON value, command grammar, WAV codec and
+  MIDI file reader.
 - **Script transcripts.** `tests/scripts/*.txt` are host commands in the same
   language you type; each is compared against the `.expected` transcript beside
   it. Anything you do by hand becomes a regression test by pasting it in.
