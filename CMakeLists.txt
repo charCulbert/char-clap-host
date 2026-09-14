@@ -75,6 +75,7 @@ add_library(nch-core STATIC
     src/session.cpp
     src/settings-window.cpp
     src/thread-role.cpp
+    src/timeline.cpp
     src/validator.cpp
 )
 target_include_directories(nch-core PUBLIC src)

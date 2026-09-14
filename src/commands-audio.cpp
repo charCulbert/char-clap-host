@@ -4,6 +4,7 @@
 #include "midi-file.h"
 #include "wav.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -342,10 +343,26 @@ void Session::registerAudioCommands() {
 		               std::string error;
 		               if (!session.engine().start(error))
 			               return Response::failure(error);
-		               const auto frames = static_cast<uint32_t>(request.arg(0, "frames").asNumber(session.blockSize()));
-		               const int32_t status = session.engine().processBlock(frames, nullptr);
+		               // A plug-in allocated for the block size it was activated
+		               // with, so a larger request is split rather than handed
+		               // over whole.
+		               const auto requested =
+		                   static_cast<uint64_t>(request.arg(0, "frames").asNumber(session.blockSize()));
+		               uint64_t remaining = requested;
+		               int32_t status = CLAP_PROCESS_CONTINUE;
+		               uint64_t blocks = 0;
+		               while (remaining > 0) {
+			               const auto block =
+			                   static_cast<uint32_t>(std::min<uint64_t>(session.blockSize(), remaining));
+			               status = session.engine().processBlock(block, nullptr);
+			               remaining -= block;
+			               ++blocks;
+			               if (status == CLAP_PROCESS_ERROR)
+				               break;
+		               }
 		               Object out;
-		               out["frames"] = Value(frames);
+		               out["frames"] = Value(requested);
+		               out["blocks"] = Value(blocks);
 		               out["status"] = Value(status);
 		               out["outputEvents"] = Value(session.engine().lastOutputEvents().size());
 		               return Response::success(Value(std::move(out)));

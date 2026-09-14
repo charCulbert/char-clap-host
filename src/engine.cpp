@@ -1,10 +1,12 @@
 #include "engine.h"
 
 #include "session.h"
+#include "timeline.h"
 #include "thread-role.h"
 
 #include <algorithm>
 #include <cmath>
+#include <algorithm>
 #include <cstring>
 
 namespace nch {
@@ -46,10 +48,18 @@ void Engine::stop() {
 }
 
 void Engine::resetPlayhead() {
+	// "clap_process.steady_time may jump backward" only across reset(), so the
+	// plug-in has to be told; otherwise anything deriving time from the deltas
+	// sees a negative one.
+	if (session_.isActive() && session_.plugin() != nullptr && session_.plugin()->reset != nullptr) {
+		ScopedThreadRole role(ThreadRole::Audio);
+		session_.plugin()->reset(session_.plugin());
+	}
 	playhead_ = 0;
 	inputPosition_ = 0;
 	transport_.songBeats = 0.0;
 	transport_.songSeconds = 0.0;
+	activeNotes_.clear(); // reset "kills all voices"
 }
 
 void Engine::scheduleAfter(const clap_event_header_t *event, uint64_t delayFrames) {
@@ -61,16 +71,7 @@ void Engine::scheduleLive(const clap_event_header_t *event, std::chrono::steady_
 	const int64_t arrivalNanos = duration_cast<nanoseconds>(arrival.time_since_epoch()).count();
 	const int64_t referenceNanos = blockStartNanos_.load(std::memory_order_acquire);
 	const uint64_t referenceFrame = blockStartFrame_.load(std::memory_order_acquire);
-	if (referenceNanos == 0) {
-		// Nothing has been processed yet, so there is no clock to measure
-		// against; the event belongs at the very start.
-		scheduleAt(event, referenceFrame);
-		return;
-	}
-	const double elapsedSeconds = static_cast<double>(arrivalNanos - referenceNanos) / 1e9;
-	const int64_t offsetFrames = static_cast<int64_t>(std::llround(elapsedSeconds * session_.sampleRate()));
-	const int64_t frame = static_cast<int64_t>(referenceFrame) + offsetFrames;
-	scheduleAt(event, frame < 0 ? 0 : static_cast<uint64_t>(frame));
+	scheduleAt(event, frameForArrival(arrivalNanos, referenceNanos, referenceFrame, session_.sampleRate()));
 }
 
 void Engine::scheduleAt(const clap_event_header_t *event, uint64_t frame) {
@@ -248,11 +249,8 @@ void Engine::collectBlockEvents(uint32_t frames) {
 	for (const auto &scheduled : schedule_) {
 		if (scheduled.frame >= blockEnd)
 			break;
-		// An event whose time has already passed lands on the first frame
-		// rather than being dropped.
-		const uint64_t at = scheduled.frame < playhead_ ? playhead_ : scheduled.frame;
 		auto *header = reinterpret_cast<clap_event_header_t *>(const_cast<uint8_t *>(scheduled.bytes.data()));
-		header->time = static_cast<uint32_t>(at - playhead_);
+		header->time = eventOffsetInBlock(scheduled.frame, playhead_, frames);
 		inEvents_.push(header);
 		++consumed;
 	}
@@ -287,16 +285,9 @@ void Engine::buildTransportEvent(uint32_t frames) {
 	transportEvent_.song_pos_beats = toBeatTime(transport_.songBeats);
 	transportEvent_.song_pos_seconds = toSecTime(transport_.songSeconds);
 
-	// A beat is a quarter note, so a bar is only tsig_num beats long in x/4.
-	// In 6/8 it is three, and a plug-in working out its position within the
-	// bar as song_pos_beats - bar_start gets that wrong for the whole session
-	// if the host leaves bar_start at zero.
-	const double beatsPerBar =
-	    std::max(1.0, static_cast<double>(transport_.timeSigNumerator) * 4.0 /
-	                      std::max(1.0, static_cast<double>(transport_.timeSigDenominator)));
-	const double barsElapsed = std::floor(transport_.songBeats / beatsPerBar);
-	transportEvent_.bar_start = toBeatTime(barsElapsed * beatsPerBar);
-	transportEvent_.bar_number = static_cast<int32_t>(barsElapsed);
+	const double barBeats = beatsPerBar(transport_.timeSigNumerator, transport_.timeSigDenominator);
+	transportEvent_.bar_start = toBeatTime(barStart(transport_.songBeats, barBeats));
+	transportEvent_.bar_number = barNumber(transport_.songBeats, barBeats);
 	transportEvent_.loop_start_beats = toBeatTime(transport_.loopStartBeats);
 	transportEvent_.loop_end_beats = toBeatTime(transport_.loopEndBeats);
 	transportEvent_.loop_start_seconds = toSecTime(transport_.loopStartBeats * 60.0 / transport_.tempo);
@@ -306,15 +297,12 @@ void Engine::buildTransportEvent(uint32_t frames) {
 void Engine::advanceTransport(uint32_t frames) {
 	if (!transport_.playing)
 		return;
-	const double seconds = static_cast<double>(frames) / session_.sampleRate();
-	transport_.songSeconds += seconds;
-	transport_.songBeats += seconds * transport_.tempo / 60.0;
-	if (transport_.loopActive && transport_.loopEndBeats > transport_.loopStartBeats &&
-	    transport_.songBeats >= transport_.loopEndBeats) {
-		const double span = transport_.loopEndBeats - transport_.loopStartBeats;
-		transport_.songBeats = transport_.loopStartBeats + std::fmod(transport_.songBeats - transport_.loopStartBeats, span);
-		transport_.songSeconds = transport_.songBeats * 60.0 / transport_.tempo;
-	}
+	const Playhead moved =
+	    advancePlayhead({transport_.songBeats, transport_.songSeconds}, frames, session_.sampleRate(),
+	                    transport_.tempo, transport_.loopActive, transport_.loopStartBeats,
+	                    transport_.loopEndBeats);
+	transport_.songBeats = moved.beats;
+	transport_.songSeconds = moved.seconds;
 }
 
 void Engine::markBlockStart() {
@@ -327,22 +315,56 @@ void Engine::markBlockStart() {
 }
 
 int32_t Engine::processBlock(uint32_t frames, AudioData *output) {
-	markBlockStart();
-	if (!running_ || !session_.isLoaded())
-		return CLAP_PROCESS_ERROR;
+	BlockIo io;
+	io.collected = output;
+	return processBlock(frames, io);
+}
 
-	buffers_.silence(frames);
-	if (!input_.channels.empty()) {
-		buffers_.fillMainInput(input_, inputPosition_, frames);
-		inputPosition_ += frames;
+int32_t Engine::processBlock(uint32_t frames, const BlockIo &io) {
+	if (!running_ || !session_.isLoaded()) {
+		if (io.interleavedOutput != nullptr)
+			std::memset(io.interleavedOutput,
+			            0,
+			            static_cast<size_t>(frames) * io.interleavedOutputChannels * sizeof(float));
+		return CLAP_PROCESS_ERROR;
 	}
-	collectBlockEvents(frames);
+
+	// "the host must guarantee that single plugin instance will not be two
+	// audio-threads at the same time." A render typed at the prompt while a
+	// device stream is live would be exactly that.
+	bool expected = false;
+	if (!insideProcess_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+		session_.validator().error("clap_plugin.process",
+		                           "two threads tried to process the same plug-in at once");
+		if (io.interleavedOutput != nullptr)
+			std::memset(io.interleavedOutput,
+			            0,
+			            static_cast<size_t>(frames) * io.interleavedOutputChannels * sizeof(float));
+		return CLAP_PROCESS_ERROR;
+	}
+
+	markBlockStart();
+	// Never more than the plug-in was activated for: it allocated for
+	// max_frames_count and nothing more.
+	const uint32_t blockFrames = std::min(frames, session_.blockSize());
+	if (blockFrames != frames)
+		session_.validator().warn("clap_plugin.process",
+		                          "a block larger than the activated maximum was clamped");
+
+	buffers_.silence(blockFrames);
+	if (io.interleavedInput != nullptr) {
+		buffers_.writeMainInput(io.interleavedInput, blockFrames, io.interleavedInputChannels);
+	} else if (!input_.channels.empty()) {
+		buffers_.fillMainInput(input_, inputPosition_, blockFrames);
+		inputPosition_ += blockFrames;
+	}
+	collectBlockEvents(blockFrames);
 	outEvents_.clear();
-	buildTransportEvent(frames);
+	buildTransportEvent(blockFrames);
 
 	clap_process_t process{};
 	process.steady_time = static_cast<int64_t>(playhead_);
-	process.frames_count = frames;
+	process.frames_count = blockFrames;
 	process.transport = transport_.send ? &transportEvent_ : nullptr;
 	process.audio_inputs = buffers_.inputs();
 	process.audio_outputs = buffers_.outputs();
@@ -361,56 +383,29 @@ int32_t Engine::processBlock(uint32_t frames, AudioData *output) {
 		// anyway would put whatever the plug-in left behind into a file or a
 		// speaker.
 		session_.validator().error("clap_plugin.process", "returned CLAP_PROCESS_ERROR");
-		buffers_.silence(frames);
+		buffers_.silence(blockFrames);
 	}
 
 	session_.absorbOutputEvents(outEvents_);
-	if (output != nullptr)
-		buffers_.appendMainOutput(*output, frames);
-	playhead_ += frames;
-	advanceTransport(frames);
+	if (io.collected != nullptr)
+		buffers_.appendMainOutput(*io.collected, blockFrames);
+	if (io.interleavedOutput != nullptr)
+		buffers_.readMainOutput(io.interleavedOutput, blockFrames, io.interleavedOutputChannels);
+	playhead_ += blockFrames;
+	advanceTransport(blockFrames);
+
+	insideProcess_.store(false, std::memory_order_release);
 	return status;
 }
 
 int32_t Engine::processInterleaved(const float *input, uint32_t inputChannels, float *output,
                                    uint32_t outputChannels, uint32_t frames) {
-	markBlockStart();
-	if (!running_ || !session_.isLoaded()) {
-		if (output != nullptr)
-			std::memset(output, 0, static_cast<size_t>(frames) * outputChannels * sizeof(float));
-		return CLAP_PROCESS_ERROR;
-	}
-	buffers_.silence(frames);
-	if (input != nullptr)
-		buffers_.writeMainInput(input, frames, inputChannels);
-	else if (!input_.channels.empty()) {
-		buffers_.fillMainInput(input_, inputPosition_, frames);
-		inputPosition_ += frames;
-	}
-	collectBlockEvents(frames);
-	outEvents_.clear();
-	buildTransportEvent(frames);
-
-	clap_process_t process{};
-	process.steady_time = static_cast<int64_t>(playhead_);
-	process.frames_count = frames;
-	process.transport = transport_.send ? &transportEvent_ : nullptr;
-	process.audio_inputs = buffers_.inputs();
-	process.audio_outputs = buffers_.outputs();
-	process.audio_inputs_count = buffers_.inputPortCount();
-	process.audio_outputs_count = buffers_.outputPortCount();
-	process.in_events = inEvents_.input();
-	process.out_events = outEvents_.output();
-
-	const int32_t status = session_.plugin()->process(session_.plugin(), &process);
-	if (status == CLAP_PROCESS_ERROR) {
-		session_.validator().error("clap_plugin.process", "returned CLAP_PROCESS_ERROR");
-		buffers_.silence(frames);
-	}
-	buffers_.readMainOutput(output, frames, outputChannels);
-	playhead_ += frames;
-	advanceTransport(frames);
-	return status;
+	BlockIo io;
+	io.interleavedInput = input;
+	io.interleavedInputChannels = inputChannels;
+	io.interleavedOutput = output;
+	io.interleavedOutputChannels = outputChannels;
+	return processBlock(frames, io);
 }
 
 bool Engine::runSilentBlock(std::string &error) {

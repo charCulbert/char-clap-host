@@ -80,14 +80,33 @@ public:
 	// calling thread with the audio thread role.
 	bool render(uint64_t frames, AudioData &out, std::string &error);
 
-	// One block. `output` may be null when the caller only wants the plug-in
-	// advanced. Returns the clap_process status.
+	// Where a block's audio comes from and goes to. The two callers differ
+	// only in this: an offline render reads a file and appends to a buffer, a
+	// device callback reads and writes interleaved frames.
+	struct BlockIo {
+		const float *interleavedInput = nullptr;
+		uint32_t interleavedInputChannels = 0;
+		float *interleavedOutput = nullptr;
+		uint32_t interleavedOutputChannels = 0;
+		AudioData *collected = nullptr;
+	};
+
+	// One block. Returns the clap_process status.
+	//
+	// CLAP is explicit that [audio-thread] functions are not concurrent, so
+	// only one caller may be inside this at a time; a second is refused rather
+	// than allowed to corrupt the plug-in's state and the host's buffers.
+	int32_t processBlock(uint32_t frames, const BlockIo &io);
 	int32_t processBlock(uint32_t frames, AudioData *output);
 
 	// One block driven by a device callback: interleaved in, interleaved out.
 	// Runs entirely on the calling thread, which must be the audio thread.
 	int32_t processInterleaved(const float *input, uint32_t inputChannels, float *output, uint32_t outputChannels,
 	                           uint32_t frames);
+
+	// True while a block is being processed, so a caller on another thread can
+	// refuse rather than join in.
+	bool isInsideProcess() const { return insideProcess_.load(std::memory_order_acquire); }
 
 	uint32_t mainOutputChannels() const { return buffers_.mainOutputChannels(); }
 
@@ -161,6 +180,8 @@ private:
 	std::atomic<int64_t> blockStartNanos_{0};
 	// The input port's dialect, published for the device threads.
 	std::atomic<uint32_t> cachedDialect_{CLAP_NOTE_DIALECT_CLAP};
+	// Guards the one thing CLAP says must never happen twice at once.
+	std::atomic<bool> insideProcess_{false};
 	bool running_ = false;
 
 	mutable std::mutex scheduleMutex_;
