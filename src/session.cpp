@@ -39,7 +39,7 @@ uint64_t nowMs() {
 } // namespace
 
 Session::Session(Options options)
-    : options_(std::move(options)), host_(*this, validator_), instance_(host_.clapHost(), validator_), engine_(*this), audioDevice_(*this), midiInput_(*this), gui_(instance_), settings_(*this) {
+    : options_(std::move(options)), host_(*this, validator_), instance_(host_.clapHost(), validator_), engine_(*this), audioDevice_(*this), midiInput_(*this), gui_(instance_), settings_(*this), panel_(*this) {
 	instance_.setPreferredFormat(options_.sampleRate, options_.blockSize);
 	registerCommands();
 	registerAudioCommands();
@@ -75,6 +75,7 @@ void Session::unload() {
 		// it belongs to, or a device thread still calling process(), are both
 		// worse than any ordering inside the instance itself.
 		gui_.close();
+		panel_.close();
 		audioDevice_.stop();
 		midiInput_.close();
 		midiOutput_.close();
@@ -555,21 +556,45 @@ Value Session::statusReport() const {
 	return Value(std::move(out));
 }
 
-bool Session::runLine(const std::string &line) {
+Response Session::execute(const std::string &line) {
 	Request request;
 	std::string error;
-	if (!commands_.parseLine(line, request, error)) {
-		writeResponse(request, Response::failure(error));
-		return !quit_;
-	}
+	if (!commands_.parseLine(line, request, error))
+		return Response::failure(error);
 	if (request.name.empty())
-		return !quit_;
+		return Response::success();
 
 	const size_t violationsBefore = validator_.violationCount();
 	Response response = commands_.dispatch(*this, request);
 	runMainThreadWork();
 	if (options_.strict && response.ok && validator_.violationCount() != violationsBefore && validator_.hasErrors())
 		response = Response::failure("plug-in violated the CLAP contract; see `validate`");
+	return response;
+}
+
+Value Session::executeAsJson(const std::string &line) {
+	const Response response = execute(line);
+	Object envelope;
+	envelope["ok"] = Value(response.ok);
+	if (!response.ok)
+		envelope["error"] = Value(response.error);
+	if (!response.data.isNull())
+		envelope["data"] = response.data;
+	return Value(std::move(envelope));
+}
+
+bool Session::runLine(const std::string &line) {
+	Request request;
+	std::string error;
+	if (!commands_.parseLine(line, request, error)) {
+		writeResponse(request, Response::failure(error));
+		++commandFailures_;
+		return !quit_;
+	}
+	if (request.name.empty())
+		return !quit_;
+
+	const Response response = execute(line);
 	if (!response.ok)
 		++commandFailures_;
 	writeResponse(request, response);
@@ -615,6 +640,8 @@ bool Session::tick() {
 		gui_.close();
 	if (settings_.wantsClose())
 		settings_.close();
+	if (panel_.wantsClose())
+		panel_.close();
 	return !quit_;
 }
 

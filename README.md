@@ -106,6 +106,13 @@ beginning with `#` are comments.
 interface. On macOS there is a menu bar: **File → Load Plug-in…** (⌘O), a
 `.clap` dropped on a window, **Settings → Audio/MIDI Settings…** (⌘,), and ⌘Q.
 
+`panel` opens the host's own view: every parameter as a control, and every
+preset the bundle declares as a button. It is a client of the command table
+rather than a second implementation — the page sends `params.list`,
+`param.set`, `presets.list` and `preset.load`, exactly what you would type — so
+a plug-in with no interface of its own is still playable, and anything the
+command set gains appears there without new code.
+
 The window deliberately covers *using* a plug-in — load, play, parameters,
 devices, state, presets. The validator, the event log and the extension probes
 stay on the command line.
@@ -123,7 +130,7 @@ stay on the command line.
 | Ports | `ports` `ports.configs` `ports.select` `ports.activate` `surround` `ambisonic` |
 | Reported by the plug-in | `latency` `tail` `voices` `note.names` `remote.pages` `triggers` `render.mode` |
 | Devices | `audio.devices` `audio.start` `audio.stop` `audio.status` `audio.test` `midi.ports` `midi.open` `midi.close` `midi.outputs` `midi.out` |
-| Interface | `gui.open` `gui.close` `gui.resize` `gui` `gui.contents` `gui.snapshot` `settings` `settings.close` |
+| Interface | `gui.open` `gui.close` `gui.resize` `gui` `gui.contents` `gui.snapshot` `panel` `panel.close` `settings` `settings.close` |
 | Modulation | `param.mod` |
 | Validation | `validate` `validate.clear` `validate.run` `validate.tests` |
 | Host behaviour | `track.info` `threadpool` `undo` `callbacks` |
@@ -149,8 +156,16 @@ run.
 
 ```console
 $ clap-host --json MySynth.clap -- validate.run ; echo "exit $?"
-{"ok":true,"cmd":"validate.run","data":{"seed":"0x13376767","tests":[…],"passed":19,"failed":0,"ok":true}}
+{"ok":true,"cmd":"validate.run","data":{"seed":"0x13376767","tests":[…],"passed":33,"failed":0,"ok":true}}
 exit 0
+```
+
+Add `--isolate` and each test runs in a child process, so a plug-in that dies
+costs one test rather than the whole run:
+
+```console
+> validate.run --isolate
+  process-varying-block-sizes  crashed  the plug-in took the host down with signal 11
 ```
 
 Every block is checked while a test runs: outputs are poison-filled beforehand
@@ -158,6 +173,14 @@ so an unwritten sample reads as *unwritten* rather than as a NaN, inputs must
 come back unmodified, a constant-mask bit must be true, nothing may be written
 past the block, and output events must be ordered and in range. Runs are
 deterministic — same seed, same verdict — and the seed is in every report.
+
+The event streams are generated to be awkward: notes in whichever dialect the
+port accepts, the same stream with the rules broken so note-offs arrive for
+notes that never started, wildcards in the addressing tuple, parameters pinned
+to their exact bounds and pushed beyond them, swept fifty times within a block,
+and sent with a null cookie. The transport withholds a different subset of its
+flags every block and puts NaN behind the ones it withheld, so a plug-in that
+reads tempo without checking `HAS_TEMPO` is caught rather than merely lucky.
 
 **Modulation, which nothing else tests.** `CLAP_EVENT_PARAM_MOD` is an offset
 on top of a parameter rather than a change to it, addressed by the same

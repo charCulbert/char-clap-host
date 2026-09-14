@@ -62,6 +62,7 @@ add_library(nch-core STATIC
     src/midi-file.cpp
     src/note-encoding.cpp
     src/plugin-instance.cpp
+    src/plugin-panel.cpp
     src/presets.cpp
     src/random.cpp
     src/validation.cpp

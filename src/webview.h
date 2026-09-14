@@ -51,6 +51,8 @@ public:
 
 	// Host to webview, as clap_host_webview.send.
 	bool send(const void *buffer, uint32_t size);
+	// Runs a line of script in the page, for the host's own interfaces.
+	bool evaluate(const std::string &script);
 
 	// What has actually moved, which is the quickest way to tell a blank
 	// window from a page that never loaded.

@@ -15,6 +15,7 @@
 #include "host-services.h"
 #include "host.h"
 #include "plugin-instance.h"
+#include "plugin-panel.h"
 #include "validator.h"
 
 #include <atomic>
@@ -81,6 +82,7 @@ public:
 	MidiOutput &midiOutput() { return midiOutput_; }
 	PluginGui &gui() { return gui_; }
 	SettingsWindow &settings() { return settings_; }
+	PluginPanel &panel() { return panel_; }
 
 	// Activates the plug-in at a device's rate and block size and enters
 	// processing, so the first callback has somewhere to write.
@@ -164,6 +166,13 @@ public:
 	// should stop.
 	bool runLine(const std::string &line);
 
+	// Runs one line and hands back the reply instead of printing it, so a
+	// window can drive the same command table the prompt does. This is what
+	// keeps the interface from becoming a second implementation of everything.
+	Response execute(const std::string &line);
+	// The reply as it would appear over the wire, envelope and all.
+	Value executeAsJson(const std::string &line);
+
 	// Queues a line from the reader thread.
 	void postLine(std::string line);
 	// One turn of the main loop, called from the platform's application loop:
@@ -208,6 +217,7 @@ private:
 	MidiOutput midiOutput_;
 	PluginGui gui_;
 	SettingsWindow settings_;
+	PluginPanel panel_;
 	std::atomic<uint64_t> audioCallbacks_{0};
 	std::atomic<uint64_t> audioUnderruns_{0};
 	std::atomic<uint64_t> midiMessages_{0};

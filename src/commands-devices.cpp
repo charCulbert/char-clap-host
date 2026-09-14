@@ -138,6 +138,20 @@ void Session::registerDeviceCommands() {
 		               return Response::success();
 	               }});
 
+	commands_.add({"panel", "", "Open the host's own view of the plug-in's parameters and presets.",
+	               [](Session &session, const Request &) -> Response {
+		               std::string error;
+		               if (!session.panel().open(error))
+			               return Response::failure(error);
+		               return Response::success();
+	               }});
+
+	commands_.add({"panel.close", "", "Close the host's parameter view.",
+	               [](Session &session, const Request &) -> Response {
+		               session.panel().close();
+		               return Response::success();
+	               }});
+
 	commands_.add({"gui.contents", "", "Describe the views inside the host's window.",
 	               [](Session &session, const Request &) -> Response {
 		               Object out;
