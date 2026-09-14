@@ -51,6 +51,10 @@ std::unique_ptr<NativeWindow> createNativeWindow(uint32_t width, uint32_t height
 // The clap.gui API name for this platform.
 const char *nativeWindowApi();
 
+// Runs when the Audio/MIDI Settings menu item is chosen. Called on the main
+// thread, like every other menu action.
+void setSettingsHandler(std::function<void()> handler);
+
 // Asks the application to stop, as Cmd-Q or a Quit menu item would. The
 // handler runs on the main thread; the loop then unwinds normally so the
 // plug-in is destroyed the same way `quit` destroys it.

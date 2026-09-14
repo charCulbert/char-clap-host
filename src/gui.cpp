@@ -2,6 +2,7 @@
 
 #include "native-window.h"
 #include "session.h"
+#include "state-stream.h"
 
 #include <cstring>
 
@@ -20,8 +21,28 @@ struct PluginGui::Window {
 	std::unique_ptr<NativeWindow> native;
 };
 
-PluginGui::PluginGui(Session &session)
-    : session_(session), window_(std::make_unique<Window>()), webview_(session) {}
+PluginGui::PluginGui(Session &session) : session_(session), window_(std::make_unique<Window>()) {
+	// The webview itself knows nothing about plug-ins; this is what makes its
+	// content the plug-in's.
+	webview_.setFetch([this](const std::string &path) -> std::optional<WebviewHost::Resource> {
+		const auto *webview = session_.pluginExtension<clap_plugin_webview_t>(CLAP_EXT_WEBVIEW);
+		if (webview == nullptr || webview->get_resource == nullptr)
+			return {};
+		char mime[256] = {};
+		OutputStream stream;
+		if (!webview->get_resource(session_.plugin(), path.c_str(), mime, sizeof(mime), stream.stream()))
+			return {};
+		WebviewHost::Resource resource;
+		resource.data = stream.bytes();
+		resource.mimeType = mime[0] != '\0' ? mime : "application/octet-stream";
+		return resource;
+	});
+	webview_.setReceive([this](const uint8_t *bytes, uint32_t size) {
+		const auto *webview = session_.pluginExtension<clap_plugin_webview_t>(CLAP_EXT_WEBVIEW);
+		if (webview != nullptr && webview->receive != nullptr)
+			webview->receive(session_.plugin(), bytes, size);
+	});
+}
 
 PluginGui::~PluginGui() {
 	close();

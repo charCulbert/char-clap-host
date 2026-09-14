@@ -34,9 +34,44 @@ const Value *Object::find(const std::string &key) const {
 
 namespace {
 
+// Device names arrive from the operating system and are not always valid
+// UTF-8: CoreAudio hands back MacRoman bytes for a curly apostrophe. JSON has
+// to be valid UTF-8, so a byte that cannot start or continue a sequence is
+// replaced rather than passed through.
+bool utf8SequenceLength(const std::string &text, size_t index, size_t &length) {
+	const unsigned char lead = static_cast<unsigned char>(text[index]);
+	if (lead < 0x80)
+		length = 1;
+	else if ((lead & 0xE0) == 0xC0)
+		length = 2;
+	else if ((lead & 0xF0) == 0xE0)
+		length = 3;
+	else if ((lead & 0xF8) == 0xF0)
+		length = 4;
+	else
+		return false;
+	if (index + length > text.size())
+		return false;
+	for (size_t i = 1; i < length; ++i)
+		if ((static_cast<unsigned char>(text[index + i]) & 0xC0) != 0x80)
+			return false;
+	return true;
+}
+
 void escapeInto(std::string &out, const std::string &text) {
 	out += '"';
-	for (unsigned char c : text) {
+	for (size_t index = 0; index < text.size(); ++index) {
+		size_t length = 1;
+		if (!utf8SequenceLength(text, index, length)) {
+			out += "\ufffd"; // U+FFFD REPLACEMENT CHARACTER
+			continue;
+		}
+		if (length > 1) {
+			out.append(text, index, length);
+			index += length - 1;
+			continue;
+		}
+		const unsigned char c = static_cast<unsigned char>(text[index]);
 		switch (c) {
 		case '"': out += "\\\""; break;
 		case '\\': out += "\\\\"; break;

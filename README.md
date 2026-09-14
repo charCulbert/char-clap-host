@@ -72,7 +72,8 @@ non-zero exit status, which is what you want in CI. `help` lists every command;
 | Ports | `ports`, `ports.configs`, `ports.select`, `ports.activate`, `surround`, `ambisonic` |
 | Reported by the plug-in | `latency`, `tail`, `voices`, `note.names`, `remote.pages`, `triggers`, `render.mode` |
 | Devices | `audio.devices`, `audio.start`, `audio.stop`, `audio.status`, `midi.ports`, `midi.open`, `midi.close` |
-| Interface | `gui.open`, `gui.close`, `gui.resize`, `gui` |
+| Interface | `gui.open`, `gui.close`, `gui.resize`, `gui`, `gui.contents`, `gui.snapshot` |
+| Devices, visually | `settings`, `settings.close`, `audio.test` |
 | Host behaviour | `track.info`, `threadpool`, `undo`, `callbacks`, `validate`, `validate.clear` |
 
 ## What it does
@@ -100,6 +101,13 @@ reports what was seen.
   severity  where                            message                                       count
   ERROR     clap_host_params.rescan          called from the audio thread; this call is…   1
 ```
+
+**A device selector of its own.** `settings` opens a window with Compost's
+device selector in it, over the same device layer the `audio.*` and `midi.*`
+commands use, so the window and the prompt cannot disagree about what is
+selected. It follows the system light and dark appearance, offers "All devices"
+for MIDI as a master toggle, and plays a test tone out of every channel of the
+chosen output. On macOS it is also under Settings → Audio/MIDI Settings (Cmd-,).
 
 **Interfaces in a real window.** A Cocoa window embeds the plug-in's NSView and
 resizes through `adjust_size`. For `clap.webview`, the host serves a wrapper

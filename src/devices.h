@@ -16,6 +16,22 @@ namespace nch {
 
 class Session;
 
+// One device as the settings interface sees it.
+struct DeviceChoice {
+	std::string id;
+	std::string name;
+	uint32_t channels = 0;
+};
+
+// Everything the settings interface can change.
+struct DeviceSettings {
+	std::string outputDeviceId;
+	std::string inputDeviceId;
+	double sampleRate = 0.0;
+	uint32_t bufferSize = 0;
+	std::vector<std::string> midiInputIds;
+};
+
 class AudioDevice {
 public:
 	explicit AudioDevice(Session &session);
@@ -28,6 +44,17 @@ public:
 	bool start(const std::string &deviceName, uint32_t inputChannels, std::string &error);
 	void stop();
 	bool isRunning() const;
+
+	std::vector<DeviceChoice> outputDevices() const;
+	std::vector<DeviceChoice> inputDevices() const;
+	std::vector<uint32_t> sampleRatesFor(const std::string &deviceId) const;
+	// The block sizes the host offers; the device may round the request.
+	std::vector<uint32_t> bufferSizes() const;
+	DeviceSettings currentSettings() const;
+
+	// Applies a whole settings change at once, restarting the stream. An empty
+	// output id means the default device.
+	bool apply(const DeviceSettings &settings, std::string &error);
 
 	Value deviceReport() const;
 	Value statusReport() const;
@@ -50,6 +77,12 @@ public:
 	void close();
 	bool isOpen() const;
 	std::string openPortName() const;
+
+	std::vector<DeviceChoice> ports() const;
+	std::vector<std::string> openPortIds() const;
+	// Opens exactly the listed ports and closes the rest, so the interface can
+	// hand over a whole selection rather than a sequence of edits.
+	bool setOpenPorts(const std::vector<std::string> &ids, std::string &error);
 
 	Value portReport() const;
 	uint64_t messageCount() const;

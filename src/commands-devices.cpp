@@ -33,6 +33,19 @@ void Session::registerDeviceCommands() {
 		               return Response::success(session.audioDevice().statusReport());
 	               }});
 
+	commands_.add({"audio.test", "[seconds] [frequency]", "Play a sine out of every output channel.",
+	               [](Session &session, const Request &request) -> Response {
+		               const double seconds = request.arg(0, "seconds").asNumber(1.0);
+		               const double frequency = request.arg(1, "frequency").asNumber(440.0);
+		               std::string error;
+		               if (!session.startTestTone(seconds, frequency, error))
+			               return Response::failure(error);
+		               Object out;
+		               out["seconds"] = Value(seconds);
+		               out["frequency"] = Value(frequency);
+		               return Response::success(Value(std::move(out)));
+	               }});
+
 	commands_.add({"midi.ports", "", "List the MIDI input ports this machine offers.",
 	               [](Session &session, const Request &) -> Response {
 		               return Response::success(session.midiInput().portReport());
@@ -80,6 +93,20 @@ void Session::registerDeviceCommands() {
 		                                         static_cast<uint32_t>(request.arg(1, "height").asNumber()), error))
 			               return Response::failure(error);
 		               return Response::success(session.gui().report());
+	               }});
+
+	commands_.add({"settings", "", "Open the audio and MIDI device selector.",
+	               [](Session &session, const Request &) -> Response {
+		               std::string error;
+		               if (!session.settings().open(error))
+			               return Response::failure(error);
+		               return Response::success(session.settings().snapshot());
+	               }});
+
+	commands_.add({"settings.close", "", "Close the device selector.",
+	               [](Session &session, const Request &) -> Response {
+		               session.settings().close();
+		               return Response::success();
 	               }});
 
 	commands_.add({"gui.contents", "", "Describe the views inside the host's window.",

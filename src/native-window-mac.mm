@@ -8,10 +8,12 @@
 
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/QuartzCore.h>
+#import <WebKit/WebKit.h>
 
 namespace nch {
-// Defined below; the application delegate needs it before it exists.
+// Defined below; the application delegate needs them before it exists.
 void requestQuit();
+void openSettings();
 } // namespace nch
 
 // Cmd-Q would otherwise call -terminate: and kill the process where it stands,
@@ -26,6 +28,11 @@ void requestQuit();
 	nch::requestQuit();
 	return NSTerminateCancel;
 }
+
+- (void)showAudioMidiSettings:(id)sender {
+	(void)sender;
+	nch::openSettings();
+}
 @end
 
 namespace nch {
@@ -34,6 +41,16 @@ namespace {
 std::function<void()> &quitHandler() {
 	static std::function<void()> handler;
 	return handler;
+}
+
+std::function<void()> &settingsHandler() {
+	static std::function<void()> handler;
+	return handler;
+}
+
+NchAppDelegate *applicationDelegate() {
+	static NchAppDelegate *delegate = [[NchAppDelegate alloc] init];
+	return delegate;
 }
 
 // An application built by hand gets no menu bar, and without one none of the
@@ -64,6 +81,17 @@ void installMainMenu() {
 	            keyEquivalent:@"q"];
 	[appItem setSubmenu:appMenu];
 
+	NSMenuItem *settingsItem = [[NSMenuItem alloc] init];
+	[menubar addItem:settingsItem];
+	NSMenu *settingsMenu = [[NSMenu alloc] initWithTitle:@"Settings"];
+	NSMenuItem *audioMidi = [settingsMenu addItemWithTitle:@"Audio/MIDI Settings…"
+	                                                action:@selector(showAudioMidiSettings:)
+	                                         keyEquivalent:@","];
+	// Targeted at the delegate rather than the responder chain, so the item
+	// stays enabled whichever window happens to be focused.
+	[audioMidi setTarget:applicationDelegate()];
+	[settingsItem setSubmenu:settingsMenu];
+
 	NSMenuItem *windowItem = [[NSMenuItem alloc] init];
 	[menubar addItem:windowItem];
 	NSMenu *windowMenu = [[NSMenu alloc] initWithTitle:@"Window"];
@@ -85,8 +113,7 @@ void ensureApplication() {
 	prepared = true;
 	[NSApplication sharedApplication];
 	[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
-	static NchAppDelegate *delegate = [[NchAppDelegate alloc] init];
-	[NSApp setDelegate:delegate];
+	[NSApp setDelegate:applicationDelegate()];
 	installMainMenu();
 	[NSApp activateIgnoringOtherApps:YES];
 	[NSApp finishLaunching];
@@ -122,6 +149,17 @@ void describeView(NSView *view, int depth, std::string &out) {
 	              frame.size.height, [view isHidden] ? "  hidden" : "",
 	              [view layer] != nil ? "  layer" : "");
 	out += line;
+	// A webview that is parented and sized can still be blank because its page
+	// never loaded, and that difference is invisible from the view tree alone.
+	if ([view respondsToSelector:@selector(estimatedProgress)]) {
+		NSURL *url = [view valueForKey:@"URL"];
+		std::snprintf(line, sizeof(line), "%*s  url %s  progress %s  loading %s  title %s\n", depth * 2, "",
+		              url != nil ? [[url absoluteString] UTF8String] : "none",
+		              [[[view valueForKey:@"estimatedProgress"] stringValue] UTF8String],
+		              [[view valueForKey:@"loading"] boolValue] ? "yes" : "no",
+		              [[view valueForKey:@"title"] UTF8String]);
+		out += line;
+	}
 	for (NSView *child in [view subviews])
 		describeView(child, depth + 1, out);
 }
@@ -247,6 +285,15 @@ void setQuitHandler(std::function<void()> handler) {
 void requestQuit() {
 	if (quitHandler())
 		quitHandler()();
+}
+
+void setSettingsHandler(std::function<void()> handler) {
+	settingsHandler() = std::move(handler);
+}
+
+void openSettings() {
+	if (settingsHandler())
+		settingsHandler()();
 }
 
 void prepareApplication() {

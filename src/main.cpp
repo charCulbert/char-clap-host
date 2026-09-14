@@ -160,6 +160,11 @@ int main(int argc, char **argv) {
 
 	// Cmd-Q and the Quit menu item take the same path as the `quit` command.
 	nch::setQuitHandler([&session] { session.requestQuit(); });
+	nch::setSettingsHandler([&session] {
+		std::string settingsError;
+		if (!session.settings().open(settingsError))
+			std::fprintf(stderr, "error: %s\n", settingsError.c_str());
+	});
 
 	// The platform owns the loop; the host's own work is a timer on it.
 	nch::runApplicationLoop([&session] { return session.tick(); }, 20);

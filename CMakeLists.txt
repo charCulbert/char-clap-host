@@ -69,6 +69,7 @@ add_library(nch-core STATIC
     src/host-services.cpp
     src/json.cpp
     src/session.cpp
+    src/settings-window.cpp
     src/thread-role.cpp
     src/validator.cpp
 )
@@ -99,10 +100,19 @@ if(NCH_WITH_WEBVIEW)
     set(CHOC_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/external/choc" CACHE PATH "choc")
     target_compile_definitions(nch-core PUBLIC NCH_WITH_WEBVIEW)
     target_include_directories(nch-core PUBLIC "${CHOC_ROOT}")
+    # Compost provides the device selector the settings window is built from.
+    set(COMPOST_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/external/compost" CACHE PATH "compost")
+    target_compile_definitions(nch-core PUBLIC NCH_COMPOST_ROOT="${COMPOST_ROOT}")
     if(APPLE)
         set_source_files_properties(src/webview.cpp PROPERTIES LANGUAGE OBJCXX)
         target_link_libraries(nch-core PUBLIC "-framework WebKit")
     endif()
+    # choc is a header-only library, so its inline functions and function-local
+    # statics are emitted as weak symbols. A plug-in that also uses choc has the
+    # same symbols, and dyld coalesces weak definitions across images: whichever
+    # loads first wins, and the plug-in silently ends up running the host's copy
+    # of choc with its own data. Hiding the host's copy keeps the two apart.
+    set_target_properties(nch-core PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
 endif()
 
 add_executable(clap-host src/main.cpp)

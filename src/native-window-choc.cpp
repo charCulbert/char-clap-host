@@ -89,6 +89,10 @@ private:
 
 } // namespace
 
+void setSettingsHandler(std::function<void()>) {
+	// No menu bar here yet; the `settings` command opens the window.
+}
+
 void setQuitHandler(std::function<void()> handler) {
 	quitHandler() = std::move(handler);
 }

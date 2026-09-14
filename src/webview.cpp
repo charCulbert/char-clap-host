@@ -1,10 +1,5 @@
 #include "webview.h"
 
-#include "session.h"
-#include "state-stream.h"
-
-#include <clap/ext/draft/webview.h>
-
 #include <string>
 #include <vector>
 
@@ -112,6 +107,8 @@ std::string hostPage(const std::string &pluginUri) {
 #if defined(NCH_WITH_WEBVIEW)
 
 struct WebviewHost::Impl {
+	WebviewHost::Fetch fetch;
+	WebviewHost::Receive receive;
 	std::unique_ptr<choc::ui::WebView> view;
 	std::string uri;
 	bool ready = false;
@@ -124,10 +121,18 @@ bool WebviewHost::available() {
 	return true;
 }
 
-WebviewHost::WebviewHost(Session &session) : session_(session), impl_(std::make_unique<Impl>()) {}
+WebviewHost::WebviewHost() : impl_(std::make_unique<Impl>()) {}
 
 WebviewHost::~WebviewHost() {
 	close();
+}
+
+void WebviewHost::setFetch(Fetch fetch) {
+	impl_->fetch = std::move(fetch);
+}
+
+void WebviewHost::setReceive(Receive receive) {
+	impl_->receive = std::move(receive);
 }
 
 bool WebviewHost::isOpen() const {
@@ -147,20 +152,20 @@ bool WebviewHost::open(const std::string &uri, void *parentView, uint32_t width,
 	options.fetchResource = [this, uri](const std::string &path)
 	    -> std::optional<choc::ui::WebView::Options::Resource> {
 		++impl_->resourcesServed;
-		if (path == "/" || path.empty()) {
+		// The wrapper page only exists when there is a separate page to frame;
+		// a host interface serves its own root.
+		if (!uri.empty() && (path == "/" || path.empty())) {
 			const std::string page = hostPage(uri);
 			return choc::ui::WebView::Options::Resource(page, "text/html");
 		}
-		const auto *webview = session_.pluginExtension<clap_plugin_webview_t>(CLAP_EXT_WEBVIEW);
-		if (webview == nullptr || webview->get_resource == nullptr)
+		if (!impl_->fetch)
 			return {};
-		char mime[256] = {};
-		OutputStream stream;
-		if (!webview->get_resource(session_.plugin(), path.c_str(), mime, sizeof(mime), stream.stream()))
+		std::optional<Resource> found = impl_->fetch(path);
+		if (!found)
 			return {};
 		choc::ui::WebView::Options::Resource resource;
-		resource.data = stream.bytes();
-		resource.mimeType = mime[0] != '\0' ? mime : "application/octet-stream";
+		resource.data = std::move(found->data);
+		resource.mimeType = found->mimeType.empty() ? "application/octet-stream" : found->mimeType;
 		return resource;
 	};
 	options.webviewIsReady = [this](choc::ui::WebView &) {
@@ -185,9 +190,8 @@ bool WebviewHost::open(const std::string &uri, void *parentView, uint32_t width,
 			return {};
 		++impl_->messagesFromPage;
 		const std::vector<uint8_t> bytes = decodeBase64(std::string(args[0].getString()));
-		const auto *webview = session_.pluginExtension<clap_plugin_webview_t>(CLAP_EXT_WEBVIEW);
-		if (webview != nullptr && webview->receive != nullptr && !bytes.empty())
-			webview->receive(session_.plugin(), bytes.data(), static_cast<uint32_t>(bytes.size()));
+		if (impl_->receive && !bytes.empty())
+			impl_->receive(bytes.data(), static_cast<uint32_t>(bytes.size()));
 		return {};
 	});
 	return true;
@@ -235,8 +239,10 @@ bool WebviewHost::available() {
 	return false;
 }
 
-WebviewHost::WebviewHost(Session &session) : session_(session), impl_(std::make_unique<Impl>()) {}
+WebviewHost::WebviewHost() : impl_(std::make_unique<Impl>()) {}
 WebviewHost::~WebviewHost() = default;
+void WebviewHost::setFetch(Fetch) {}
+void WebviewHost::setReceive(Receive) {}
 bool WebviewHost::isOpen() const { return false; }
 
 bool WebviewHost::open(const std::string &, void *, uint32_t, uint32_t, std::string &error) {

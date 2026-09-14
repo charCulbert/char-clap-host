@@ -11,6 +11,7 @@
 #include "devices.h"
 #include "engine.h"
 #include "gui.h"
+#include "settings-window.h"
 #include "host-services.h"
 #include "host.h"
 #include "validator.h"
@@ -70,10 +71,17 @@ public:
 	AudioDevice &audioDevice() { return audioDevice_; }
 	MidiInput &midiInput() { return midiInput_; }
 	PluginGui &gui() { return gui_; }
+	SettingsWindow &settings() { return settings_; }
 
 	// Activates the plug-in at a device's rate and block size and enters
 	// processing, so the first callback has somewhere to write.
 	bool prepareForDevice(double sampleRate, uint32_t blockSize, std::string &error);
+
+	// Plays a sine out of every channel of the current output device, over the
+	// top of whatever the plug-in is producing, so the tone tests the device
+	// and not the plug-in. Starts the stream if it is not already running.
+	bool startTestTone(double seconds, double frequency, std::string &error);
+	bool testToneActive() const { return testToneRemaining_.load(std::memory_order_relaxed) != 0; }
 
 	// Called from the device threads.
 	void onAudioCallback(const float *input, float *output, uint32_t frames, bool hadGlitch);
@@ -151,6 +159,9 @@ public:
 	void writeResponse(const Request &request, const Response &response);
 
 private:
+	// Mixes the test tone into a device block, if one is playing.
+	void renderTestTone(float *output, uint32_t frames, uint32_t channels);
+
 	void registerCommands();
 	void registerAudioCommands();
 	void registerStateCommands();
@@ -169,9 +180,15 @@ private:
 	AudioDevice audioDevice_;
 	MidiInput midiInput_;
 	PluginGui gui_;
+	SettingsWindow settings_;
 	std::atomic<uint64_t> audioCallbacks_{0};
 	std::atomic<uint64_t> audioUnderruns_{0};
 	std::atomic<uint64_t> midiMessages_{0};
+	// Written by the main thread, consumed by the audio thread.
+	std::atomic<uint64_t> testToneRemaining_{0};
+	std::atomic<double> testToneFrequency_{440.0};
+	uint64_t testToneLength_ = 0;
+	double testTonePhase_ = 0.0;
 
 	const clap_plugin_descriptor_t *descriptor_ = nullptr;
 	const clap_plugin_t *plugin_ = nullptr;

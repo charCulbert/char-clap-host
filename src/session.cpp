@@ -3,6 +3,7 @@
 #include "thread-role.h"
 
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 
 namespace nch {
@@ -16,7 +17,7 @@ uint64_t nowMs() {
 } // namespace
 
 Session::Session(Options options)
-    : options_(std::move(options)), host_(*this, validator_), engine_(*this), audioDevice_(*this), midiInput_(*this), gui_(*this) {
+    : options_(std::move(options)), host_(*this, validator_), engine_(*this), audioDevice_(*this), midiInput_(*this), gui_(*this), settings_(*this) {
 	sampleRate_ = options_.sampleRate;
 	maxFrames_ = options_.blockSize;
 	registerCommands();
@@ -170,7 +171,58 @@ void Session::onAudioCallback(const float *input, float *output, uint32_t frames
 	audioCallbacks_.fetch_add(1, std::memory_order_relaxed);
 	if (hadGlitch)
 		audioUnderruns_.fetch_add(1, std::memory_order_relaxed);
-	engine_.processInterleaved(input, input != nullptr ? 2 : 0, output, engine_.deviceOutputChannels(), frames);
+	const uint32_t channels = engine_.deviceOutputChannels();
+	engine_.processInterleaved(input, input != nullptr ? 2 : 0, output, channels, frames);
+	renderTestTone(output, frames, channels);
+}
+
+bool Session::startTestTone(double seconds, double frequency, std::string &error) {
+	if (!audioDevice_.isRunning() && !audioDevice_.start({}, 0, error))
+		return false;
+	if (seconds <= 0.0 || frequency <= 0.0) {
+		error = "a test tone needs a positive length and frequency";
+		return false;
+	}
+	const auto length = static_cast<uint64_t>(seconds * sampleRate_);
+	testToneFrequency_.store(frequency, std::memory_order_relaxed);
+	testToneLength_ = length;
+	// Published last, so the audio thread never sees a length without the
+	// frequency that goes with it.
+	testToneRemaining_.store(length, std::memory_order_release);
+	return true;
+}
+
+void Session::renderTestTone(float *output, uint32_t frames, uint32_t channels) {
+	uint64_t remaining = testToneRemaining_.load(std::memory_order_acquire);
+	if (remaining == 0 || output == nullptr || channels == 0)
+		return;
+
+	const double frequency = testToneFrequency_.load(std::memory_order_relaxed);
+	const double step = 6.283185307179586 * frequency / sampleRate_;
+	// A short ramp at each end, because a tone that starts and stops at full
+	// amplitude tests the listener's speakers more than their output device.
+	const auto ramp = static_cast<uint64_t>(sampleRate_ * 0.005);
+	const float peak = 0.25f;
+
+	for (uint32_t frame = 0; frame < frames && remaining != 0; ++frame, --remaining) {
+		const uint64_t played = testToneLength_ - remaining;
+		double gain = 1.0;
+		if (ramp != 0) {
+			if (played < ramp)
+				gain = static_cast<double>(played) / ramp;
+			else if (remaining < ramp)
+				gain = static_cast<double>(remaining) / ramp;
+		}
+		const float sample = static_cast<float>(std::sin(testTonePhase_) * gain) * peak;
+		testTonePhase_ += step;
+		if (testTonePhase_ > 6.283185307179586)
+			testTonePhase_ -= 6.283185307179586;
+		for (uint32_t channel = 0; channel < channels; ++channel)
+			output[frame * channels + channel] = sample;
+	}
+	testToneRemaining_.store(remaining, std::memory_order_release);
+	if (remaining == 0)
+		testTonePhase_ = 0.0;
 }
 
 void Session::onMidiMessage(const uint8_t *bytes, uint32_t size, std::chrono::steady_clock::time_point arrival) {
@@ -390,6 +442,8 @@ bool Session::tick() {
 	runMainThreadWork();
 	if (gui_.wantsClose())
 		gui_.close();
+	if (settings_.wantsClose())
+		settings_.close();
 	return !quit_;
 }
 
