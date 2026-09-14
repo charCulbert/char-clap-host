@@ -38,7 +38,12 @@ add_subdirectory(external/rtmidi EXCLUDE_FROM_ALL)
 if(APPLE)
     set(nch_window_source src/native-window-mac.mm)
 else()
-    set(nch_window_source src/native-window-stub.cpp)
+    find_package(X11)
+    if(X11_FOUND)
+        set(nch_window_source src/native-window-x11.cpp)
+    else()
+        set(nch_window_source src/native-window-stub.cpp)
+    endif()
 endif()
 
 add_library(nch-core STATIC
@@ -78,6 +83,9 @@ if(APPLE)
     target_link_libraries(nch-core PUBLIC "-framework CoreFoundation" "-framework Cocoa")
 elseif(UNIX)
     target_link_libraries(nch-core PUBLIC ${CMAKE_DL_LIBS})
+    if(X11_FOUND)
+        target_link_libraries(nch-core PUBLIC X11::X11)
+    endif()
 endif()
 
 # choc's WebView needs WebKit on macOS and gtk+webkit2gtk on Linux, so the

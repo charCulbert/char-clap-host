@@ -1,0 +1,8 @@
+# The log fixture reports at every severity; anything at warning or above is a
+# violation the host records rather than aborting on.
+load @FIXTURES@/log.clap
+activate 48000 512
+render 0.05
+validate
+validate.clear
+validate

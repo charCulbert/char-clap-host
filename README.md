@@ -1,0 +1,148 @@
+# nativeClapHost
+
+A single-plugin native CLAP host you drive from the command line. It hosts one
+`.clap` at a time, implements every host-side extension the CLAP SDK defines,
+and answers in either human text or JSON — so the same host serves a person at
+a prompt and an agent driving a pipe.
+
+```console
+$ clap-host ~/Library/Audio/Plug-Ins/CLAP/MySynth.clap
+> params list
+  id  name   module  value  text   min  max  default  flags
+  0   Level          0.7    70.0%  0    1    0.7      automatable,modulatable
+  1   Tone           0.5    50.0%  0    1    0.5      automatable,modulatable
+> note on 60 100
+> render 1.0 out.wav
+  frames: 48000
+  peak: 0.13042423
+  rms: 0.053109267
+> gui open
+> quit
+```
+
+## Building
+
+```sh
+git submodule update --init --recursive
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+```
+
+The binary lands at `build/clap-host` and the fixture plug-ins at
+`build/fixtures/*.clap`.
+
+Dependencies are submodules under `external/`: the CLAP SDK and clap-helpers,
+RtAudio and RtMidi for devices, and choc for the webview.
+
+## Driving it
+
+Commands are read from stdin, one per line. There are three ways in, all the
+same grammar:
+
+```sh
+clap-host plugin.clap                       # interactive prompt
+clap-host plugin.clap --script take.txt     # replay a file, then continue
+clap-host plugin.clap -- render 2.0 a.wav   # one command, then exit
+echo "params list" | clap-host plugin.clap  # a pipe
+```
+
+A line beginning with `{` is read as a JSON request instead of argv words, and
+`--json` makes every reply a JSON object. These do the same thing:
+
+```text
+param set 1 0.8
+{"cmd":"param.set","args":[1,0.8]}
+{"cmd":"param.set","id":1,"value":0.8}
+```
+
+`--strict` turns any CLAP contract violation into a failed command and a
+non-zero exit status, which is what you want in CI. `help` lists every command;
+`help <command>` explains one.
+
+### The commands
+
+| Area | Commands |
+| --- | --- |
+| Plug-in | `load`, `unload`, `plugins`, `info`, `extensions`, `status` |
+| Parameters | `params.list`, `param.get`, `param.set`, `params.dump`, `param.indication` |
+| Audio | `activate`, `deactivate`, `render`, `process`, `audio.input`, `playhead` |
+| Notes and MIDI | `note.on`, `note.off`, `notes`, `midi`, `cc`, `midi.load` |
+| Transport | `tempo`, `timesig`, `transport` |
+| State | `state.save`, `state.load`, `state.info`, `presets.list`, `preset.load` |
+| Ports | `ports`, `ports.configs`, `ports.select`, `ports.activate`, `surround`, `ambisonic` |
+| Reported by the plug-in | `latency`, `tail`, `voices`, `note.names`, `remote.pages`, `triggers`, `render.mode` |
+| Devices | `audio.devices`, `audio.start`, `audio.stop`, `audio.status`, `midi.ports`, `midi.open`, `midi.close` |
+| Interface | `gui.open`, `gui.close`, `gui.resize`, `gui` |
+| Host behaviour | `track.info`, `threadpool`, `undo`, `callbacks`, `validate`, `validate.clear` |
+
+## What it does
+
+**Every host-side extension.** All 34 in the SDK, drafts included. Several do
+real work rather than returning a stub: scratch memory hands out a per-thread
+slot, the thread pool fans tasks across real threads or runs them in order,
+resource directories are created and cleaned up, undo keeps the history the
+plug-in builds, and transport-control moves the engine's transport. `callbacks`
+counts every one, so you can see exactly which extensions a plug-in exercised.
+
+**One timeline for realtime and offline.** Events are scheduled at absolute
+frames and sliced into each block; the transport advances in beats and seconds
+alongside. A device callback and an offline render share the same processing
+path, so what you hear and what lands on disk agree — a note played live
+through a loopback device captures at the same peak the offline render writes.
+
+**A validator, not just a host.** The host stays permissive: it notes a
+violation and carries on, so a misbehaving plug-in can still be inspected.
+Thread roles, lifecycle order and call legality are all tracked. `validate`
+reports what was seen.
+
+```console
+> validate
+  severity  where                            message                                       count
+  ERROR     clap_host_params.rescan          called from the audio thread; this call is…   1
+```
+
+**Interfaces in a real window.** A Cocoa window embeds the plug-in's NSView and
+resizes through `adjust_size`. For `clap.webview`, the host serves a wrapper
+page with the plug-in's own page in an iframe, so `window.parent.postMessage`
+works the way the extension describes, and relays messages both ways.
+
+## Testing
+
+```sh
+cd build && ctest --output-on-failure
+```
+
+Three layers:
+
+- **Unit tests** for the host's own pieces — the JSON value, the command
+  grammar, the WAV codec, the MIDI file reader.
+- **Script transcripts.** `tests/scripts/*.txt` are host commands in the same
+  language you type; each is compared against the `.expected` transcript beside
+  it. Anything you do by hand becomes a regression test by pasting it in.
+  Regenerate one with `tests/run-script.py <script> --host build/clap-host
+  --fixtures build/fixtures --accept`.
+- **Golden audio.** Fixed performances rendered and compared sample by sample
+  against references in `tests/golden`.
+
+The fixtures in `fixtures/` are the
+[char-wclap-examples](https://github.com/charCulbert) sources built as native
+`.clap` bundles, each exercising a different corner of the specification. They
+are real plug-ins rather than mocks, which is how they caught two host bugs on
+their first run: `param.set` calling `clap.params.flush` while the plug-in was
+active, and notes never reaching an instrument whose port declares only the
+MIDI dialect.
+
+## Platforms
+
+macOS is the platform this has been built and run on. The window layer sits
+behind one small interface, so each platform needs one file rather than changes
+above it:
+
+| Platform | Audio and MIDI | Window | Webview |
+| --- | --- | --- | --- |
+| macOS | working | Cocoa, working | WebKit, working |
+| Linux | RtAudio/RtMidi, unexercised | X11, written but never compiled or run | needs gtk and webkit2gtk; off by default |
+| Windows | RtAudio/RtMidi, unexercised | not written | choc supports it; not wired up |
+
+Everything but the window is platform-neutral, so a Linux or Windows build
+should run headless today.

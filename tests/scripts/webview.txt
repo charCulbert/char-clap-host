@@ -1,0 +1,4 @@
+# The webview interface reports its URI even where no window can be opened.
+load @FIXTURES@/gui-webview.clap
+extensions
+gui
