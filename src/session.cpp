@@ -173,7 +173,7 @@ void Session::onAudioCallback(const float *input, float *output, uint32_t frames
 	engine_.processInterleaved(input, input != nullptr ? 2 : 0, output, engine_.deviceOutputChannels(), frames);
 }
 
-void Session::onMidiMessage(const uint8_t *bytes, uint32_t size, uint64_t delayFrames) {
+void Session::onMidiMessage(const uint8_t *bytes, uint32_t size, std::chrono::steady_clock::time_point arrival) {
 	midiMessages_.fetch_add(1, std::memory_order_relaxed);
 	if (size == 0 || size > 3)
 		return; // sysex has no CLAP MIDI 1.0 event shape
@@ -186,7 +186,7 @@ void Session::onMidiMessage(const uint8_t *bytes, uint32_t size, uint64_t delayF
 	event.port_index = 0;
 	for (uint32_t i = 0; i < size; ++i)
 		event.data[i] = bytes[i];
-	engine_.scheduleAfter(&event.header, delayFrames);
+	engine_.scheduleLive(&event.header, arrival);
 }
 
 void Session::onRequestRestart() {

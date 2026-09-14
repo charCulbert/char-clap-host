@@ -65,6 +65,23 @@ void Engine::scheduleAfter(const clap_event_header_t *event, uint64_t delayFrame
 	scheduleAt(event, playhead_ + delayFrames);
 }
 
+void Engine::scheduleLive(const clap_event_header_t *event, std::chrono::steady_clock::time_point arrival) {
+	using namespace std::chrono;
+	const int64_t arrivalNanos = duration_cast<nanoseconds>(arrival.time_since_epoch()).count();
+	const int64_t referenceNanos = blockStartNanos_.load(std::memory_order_acquire);
+	const uint64_t referenceFrame = blockStartFrame_.load(std::memory_order_acquire);
+	if (referenceNanos == 0) {
+		// Nothing has been processed yet, so there is no clock to measure
+		// against; the event belongs at the very start.
+		scheduleAt(event, referenceFrame);
+		return;
+	}
+	const double elapsedSeconds = static_cast<double>(arrivalNanos - referenceNanos) / 1e9;
+	const int64_t offsetFrames = static_cast<int64_t>(std::llround(elapsedSeconds * session_.sampleRate()));
+	const int64_t frame = static_cast<int64_t>(referenceFrame) + offsetFrames;
+	scheduleAt(event, frame < 0 ? 0 : static_cast<uint64_t>(frame));
+}
+
 void Engine::scheduleAt(const clap_event_header_t *event, uint64_t frame) {
 	if (event == nullptr || event->size < sizeof(clap_event_header_t))
 		return;
@@ -263,7 +280,17 @@ void Engine::advanceTransport(uint32_t frames) {
 	}
 }
 
+void Engine::markBlockStart() {
+	using namespace std::chrono;
+	// Published together so a reader on another thread sees a consistent pair:
+	// the frame first, then the clock reading that pins it.
+	blockStartFrame_.store(playhead_, std::memory_order_release);
+	blockStartNanos_.store(duration_cast<nanoseconds>(steady_clock::now().time_since_epoch()).count(),
+	                       std::memory_order_release);
+}
+
 int32_t Engine::processBlock(uint32_t frames, AudioData *output) {
+	markBlockStart();
 	if (!running_ || !session_.isLoaded())
 		return CLAP_PROCESS_ERROR;
 
@@ -304,6 +331,7 @@ int32_t Engine::processBlock(uint32_t frames, AudioData *output) {
 
 int32_t Engine::processInterleaved(const float *input, uint32_t inputChannels, float *output,
                                    uint32_t outputChannels, uint32_t frames) {
+	markBlockStart();
 	if (!running_ || !session_.isLoaded()) {
 		if (output != nullptr)
 			std::memset(output, 0, static_cast<size_t>(frames) * outputChannels * sizeof(float));

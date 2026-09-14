@@ -7,14 +7,11 @@
 #include <RtMidi.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstring>
 
 namespace nch {
 namespace {
-
-// Live MIDI has no lookahead to give: an arriving message lands on the next
-// block the engine renders.
-constexpr uint64_t kLiveEventDelayFrames = 0;
 
 } // namespace
 
@@ -40,10 +37,13 @@ int audioCallback(void *outputBuffer, void *inputBuffer, unsigned int frames, do
 }
 
 void midiCallback(double, std::vector<unsigned char> *message, void *userData) {
+	// Timestamped the moment it arrives, before any queueing, so the engine
+	// can place it at the right frame rather than the top of a block.
+	const auto arrival = std::chrono::steady_clock::now();
 	if (message == nullptr || message->empty())
 		return;
 	auto *session = static_cast<Session *>(userData);
-	session->onMidiMessage(message->data(), static_cast<uint32_t>(message->size()), kLiveEventDelayFrames);
+	session->onMidiMessage(message->data(), static_cast<uint32_t>(message->size()), arrival);
 }
 
 } // namespace

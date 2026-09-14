@@ -11,6 +11,8 @@
 
 #include <clap/clap.h>
 
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -56,6 +58,15 @@ public:
 	// from the main thread between blocks.
 	void scheduleAfter(const clap_event_header_t *event, uint64_t delayFrames);
 	void scheduleAt(const clap_event_header_t *event, uint64_t frame);
+
+	// Schedules an event that arrived from the outside world at `arrival`.
+	//
+	// Live input has no lookahead to give, but it does have a timestamp, and
+	// keeping it is what separates sample-accurate timing from everything in a
+	// block landing on frame zero. The arrival time is measured against the
+	// clock reading taken at the start of the last block, so two notes played
+	// a millisecond apart stay a millisecond apart.
+	void scheduleLive(const clap_event_header_t *event, std::chrono::steady_clock::time_point arrival);
 	void clearSchedule();
 	size_t scheduledCount() const;
 
@@ -100,6 +111,7 @@ public:
 
 private:
 	void buildTransportEvent(uint32_t frames);
+	void markBlockStart();
 	void collectBlockEvents(uint32_t frames);
 	void advanceTransport(uint32_t frames);
 
@@ -118,6 +130,10 @@ private:
 	uint64_t inputPosition_ = 0;
 	uint64_t playhead_ = 0;
 	uint32_t deviceOutputChannels_ = 2;
+	// Where the timeline and the wall clock last agreed, so a timestamp from
+	// another thread can be turned into a frame.
+	std::atomic<uint64_t> blockStartFrame_{0};
+	std::atomic<int64_t> blockStartNanos_{0};
 	bool running_ = false;
 
 	mutable std::mutex scheduleMutex_;

@@ -16,6 +16,7 @@
 #include "validator.h"
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <map>
 #include <condition_variable>
@@ -76,7 +77,7 @@ public:
 
 	// Called from the device threads.
 	void onAudioCallback(const float *input, float *output, uint32_t frames, bool hadGlitch);
-	void onMidiMessage(const uint8_t *bytes, uint32_t size, uint64_t delayFrames);
+	void onMidiMessage(const uint8_t *bytes, uint32_t size, std::chrono::steady_clock::time_point arrival);
 	uint64_t audioCallbackCount() const { return audioCallbacks_.load(std::memory_order_relaxed); }
 	uint64_t audioUnderrunCount() const { return audioUnderruns_.load(std::memory_order_relaxed); }
 	uint64_t midiMessageCount() const { return midiMessages_.load(std::memory_order_relaxed); }
