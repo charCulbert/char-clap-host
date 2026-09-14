@@ -11,10 +11,47 @@
 #import <WebKit/WebKit.h>
 
 namespace nch {
-// Defined below; the application delegate needs them before it exists.
+// Defined below; the application delegate and the content view need them
+// before either exists.
 void requestQuit();
 void openSettings();
+void loadPlugin(const std::string &path);
 } // namespace nch
+
+// A window that accepts a .clap dropped onto it. Dropping is the quickest way
+// to try a plug-in, and it costs one view subclass.
+@interface NchContentView : NSView
+@end
+
+@implementation NchContentView
+- (instancetype)initWithFrame:(NSRect)frame {
+	self = [super initWithFrame:frame];
+	if (self != nil)
+		[self registerForDraggedTypes:@[ NSPasteboardTypeFileURL ]];
+	return self;
+}
+
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
+	return [self pathFromDrag:sender].length != 0 ? NSDragOperationCopy : NSDragOperationNone;
+}
+
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
+	NSString *path = [self pathFromDrag:sender];
+	if (path.length == 0)
+		return NO;
+	nch::loadPlugin(std::string([path UTF8String]));
+	return YES;
+}
+
+- (NSString *)pathFromDrag:(id<NSDraggingInfo>)sender {
+	NSArray *urls = [[sender draggingPasteboard] readObjectsForClasses:@[ [NSURL class] ]
+	                                                           options:@{NSPasteboardURLReadingFileURLsOnlyKey : @YES}];
+	for (NSURL *url in urls)
+		if ([[url pathExtension] caseInsensitiveCompare:@"clap"] == NSOrderedSame)
+			return [url path];
+	return @"";
+}
+@end
 
 // Cmd-Q would otherwise call -terminate: and kill the process where it stands,
 // leaving the plug-in undestroyed. Cancelling the termination and asking the
@@ -33,6 +70,24 @@ void openSettings();
 	(void)sender;
 	nch::openSettings();
 }
+
+- (void)loadPlugin:(id)sender {
+	(void)sender;
+	NSOpenPanel *panel = [NSOpenPanel openPanel];
+	[panel setAllowedFileTypes:@[ @"clap" ]];
+	// A .clap is a bundle on macOS, which the panel treats as a directory
+	// unless it is told to select it whole.
+	[panel setCanChooseDirectories:YES];
+	[panel setCanChooseFiles:YES];
+	[panel setTreatsFilePackagesAsDirectories:NO];
+	[panel setAllowsMultipleSelection:NO];
+	[panel setMessage:@"Choose a CLAP plug-in"];
+	if ([panel runModal] != NSModalResponseOK)
+		return;
+	NSURL *url = [[panel URLs] firstObject];
+	if (url != nil)
+		nch::loadPlugin(std::string([[url path] UTF8String]));
+}
 @end
 
 namespace nch {
@@ -45,6 +100,11 @@ std::function<void()> &quitHandler() {
 
 std::function<void()> &settingsHandler() {
 	static std::function<void()> handler;
+	return handler;
+}
+
+std::function<void(const std::string &)> &loadPluginHandler() {
+	static std::function<void(const std::string &)> handler;
 	return handler;
 }
 
@@ -80,6 +140,15 @@ void installMainMenu() {
 	                   action:@selector(terminate:)
 	            keyEquivalent:@"q"];
 	[appItem setSubmenu:appMenu];
+
+	NSMenuItem *fileItem = [[NSMenuItem alloc] init];
+	[menubar addItem:fileItem];
+	NSMenu *fileMenu = [[NSMenu alloc] initWithTitle:@"File"];
+	NSMenuItem *loadItem = [fileMenu addItemWithTitle:@"Load Plug-in…"
+	                                           action:@selector(loadPlugin:)
+	                                    keyEquivalent:@"o"];
+	[loadItem setTarget:applicationDelegate()];
+	[fileItem setSubmenu:fileMenu];
 
 	NSMenuItem *settingsItem = [[NSMenuItem alloc] init];
 	[menubar addItem:settingsItem];
@@ -178,7 +247,7 @@ public:
 		[window_ setDelegate:delegate_];
 		[window_ setTitle:[NSString stringWithUTF8String:title.c_str()]];
 		[window_ setReleasedWhenClosed:NO];
-		view_ = [[NSView alloc] initWithFrame:frame];
+		view_ = [[NchContentView alloc] initWithFrame:frame];
 		[view_ setWantsLayer:YES];
 		[window_ setContentView:view_];
 		[window_ center];
@@ -289,6 +358,15 @@ void requestQuit() {
 
 void setSettingsHandler(std::function<void()> handler) {
 	settingsHandler() = std::move(handler);
+}
+
+void setLoadPluginHandler(std::function<void(const std::string &)> handler) {
+	loadPluginHandler() = std::move(handler);
+}
+
+void loadPlugin(const std::string &path) {
+	if (loadPluginHandler())
+		loadPluginHandler()(path);
 }
 
 void openSettings() {

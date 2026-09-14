@@ -51,6 +51,10 @@ std::unique_ptr<NativeWindow> createNativeWindow(uint32_t width, uint32_t height
 // The clap.gui API name for this platform.
 const char *nativeWindowApi();
 
+// Runs when a plug-in is chosen from the File menu or dropped on a window.
+// Called on the main thread with the path to a .clap.
+void setLoadPluginHandler(std::function<void(const std::string &)> handler);
+
 // Runs when the Audio/MIDI Settings menu item is chosen. Called on the main
 // thread, like every other menu action.
 void setSettingsHandler(std::function<void()> handler);

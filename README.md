@@ -107,7 +107,9 @@ device selector in it, over the same device layer the `audio.*` and `midi.*`
 commands use, so the window and the prompt cannot disagree about what is
 selected. It follows the system light and dark appearance, offers "All devices"
 for MIDI as a master toggle, and plays a test tone out of every channel of the
-chosen output. On macOS it is also under Settings → Audio/MIDI Settings (Cmd-,).
+chosen output. On macOS it is also under Settings → Audio/MIDI Settings (Cmd-,), and a
+plug-in can be loaded from File → Load Plug-in… (Cmd-O) or by dropping a
+`.clap` onto a host window.
 
 **Interfaces in a real window.** A Cocoa window embeds the plug-in's NSView and
 resizes through `adjust_size`. For `clap.webview`, the host serves a wrapper

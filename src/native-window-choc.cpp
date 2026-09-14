@@ -89,6 +89,10 @@ private:
 
 } // namespace
 
+void setLoadPluginHandler(std::function<void(const std::string &)>) {
+	// No menu bar here yet; `load` at the prompt does the same thing.
+}
+
 void setSettingsHandler(std::function<void()>) {
 	// No menu bar here yet; the `settings` command opens the window.
 }

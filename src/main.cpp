@@ -160,6 +160,14 @@ int main(int argc, char **argv) {
 
 	// Cmd-Q and the Quit menu item take the same path as the `quit` command.
 	nch::setQuitHandler([&session] { session.requestQuit(); });
+	// Loading from the File menu or a drop replaces whatever is loaded, then
+	// shows the new plug-in's interface, because that is plainly what choosing
+	// a plug-in from a menu is asking for.
+	nch::setLoadPluginHandler([&session](const std::string &path) {
+		session.postLine("load \"" + path + "\"");
+		session.postLine("gui.open");
+	});
+
 	nch::setSettingsHandler([&session] {
 		std::string settingsError;
 		if (!session.settings().open(settingsError))
