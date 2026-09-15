@@ -627,10 +627,24 @@ bool Session::tick() {
 		pending.swap(lines_);
 		finished = inputClosed_ && pending.empty();
 	}
-	if (finished)
+	if (finished) {
+		// Nothing was ever asked of it and there is no terminal to ask from,
+		// so this is a launch from the Finder: show a window rather than
+		// exiting silently.
+		if (options_.openWindowWhenIdle && linesRun_ == 0 && !settings_.isOpen()) {
+			std::string error;
+			if (settings_.open(error))
+				return true;
+		}
+		// A window the user is still looking at outlives the input that
+		// opened it.
+		if (settings_.isOpen() || panel_.isOpen() || gui_.isOpen())
+			return !quit_;
 		return false;
+	}
 
 	for (const auto &line : pending) {
+		++linesRun_;
 		if (!runLine(line))
 			return false;
 	}

@@ -109,6 +109,11 @@ int main(int argc, char **argv) {
 	if (argc > 0 && argv[0] != nullptr)
 		options.hostPath = argv[0];
 
+	// With no terminal, no plug-in, no script and no commands, there is
+	// nothing this run could be except a launch from the Finder.
+	options.openWindowWhenIdle = isatty(fileno(stdin)) == 0 && options.pluginPath.empty() &&
+	                             scriptPath.empty() && immediateCommands.empty();
+
 	Session session(options);
 	session.validator().setLive(options.strict);
 

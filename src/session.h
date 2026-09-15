@@ -32,6 +32,10 @@ struct Options {
 	bool json = false;   // replies as JSON rather than text
 	bool strict = false; // a validator error fails the command that caused it
 	bool quiet = false;  // suppress the banner and prompt
+	// Opened from the Finder rather than a shell: stdin is /dev/null, so the
+	// host would otherwise reach end of input and exit before anything
+	// appeared. When nothing at all was asked for, it opens a window instead.
+	bool openWindowWhenIdle = false;
 	std::string pluginPath;
 	// This executable, so the validation suite can relaunch it to run a test
 	// in a child process.
@@ -231,6 +235,7 @@ private:
 	bool stateDirty_ = false;
 	bool quit_ = false;
 	uint64_t commandFailures_ = 0;
+	uint64_t linesRun_ = 0;
 
 	// What the plug-in has asked the host for is counted once, by
 	// HostServices, so `status`, `validate` and `callbacks` cannot disagree.

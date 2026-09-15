@@ -152,6 +152,28 @@ endif()
 
 add_subdirectory(fixtures)
 
+# `cmake --install build` puts the application where the Finder can find it and
+# a launcher where a shell and an agent can. Installed rather than symlinked
+# into the build directory, which a clean rebuild would take away.
+if(APPLE)
+    set(NCH_APP_DIR "$ENV{HOME}/Applications" CACHE PATH "Where clap-host.app is installed")
+    set(NCH_BIN_DIR "$ENV{HOME}/.local/bin" CACHE PATH "Where the clap-host launcher is installed")
+
+    install(TARGETS clap-host BUNDLE DESTINATION "${NCH_APP_DIR}")
+    # The launcher runs the binary inside the bundle, so the command line and
+    # the Finder start exactly the same program -- which matters, because
+    # WebKit will not composite a webview outside an application bundle.
+    install(CODE "
+        file(MAKE_DIRECTORY \"${NCH_BIN_DIR}\")
+        file(WRITE \"${NCH_BIN_DIR}/clap-host\"
+             \"#!/bin/sh\\n# Runs the binary inside clap-host.app: a webview needs the bundle.\\nexec \\\"${NCH_APP_DIR}/clap-host.app/Contents/MacOS/clap-host\\\" \\\"$@\\\"\\n\")
+        execute_process(COMMAND chmod +x \"${NCH_BIN_DIR}/clap-host\")
+        message(STATUS \"Installed ${NCH_APP_DIR}/clap-host.app and ${NCH_BIN_DIR}/clap-host\")
+    ")
+else()
+    install(TARGETS clap-host RUNTIME DESTINATION bin)
+endif()
+
 include(CTest)
 if(BUILD_TESTING)
     add_subdirectory(tests)
