@@ -110,13 +110,15 @@ else()
     set(nch_webview_default OFF)
 endif()
 option(NCH_WITH_WEBVIEW "Display clap.webview interfaces with choc" ${nch_webview_default})
+# Compost provides the components the host's own windows are built from. The
+# path is a fact about the source tree whether or not a webview shows it, so
+# the code that serves it compiles either way.
+set(COMPOST_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/external/compost" CACHE PATH "compost")
+target_compile_definitions(nch-core PUBLIC NCH_COMPOST_ROOT="${COMPOST_ROOT}")
 if(NCH_WITH_WEBVIEW)
     set(CHOC_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/external/choc" CACHE PATH "choc")
     target_compile_definitions(nch-core PUBLIC NCH_WITH_WEBVIEW)
     target_include_directories(nch-core PUBLIC "${CHOC_ROOT}")
-    # Compost provides the device selector the settings window is built from.
-    set(COMPOST_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/external/compost" CACHE PATH "compost")
-    target_compile_definitions(nch-core PUBLIC NCH_COMPOST_ROOT="${COMPOST_ROOT}")
     if(APPLE)
         set_source_files_properties(src/webview.cpp PROPERTIES LANGUAGE OBJCXX)
         target_link_libraries(nch-core PUBLIC "-framework WebKit")
