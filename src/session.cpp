@@ -157,6 +157,12 @@ bool Session::prepareForDevice(double sampleRate, uint32_t blockSize, std::strin
 	options_.blockSize = blockSize;
 	deactivate();
 	instance_.setPreferredFormat(sampleRate, blockSize);
+	// A device is worth opening on its own: the settings window's test tone and
+	// the level meters are about the hardware, not about a plug-in. One only
+	// joins the stream if it is loaded, and the engine writes silence until it
+	// is.
+	if (!isLoaded())
+		return true;
 	return engine_.start(error);
 }
 
@@ -176,7 +182,7 @@ bool Session::startTestTone(double seconds, double frequency, std::string &error
 		error = "a test tone needs a positive length and frequency";
 		return false;
 	}
-	const auto length = static_cast<uint64_t>(seconds * instance_.sampleRate());
+	const auto length = static_cast<uint64_t>(seconds * options_.sampleRate);
 	testToneFrequency_.store(frequency, std::memory_order_relaxed);
 	testToneLength_ = length;
 	// Published last, so the audio thread never sees a length without the
@@ -191,10 +197,10 @@ void Session::renderTestTone(float *output, uint32_t frames, uint32_t channels) 
 		return;
 
 	const double frequency = testToneFrequency_.load(std::memory_order_relaxed);
-	const double step = 6.283185307179586 * frequency / instance_.sampleRate();
+	const double step = 6.283185307179586 * frequency / options_.sampleRate;
 	// A short ramp at each end, because a tone that starts and stops at full
 	// amplitude tests the listener's speakers more than their output device.
-	const auto ramp = static_cast<uint64_t>(instance_.sampleRate() * 0.005);
+	const auto ramp = static_cast<uint64_t>(options_.sampleRate * 0.005);
 	const float peak = 0.25f;
 
 	for (uint32_t frame = 0; frame < frames && remaining != 0; ++frame, --remaining) {

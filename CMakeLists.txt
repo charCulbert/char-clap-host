@@ -136,8 +136,14 @@ if(APPLE)
     # a bare executable with no bundle identifier never composites, and the
     # plug-in's interface stays blank. The binary still runs from the terminal
     # exactly as before, it just lives inside clap-host.app now.
+    # resources/clap-host.icns is committed; resources/make-icon.swift redraws it.
+    set(NCH_ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/clap-host.icns")
+    target_sources(clap-host PRIVATE "${NCH_ICON}")
+    set_source_files_properties("${NCH_ICON}" PROPERTIES
+        MACOSX_PACKAGE_LOCATION Resources)
     set_target_properties(clap-host PROPERTIES
         MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_ICON_FILE "clap-host.icns"
         MACOSX_BUNDLE_GUI_IDENTIFIER "com.charlieculbert.nativeclaphost"
         MACOSX_BUNDLE_BUNDLE_NAME "clap-host"
         MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
@@ -156,7 +162,7 @@ add_subdirectory(fixtures)
 # a launcher where a shell and an agent can. Installed rather than symlinked
 # into the build directory, which a clean rebuild would take away.
 if(APPLE)
-    set(NCH_APP_DIR "$ENV{HOME}/Applications" CACHE PATH "Where clap-host.app is installed")
+    set(NCH_APP_DIR "/Applications" CACHE PATH "Where clap-host.app is installed")
     set(NCH_BIN_DIR "$ENV{HOME}/.local/bin" CACHE PATH "Where the clap-host launcher is installed")
 
     install(TARGETS clap-host BUNDLE DESTINATION "${NCH_APP_DIR}")

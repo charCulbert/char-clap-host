@@ -52,7 +52,7 @@ build/fixtures/*.clap                          # 22 test plug-ins
 cmake --install build
 ```
 
-Copies the application to `~/Applications`, where the Finder can open it, and
+Copies the application to `/Applications`, where the Finder can open it, and
 writes a `clap-host` launcher to `~/.local/bin`, where a shell or an agent can
 run it. The launcher runs the binary *inside* the bundle, so both routes start
 the same program. Point them elsewhere with `-DNCH_APP_DIR=` and
