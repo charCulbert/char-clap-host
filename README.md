@@ -120,7 +120,9 @@ beginning with `#` are comments.
 ### In a window
 
 **Window → Parameters & Presets** (⌘P), or `panel`, opens the home window:
-every parameter as a control, and every preset the bundle declares as a button.
+every parameter as a `<compost-knob>` grouped by its module, and every preset
+the bundle declares in a dropdown with previous and next. The reading under each
+knob is the plug-in's own `value_to_text`, since only the plug-in knows the unit.
 It opens with nothing loaded and outlives any one plug-in, so it is also where
 the Finder lands you. It is a client of the command table rather than a second
 implementation — the page sends `params.list`, `param.set`, `presets.list` and
@@ -128,7 +130,10 @@ implementation — the page sends `params.list`, `param.set`, `presets.list` and
 its own is still playable, and anything the command set gains appears there
 without new code. A lamp beside the settings button lights when a MIDI message
 arrives and a `<compost-meter>` shows the output level, both polled through the
-`meters` command, so an agent reads exactly what a person sees.
+`meters` command, so an agent reads exactly what a person sees. Opening the
+window also opens the default output and every MIDI input, because a window
+means a person and a person expects sound; a command line gets neither unless
+it asks.
 `panel.snapshot <file.png>` photographs it.
 
 `gui.open` opens the plug-in's own interface, and dragging its window's corner

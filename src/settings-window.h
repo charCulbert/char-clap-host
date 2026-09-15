@@ -34,6 +34,9 @@ public:
 	// The device state the interface shows, in the shape Compost's device
 	// selector expects.
 	Value snapshot() const;
+	// Says the host has opened every MIDI input, so the interface shows the
+	// "all devices" choice ticked and a port appearing later is followed too.
+	void followAllMidiInputs(bool follow) { followAllMidiInputs_ = follow; }
 	// What the host's devices currently are, which the decision is made from.
 	DeviceState deviceState() const;
 	// Applies a change from the interface. Returns the resulting snapshot.

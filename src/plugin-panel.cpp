@@ -30,13 +30,13 @@ const char *kPage = R"(<!doctype html>
 	*, *::before, *::after { box-sizing: border-box; }
 	h1 { font-size: 15px; font-weight: 600; margin: 0; }
 	p.hint { margin: 2px 0 0; color: GrayText; }
-	.header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+	.header { display: flex; align-items: center; gap: 18px; margin-bottom: 16px; }
 	.header > div { flex: 1; min-width: 0; }
 	/* A plain glyph: the cog is a corner affordance, not one of the page's
 	   controls, and a bezel around it reads as one. */
 	#settings {
-		flex: none; width: 1.8em; padding: 0; border: none; background: none;
-		color: GrayText; font-size: 15px; line-height: 1;
+		flex: none; width: 1.4em; padding: 0; border: none; background: none;
+		color: GrayText; font-size: 21px; line-height: 1;
 	}
 	#settings:hover { color: CanvasText; }
 
@@ -61,11 +61,20 @@ const char *kPage = R"(<!doctype html>
 	.lampLabel { color: GrayText; }
 	.silent { color: GrayText; }
 	h2 { font-size: 13px; font-weight: 600; margin: 18px 0 8px; }
-	.param { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; margin-bottom: 10px; }
-	.param label { color: GrayText; }
-	.param .reading { font-variant-numeric: tabular-nums; }
-	.param input { grid-column: 1 / -1; width: 100%; margin: 0; }
-	.param.readonly input { opacity: 0.4; }
+	h3 { font-size: 12px; font-weight: 600; margin: 14px 0 6px; color: GrayText; }
+	.knobs { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px 8px; }
+	.knobCell { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }
+	compost-knob {
+		--knob-scale: 0.82;
+		--compost-accent: #35d07f;
+	}
+	/* The knob's own readout is hidden: the plug-in's value_to_text goes
+	   underneath instead, because only the plug-in knows the unit. */
+	compost-knob::part(value) { display: none; }
+	.reading {
+		font-variant-numeric: tabular-nums; color: GrayText;
+		max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+	}
 	.presets { display: flex; gap: 6px; align-items: stretch; }
 	.presets select { flex: 1; min-width: 0; font: inherit; }
 	.presets button { flex: none; width: 2.4em; padding: 0; }
@@ -108,6 +117,7 @@ const char *kPage = R"(<!doctype html>
 
 <script type="module">
 	import "./compost/components/compost-meter.js";
+	import "./compost/components/compost-knob.js";
 
 	// The page drives the host's own command table, so everything here is the
 	// same command a person would type.
@@ -186,29 +196,47 @@ const char *kPage = R"(<!doctype html>
 			return;
 		}
 		container.textContent = "";
+		let section = null;
+		let grid = null;
 		for (const param of params) {
-			const readonly = (param.flags || []).includes("readonly");
-			const row = document.createElement("div");
-			row.className = readonly ? "param readonly" : "param";
+			// Parameters carry a module path, and a plug-in that bothered to group
+			// them meant the grouping to be seen.
+			if (grid === null || param.module !== section) {
+				section = param.module;
+				if (section) {
+					const heading = document.createElement("h3");
+					heading.textContent = section;
+					container.append(heading);
+				}
+				grid = document.createElement("div");
+				grid.className = "knobs";
+				container.append(grid);
+			}
 
-			const label = document.createElement("label");
-			label.textContent = param.module ? param.module + " · " + param.name : param.name;
+			const flags = param.flags || [];
+			const cell = document.createElement("div");
+			cell.className = "knobCell";
+
+			const knob = document.createElement("compost-knob");
+			knob.setAttribute("label", param.name);
+			knob.setAttribute("min", param.min);
+			knob.setAttribute("max", param.max);
+			knob.setAttribute("value", param.value);
+			knob.setAttribute("reset-value", param.default ?? param.value);
+			if (flags.includes("stepped"))
+				knob.setAttribute("step", 1);
+			if (flags.includes("readonly"))
+				knob.setAttribute("disabled", "");
+
+			// The plug-in's own value_to_text is the only honest readout: it knows
+			// the unit and the wording, and the knob does not.
 			const reading = document.createElement("span");
 			reading.className = "reading";
 			reading.textContent = param.text || String(param.value);
 
-			const slider = document.createElement("input");
-			slider.type = "range";
-			slider.min = param.min;
-			slider.max = param.max;
-			// A stepped parameter moves in whole numbers; everything else gets
-			// a thousand positions across its range.
-			slider.step = (param.flags || []).includes("stepped") ? 1 : (param.max - param.min) / 1000;
-			slider.value = param.value;
-			slider.disabled = readonly;
-			slider.addEventListener("input", async () => {
+			knob.addEventListener("parameter-edit", async event => {
 				try {
-					const set = await run("param.set " + param.id + " " + slider.value);
+					const set = await run("param.set " + param.id + " " + event.detail.value);
 					reading.textContent = set.text || String(set.value);
 					status.textContent = "";
 				} catch (error) {
@@ -216,8 +244,8 @@ const char *kPage = R"(<!doctype html>
 				}
 			});
 
-			row.append(label, reading, slider);
-			container.append(row);
+			cell.append(knob, reading);
+			grid.append(cell);
 		}
 	}
 
@@ -439,6 +467,8 @@ bool PluginPanel::open(std::string &error) {
 	}
 	window_->attachChild(webview_.viewHandle());
 	window_->acceptDropsAboveChild();
+	// A window means a person, and a person expects sound.
+	session_.openDefaultDevices();
 	return true;
 }
 

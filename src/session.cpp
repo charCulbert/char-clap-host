@@ -69,6 +69,10 @@ bool Session::load(const std::string &path, const std::string &id, uint32_t inde
 	// Worked out here, on the main thread, so a MIDI message arriving on a
 	// device thread never has to ask the plug-in.
 	engine_.refreshNoteEncoding();
+	// unload() closed whatever was open; a plug-in the user just dropped on the
+	// window should still be playable without opening the settings.
+	if (devicesOpenedByDefault_)
+		openDefaultDevices();
 	panel_.refresh();
 	return true;
 }
@@ -169,6 +173,27 @@ bool Session::prepareForDevice(double sampleRate, uint32_t blockSize, std::strin
 	if (!isLoaded())
 		return true;
 	return engine_.start(error);
+}
+
+void Session::openDefaultDevices() {
+	devicesOpenedByDefault_ = true;
+	if (!audioDevice_.isRunning()) {
+		std::string error;
+		if (!audioDevice_.start({}, 0, error))
+			std::fprintf(stderr, "error: %s\n", error.c_str());
+	}
+	// Every MIDI input rather than one: which keyboard the user reaches for is
+	// not something the host can guess, and an unwanted port costs nothing
+	// until something is played on it.
+	if (midiInput_.openPortIds().empty()) {
+		std::vector<std::string> everyPort;
+		for (const auto &port : midiInput_.ports())
+			everyPort.push_back(port.id);
+		std::string error;
+		if (!everyPort.empty() && !midiInput_.setOpenPorts(everyPort, error))
+			std::fprintf(stderr, "error: %s\n", error.c_str());
+		settings_.followAllMidiInputs(true);
+	}
 }
 
 void Session::onAudioCallback(const float *input, float *output, uint32_t frames, bool hadGlitch) {

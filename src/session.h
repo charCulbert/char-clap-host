@@ -92,6 +92,13 @@ public:
 	// processing, so the first callback has somewhere to write.
 	bool prepareForDevice(double sampleRate, uint32_t blockSize, std::string &error);
 
+	// Opens the machine's default output and every MIDI input, so a window the
+	// user just opened makes sound and answers a keyboard without a trip
+	// through the settings. Their own choices win: this only ever runs on a
+	// device that is not already open, and only for a session that has a
+	// window. A command line asks for what it wants.
+	void openDefaultDevices();
+
 	// Plays a sine out of every channel of the current output device, over the
 	// top of whatever the plug-in is producing, so the tone tests the device
 	// and not the plug-in. Starts the stream if it is not already running.
@@ -242,6 +249,9 @@ private:
 	uint64_t testToneLength_ = 0;
 	double testTonePhase_ = 0.0;
 
+	// Whether the host opened devices on the user's behalf, so a plug-in
+	// loaded later gets them back after the load closed them.
+	bool devicesOpenedByDefault_ = false;
 	bool stateDirty_ = false;
 	bool quit_ = false;
 	uint64_t commandFailures_ = 0;
