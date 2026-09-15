@@ -32,7 +32,13 @@ const char *kPage = R"(<!doctype html>
 	p.hint { margin: 2px 0 0; color: GrayText; }
 	.header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
 	.header > div { flex: 1; min-width: 0; }
-	#settings { flex: none; width: 2.2em; padding: 0; font-size: 15px; line-height: 1; }
+	/* A plain glyph: the cog is a corner affordance, not one of the page's
+	   controls, and a bezel around it reads as one. */
+	#settings {
+		flex: none; width: 1.8em; padding: 0; border: none; background: none;
+		color: GrayText; font-size: 15px; line-height: 1;
+	}
+	#settings:hover { color: CanvasText; }
 
 	/* Aligned on the baseline of the meter's channel labels, so the lamp sits
 	   with the bars rather than floating against the meter's own heading. */
