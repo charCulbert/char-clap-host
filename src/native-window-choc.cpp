@@ -57,9 +57,8 @@ public:
 			window_.setContent(view);
 	}
 
-	void takeDropsFromChild() override {
-		// No drag-and-drop on this window layer yet, so there is nothing to
-		// take back.
+	void acceptDropsAboveChild() override {
+		// No drag-and-drop on this window layer yet; `load` does the same job.
 	}
 
 	void setTitle(const std::string &title) override { window_.setWindowTitle(title); }

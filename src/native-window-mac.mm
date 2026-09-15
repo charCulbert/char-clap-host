@@ -22,21 +22,77 @@ void loadPlugin(const std::string &path);
 NSString *clapPathFromDrag(id<NSDraggingInfo> sender);
 } // namespace nch
 
-// Draws the border that says a drop will land here. It is a view of its own,
-// on top, because the webview that fills the window would otherwise cover
-// anything the content view drew. It takes no mouse events, so nothing below
-// it notices.
-@interface NchDropHighlight : NSView
+// Takes the drop on behalf of a window whose content is a webview.
+//
+// A WKWebView swallows a drag before AppKit's search reaches the view beneath
+// it, and unregistering its dragged types does not give it back -- the web
+// content process handles the drag out of band. Registering the window itself
+// does not help either, for the same reason. What does work is a view in front
+// of the webview: AppKit finds it first, and returning nil from -hitTest: keeps
+// every other event flowing through to the page underneath.
+@interface NchDropOverlay : NSView
 @end
 
-@implementation NchDropHighlight
+@implementation NchDropOverlay {
+	BOOL highlighted_;
+}
+
+- (instancetype)initWithFrame:(NSRect)frame {
+	self = [super initWithFrame:frame];
+	if (self != nil)
+		[self registerForDraggedTypes:@[ NSPasteboardTypeFileURL ]];
+	return self;
+}
+
+// Invisible to the mouse: clicks, scrolls and hovers belong to the page.
 - (NSView *)hitTest:(NSPoint)point {
 	(void)point;
 	return nil;
 }
 
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
+	return [self dragOperation:sender];
+}
+
+// Without this AppKit asks again on every mouse move and takes the answer, so
+// the copy badge would go as soon as the pointer moved.
+- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)sender {
+	return [self dragOperation:sender];
+}
+
+- (void)draggingExited:(id<NSDraggingInfo>)sender {
+	(void)sender;
+	[self setHighlighted:NO];
+}
+
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
+	[self setHighlighted:NO];
+	NSString *path = nch::clapPathFromDrag(sender);
+	if (path.length == 0)
+		return NO;
+	nch::loadPlugin(std::string([path UTF8String]));
+	return YES;
+}
+
+- (NSDragOperation)dragOperation:(id<NSDraggingInfo>)sender {
+	const BOOL wanted = nch::clapPathFromDrag(sender).length != 0;
+	[self setHighlighted:wanted];
+	return wanted ? NSDragOperationCopy : NSDragOperationNone;
+}
+
+- (void)setHighlighted:(BOOL)highlighted {
+	if (highlighted_ == highlighted)
+		return;
+	highlighted_ = highlighted;
+	[self setNeedsDisplay:YES];
+}
+
+// A border while a .clap is over the window, because the page underneath gives
+// no sign on its own that the drop will land.
 - (void)drawRect:(NSRect)dirty {
 	(void)dirty;
+	if (!highlighted_)
+		return;
 	[[NSColor selectedContentBackgroundColor] setStroke];
 	NSBezierPath *border = [NSBezierPath bezierPathWithRect:NSInsetRect([self bounds], 2, 2)];
 	[border setLineWidth:4];
@@ -47,70 +103,33 @@ NSString *clapPathFromDrag(id<NSDraggingInfo> sender);
 // A window that accepts a .clap dropped onto it. Dropping is the quickest way
 // to try a plug-in, and it costs one view subclass.
 @interface NchContentView : NSView
-// Draws the border that says a drop will land here.
-- (void)setHighlighted:(BOOL)highlighted;
 @end
 
-@implementation NchContentView {
-	NchDropHighlight *highlight_;
-}
+@implementation NchContentView
 
 - (instancetype)initWithFrame:(NSRect)frame {
 	self = [super initWithFrame:frame];
 	if (self != nil)
-		[self registerForDraggedTypes:@[ NSPasteboardTypeFileURL, NSPasteboardTypeURL ]];
+		[self registerForDraggedTypes:@[ NSPasteboardTypeFileURL ]];
 	return self;
 }
 
 - (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
-	if (getenv("NCH_DROP_LOG") != nullptr)
-		std::fprintf(stderr, "drag entered: types %s path \"%s\"\n",
-		             [[[[sender draggingPasteboard] types] description] UTF8String],
-		             [[self pathFromDrag:sender] UTF8String]);
-	const BOOL wanted = [self pathFromDrag:sender].length != 0;
-	[self setHighlighted:wanted];
-	return wanted ? NSDragOperationCopy : NSDragOperationNone;
+	return nch::clapPathFromDrag(sender).length != 0 ? NSDragOperationCopy : NSDragOperationNone;
 }
 
 // Without this AppKit asks again on every mouse move and takes the answer, so
-// the copy badge disappears the moment the pointer moves.
+// the copy badge would go as soon as the pointer moved.
 - (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)sender {
-	return [self pathFromDrag:sender].length != 0 ? NSDragOperationCopy : NSDragOperationNone;
-}
-
-- (void)draggingExited:(id<NSDraggingInfo>)sender {
-	(void)sender;
-	[self setHighlighted:NO];
+	return nch::clapPathFromDrag(sender).length != 0 ? NSDragOperationCopy : NSDragOperationNone;
 }
 
 - (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
-	if (getenv("NCH_DROP_LOG") != nullptr)
-		std::fprintf(stderr, "drop: \"%s\"\n", [[self pathFromDrag:sender] UTF8String]);
-	[self setHighlighted:NO];
-	NSString *path = [self pathFromDrag:sender];
+	NSString *path = nch::clapPathFromDrag(sender);
 	if (path.length == 0)
 		return NO;
 	nch::loadPlugin(std::string([path UTF8String]));
 	return YES;
-}
-
-// A border while a .clap is over the window, because a webview fills the view
-// and would otherwise give no sign the drop will land.
-- (void)setHighlighted:(BOOL)highlighted {
-	if (!highlighted) {
-		[highlight_ removeFromSuperview];
-		highlight_ = nil;
-		return;
-	}
-	if (highlight_ != nil)
-		return;
-	highlight_ = [[NchDropHighlight alloc] initWithFrame:[self bounds]];
-	[highlight_ setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
-	[self addSubview:highlight_ positioned:NSWindowAbove relativeTo:nil];
-}
-
-- (NSString *)pathFromDrag:(id<NSDraggingInfo>)sender {
-	return nch::clapPathFromDrag(sender);
 }
 @end
 
@@ -268,15 +287,9 @@ void ensureApplication() {
 
 } // namespace nch
 
-// Tracks the close button, and takes the window's drops.
-//
-// A webview fills these windows and swallows a drag before AppKit's search
-// reaches the view underneath, even with the webview unregistered. A window
-// registered for dragged types sends them to its delegate instead, which is
-// above the whole view hierarchy and so cannot be intercepted.
-@interface NchWindowDelegate : NSObject <NSWindowDelegate, NSDraggingDestination>
+// Tracks the close button without needing a delegate object per window.
+@interface NchWindowDelegate : NSObject <NSWindowDelegate>
 @property(nonatomic) BOOL closed;
-@property(nonatomic, assign) NSView *highlightHost;
 @end
 
 @implementation NchWindowDelegate
@@ -286,40 +299,6 @@ void ensureApplication() {
 	return NO; // the host closes the plug-in's gui first, then the window
 }
 
-- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
-	return [self dragOperation:sender];
-}
-
-- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)sender {
-	return [self dragOperation:sender];
-}
-
-- (void)draggingExited:(id<NSDraggingInfo>)sender {
-	(void)sender;
-	[(NchContentView *)[self highlightHost] setHighlighted:NO];
-}
-
-- (BOOL)prepareForDragOperation:(id<NSDraggingInfo>)sender {
-	return nch::clapPathFromDrag(sender).length != 0;
-}
-
-- (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
-	[(NchContentView *)[self highlightHost] setHighlighted:NO];
-	NSString *path = nch::clapPathFromDrag(sender);
-	if (path.length == 0)
-		return NO;
-	nch::loadPlugin(std::string([path UTF8String]));
-	return YES;
-}
-
-- (NSDragOperation)dragOperation:(id<NSDraggingInfo>)sender {
-	const BOOL wanted = nch::clapPathFromDrag(sender).length != 0;
-	if (getenv("NCH_DROP_LOG") != nullptr)
-		std::fprintf(stderr, "window drag: types %s wanted %d\n",
-		             [[[[sender draggingPasteboard] types] description] UTF8String], wanted);
-	[(NchContentView *)[self highlightHost] setHighlighted:wanted];
-	return wanted ? NSDragOperationCopy : NSDragOperationNone;
-}
 @end
 
 // Keeps a window above the others while it is on. A plug-in's interface is
@@ -416,15 +395,10 @@ public:
 		                  defer:NO];
 		delegate_ = [[NchWindowDelegate alloc] init];
 		[window_ setDelegate:delegate_];
-		// Registered on the window rather than only on the content view: a
-		// webview fills these windows and takes the drag before AppKit's view
-		// search gets underneath it.
-		[window_ registerForDraggedTypes:@[ NSPasteboardTypeFileURL, NSPasteboardTypeURL ]];
 		[window_ setTitle:[NSString stringWithUTF8String:title.c_str()]];
 		[window_ setReleasedWhenClosed:NO];
 		view_ = [[NchContentView alloc] initWithFrame:frame];
 		[view_ setWantsLayer:YES];
-		[delegate_ setHighlightHost:view_];
 		[window_ setContentView:view_];
 		pin_ = [[NchPinController alloc] init];
 		[window_ addTitlebarAccessoryViewController:makePinAccessory(window_, pin_)];
@@ -439,14 +413,6 @@ public:
 
 	void *handle() override { return (__bridge void *)view_; }
 
-	// A WKWebView registers for file drops itself, and so do views inside it,
-	// so every one has to give them up for the drop to reach the window.
-	static void unregisterDrops(NSView *view) {
-		[view unregisterDraggedTypes];
-		for (NSView *child in [view subviews])
-			unregisterDrops(child);
-	}
-
 	void attachChild(void *view) override {
 		NSView *child = (__bridge NSView *)view;
 		if (child == nil)
@@ -456,9 +422,12 @@ public:
 		[view_ addSubview:child];
 	}
 
-	void takeDropsFromChild() override {
-		for (NSView *child in [view_ subviews])
-			unregisterDrops(child);
+	void acceptDropsAboveChild() override {
+		if (overlay_ != nil)
+			return;
+		overlay_ = [[NchDropOverlay alloc] initWithFrame:[view_ bounds]];
+		[overlay_ setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+		[view_ addSubview:overlay_ positioned:NSWindowAbove relativeTo:nil];
 	}
 
 
@@ -536,6 +505,7 @@ private:
 	NSView *view_ = nil;
 	NchWindowDelegate *delegate_ = nil;
 	NchPinController *pin_ = nil;
+	NchDropOverlay *overlay_ = nil;
 };
 
 } // namespace

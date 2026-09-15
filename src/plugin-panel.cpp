@@ -331,7 +331,7 @@ bool PluginPanel::open(std::string &error) {
 		return false;
 	}
 	window_->attachChild(webview_.viewHandle());
-	window_->takeDropsFromChild();
+	window_->acceptDropsAboveChild();
 	return true;
 }
 

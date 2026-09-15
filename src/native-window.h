@@ -21,11 +21,11 @@ public:
 	virtual void setTitle(const std::string &title) = 0;
 	// Places another platform view inside this window, filling it.
 	virtual void attachChild(void *view) = 0;
-	// Takes drag-and-drop back from the embedded child. A webview of the
-	// host's own would otherwise swallow a .clap dropped on the window. A
-	// plug-in's view is left alone, because a plug-in may want drops of its
-	// own -- a sampler being the obvious one.
-	virtual void takeDropsFromChild() = 0;
+	// Puts a drop target in front of the embedded child, so a .clap dropped
+	// anywhere on the window loads. Only for the host's own pages: a webview
+	// swallows a drag whatever the view beneath it says, and a plug-in's view
+	// keeps its own drops, since a sampler may want them.
+	virtual void acceptDropsAboveChild() = 0;
 	virtual void setSize(uint32_t width, uint32_t height) = 0;
 	virtual void show() = 0;
 	virtual void hide() = 0;
