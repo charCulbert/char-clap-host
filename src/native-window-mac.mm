@@ -19,29 +19,83 @@ void openPanel();
 void loadPlugin(const std::string &path);
 } // namespace nch
 
+// Draws the border that says a drop will land here. It is a view of its own,
+// on top, because the webview that fills the window would otherwise cover
+// anything the content view drew. It takes no mouse events, so nothing below
+// it notices.
+@interface NchDropHighlight : NSView
+@end
+
+@implementation NchDropHighlight
+- (NSView *)hitTest:(NSPoint)point {
+	(void)point;
+	return nil;
+}
+
+- (void)drawRect:(NSRect)dirty {
+	(void)dirty;
+	[[NSColor selectedContentBackgroundColor] setStroke];
+	NSBezierPath *border = [NSBezierPath bezierPathWithRect:NSInsetRect([self bounds], 2, 2)];
+	[border setLineWidth:4];
+	[border stroke];
+}
+@end
+
 // A window that accepts a .clap dropped onto it. Dropping is the quickest way
 // to try a plug-in, and it costs one view subclass.
 @interface NchContentView : NSView
 @end
 
-@implementation NchContentView
+@implementation NchContentView {
+	NchDropHighlight *highlight_;
+}
+
 - (instancetype)initWithFrame:(NSRect)frame {
 	self = [super initWithFrame:frame];
 	if (self != nil)
-		[self registerForDraggedTypes:@[ NSPasteboardTypeFileURL ]];
+		[self registerForDraggedTypes:@[ NSPasteboardTypeFileURL, NSPasteboardTypeURL ]];
 	return self;
 }
 
 - (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
+	const BOOL wanted = [self pathFromDrag:sender].length != 0;
+	[self setHighlighted:wanted];
+	return wanted ? NSDragOperationCopy : NSDragOperationNone;
+}
+
+// Without this AppKit asks again on every mouse move and takes the answer, so
+// the copy badge disappears the moment the pointer moves.
+- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)sender {
 	return [self pathFromDrag:sender].length != 0 ? NSDragOperationCopy : NSDragOperationNone;
 }
 
+- (void)draggingExited:(id<NSDraggingInfo>)sender {
+	(void)sender;
+	[self setHighlighted:NO];
+}
+
 - (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
+	[self setHighlighted:NO];
 	NSString *path = [self pathFromDrag:sender];
 	if (path.length == 0)
 		return NO;
 	nch::loadPlugin(std::string([path UTF8String]));
 	return YES;
+}
+
+// A border while a .clap is over the window, because a webview fills the view
+// and would otherwise give no sign the drop will land.
+- (void)setHighlighted:(BOOL)highlighted {
+	if (!highlighted) {
+		[highlight_ removeFromSuperview];
+		highlight_ = nil;
+		return;
+	}
+	if (highlight_ != nil)
+		return;
+	highlight_ = [[NchDropHighlight alloc] initWithFrame:[self bounds]];
+	[highlight_ setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+	[self addSubview:highlight_ positioned:NSWindowAbove relativeTo:nil];
 }
 
 - (NSString *)pathFromDrag:(id<NSDraggingInfo>)sender {
@@ -51,6 +105,12 @@ void loadPlugin(const std::string &path);
 		if ([[url pathExtension] caseInsensitiveCompare:@"clap"] == NSOrderedSame)
 			return [url path];
 	return @"";
+}
+
+// The drop lands on this view even when a webview covers it, so the webview
+// must not take the mouse away from the drag machinery.
+- (BOOL)wantsPeriodicDraggingUpdates {
+	return NO;
 }
 @end
 
@@ -221,8 +281,52 @@ void ensureApplication() {
 }
 @end
 
+// Keeps a window above the others while it is on. A plug-in's interface is
+// usually being watched while something else has the keyboard, which is exactly
+// when a window that hides itself is in the way.
+@interface NchPinController : NSObject
+@property(nonatomic, assign) NSWindow *window;
+@end
+
+@implementation NchPinController
+- (void)togglePin:(NSButton *)sender {
+	const BOOL pinned = [sender state] == NSControlStateValueOn;
+	[[self window] setLevel:pinned ? NSFloatingWindowLevel : NSNormalWindowLevel];
+	[sender setToolTip:pinned ? @"Stop keeping this window in front" : @"Keep this window in front"];
+}
+@end
+
 namespace nch {
 namespace {
+
+// The pin, drawn as a title-bar accessory so it sits beside the traffic lights
+// rather than taking a row of the window's content.
+NSTitlebarAccessoryViewController *makePinAccessory(NSWindow *window, NchPinController *controller) {
+	[controller setWindow:window];
+	NSButton *button = [NSButton buttonWithTitle:@"" target:controller action:@selector(togglePin:)];
+	[button setButtonType:NSButtonTypePushOnPushOff];
+	[button setBezelStyle:NSBezelStyleTexturedRounded];
+	[button setBordered:NO];
+	NSImage *pin = nil;
+	if ([NSImage respondsToSelector:@selector(imageWithSystemSymbolName:accessibilityDescription:)])
+		pin = [NSImage imageWithSystemSymbolName:@"pin" accessibilityDescription:@"Keep in front"];
+	if (pin != nil) {
+		[button setImage:pin];
+		[button setImagePosition:NSImageOnly];
+	} else {
+		// Before SF Symbols; the character says the same thing.
+		[button setTitle:@"\U0001F4CC"];
+	}
+	[button setToolTip:@"Keep this window in front"];
+	[button setFrame:NSMakeRect(0, 0, 32, 22)];
+
+	NSView *host = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 36, 22)];
+	[host addSubview:button];
+	NSTitlebarAccessoryViewController *accessory = [[NSTitlebarAccessoryViewController alloc] init];
+	[accessory setView:host];
+	[accessory setLayoutAttribute:NSLayoutAttributeRight];
+	return accessory;
+}
 
 void describeView(NSView *view, int depth, std::string &out) {
 	if (view == nil)
@@ -266,6 +370,8 @@ public:
 		view_ = [[NchContentView alloc] initWithFrame:frame];
 		[view_ setWantsLayer:YES];
 		[window_ setContentView:view_];
+		pin_ = [[NchPinController alloc] init];
+		[window_ addTitlebarAccessoryViewController:makePinAccessory(window_, pin_)];
 		[window_ center];
 	}
 
@@ -298,6 +404,7 @@ public:
 		for (NSView *child in [view_ subviews])
 			unregisterDrops(child);
 	}
+
 
 	void setTitle(const std::string &title) override {
 		[window_ setTitle:[NSString stringWithUTF8String:title.c_str()]];
@@ -372,6 +479,7 @@ private:
 	NSWindow *window_ = nil;
 	NSView *view_ = nil;
 	NchWindowDelegate *delegate_ = nil;
+	NchPinController *pin_ = nil;
 };
 
 } // namespace

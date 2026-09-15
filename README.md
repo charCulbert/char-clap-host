@@ -131,7 +131,9 @@ without new code. `panel.snapshot <file.png>` photographs it.
 `gui.open` opens the plug-in's own interface; `settings` opens the device
 selector. On macOS there is a menu bar: **File → Load Plug-in…** (⌘O), a `.clap`
 dropped on any of the host's windows, **Settings → Audio/MIDI Settings…** (⌘,),
-and ⌘Q.
+and ⌘Q. Every host window carries a pin in its title bar that keeps it in front
+of other applications, which is what you want while watching a plug-in from a
+terminal.
 
 The window deliberately covers *using* a plug-in — load, play, parameters,
 devices, state, presets. The validator, the event log and the extension probes
