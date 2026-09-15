@@ -81,6 +81,7 @@ public:
 	const clap_plugin_descriptor_t *descriptor() const { return instance_.descriptor(); }
 
 	Engine &engine() { return engine_; }
+	const Engine &engine() const { return engine_; }
 	AudioDevice &audioDevice() { return audioDevice_; }
 	MidiInput &midiInput() { return midiInput_; }
 	MidiOutput &midiOutput() { return midiOutput_; }
@@ -113,11 +114,10 @@ public:
 	// Messages the plug-in's note dialect has no form for, counted rather than
 	// silently discarded.
 	uint64_t midiDroppedCount() const { return midiDropped_.load(std::memory_order_relaxed); }
-	// The loudest sample each output channel has produced since this was last
-	// asked, and how many channels there are. Reading clears it, so a meter
-	// that polls sees peaks rather than whatever the last block happened to
-	// end on.
-	Value takeOutputPeaks();
+	// What each output channel is doing, and what the devices have seen.
+	// Reading changes nothing: the window's meter and a script asking the same
+	// question must not take the answer from each other.
+	Value outputLevels() const;
 	bool activate(double sampleRate, uint32_t minFrames, uint32_t maxFrames, std::string &error);
 	void deactivate();
 	bool isActive() const { return instance_.isActive(); }
@@ -240,7 +240,10 @@ private:
 	std::atomic<uint64_t> audioUnderruns_{0};
 	std::atomic<uint64_t> midiMessages_{0};
 	std::atomic<uint64_t> midiDropped_{0};
-	// Written by the audio thread, drained by whoever is drawing a meter.
+	// Written by the audio thread, read by anyone. Each block decays what is
+	// there and keeps the louder of that and itself, so a reader slower than
+	// the device still sees a transient, and one faster sees it fall away
+	// rather than flickering to nothing between blocks.
 	static constexpr uint32_t kMaxMeterChannels = 8;
 	std::atomic<float> outputPeaks_[kMaxMeterChannels] = {};
 	// Written by the main thread, consumed by the audio thread.

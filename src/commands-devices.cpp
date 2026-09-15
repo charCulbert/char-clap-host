@@ -48,9 +48,9 @@ void Session::registerDeviceCommands() {
 		               return Response::success(Value(std::move(out)));
 	               }});
 
-	commands_.add({"meters", "", "Report output levels and device activity since the last call.",
+	commands_.add({"meters", "", "Report output levels and device activity.",
 	               [](Session &session, const Request &) -> Response {
-		               return Response::success(session.takeOutputPeaks());
+		               return Response::success(session.outputLevels());
 	               }});
 
 	commands_.add({"midi.ports", "", "List the MIDI input ports this machine offers.",

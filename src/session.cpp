@@ -218,20 +218,21 @@ void Session::measureOutput(const float *output, uint32_t frames, uint32_t chann
 			if (sample > peak)
 				peak = sample;
 		}
-		// Kept rather than replaced: a meter polling slower than the device
-		// must see the loudest block, not the last one.
+		// A held peak that falls about 90% over 150ms: slow enough that any
+		// reader sees the transient, fast enough to look live.
+		constexpr float kDecayPerBlock = 0.85f;
 		float seen = outputPeaks_[channel].load(std::memory_order_relaxed);
-		while (peak > seen &&
-		       !outputPeaks_[channel].compare_exchange_weak(seen, peak, std::memory_order_relaxed))
-			;
+		float held = std::max(peak, seen * kDecayPerBlock);
+		while (!outputPeaks_[channel].compare_exchange_weak(seen, held, std::memory_order_relaxed))
+			held = std::max(peak, seen * kDecayPerBlock);
 	}
 }
 
-Value Session::takeOutputPeaks() {
+Value Session::outputLevels() const {
 	const uint32_t channels = std::min(engine_.deviceOutputChannels(), kMaxMeterChannels);
 	Array peaks;
 	for (uint32_t channel = 0; channel < channels; ++channel)
-		peaks.push_back(Value(outputPeaks_[channel].exchange(0.0f, std::memory_order_relaxed)));
+		peaks.push_back(Value(outputPeaks_[channel].load(std::memory_order_relaxed)));
 	Object out;
 	out["running"] = Value(audioDevice_.isRunning());
 	out["peaks"] = Value(std::move(peaks));
