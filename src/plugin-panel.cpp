@@ -36,7 +36,7 @@ const char *kPage = R"(<!doctype html>
 	   controls, and a bezel around it reads as one. */
 	#settings {
 		flex: none; width: 1.4em; padding: 0; border: none; background: none;
-		color: GrayText; font-size: 21px; line-height: 1;
+		color: GrayText; font-size: 28px; line-height: 1;
 	}
 	#settings:hover { color: CanvasText; }
 
@@ -53,7 +53,7 @@ const char *kPage = R"(<!doctype html>
 		--compost-accent: #35d07f;
 	}
 	.lamp {
-		flex: none; width: 10px; height: 10px; border-radius: 50%;
+		flex: none; width: 6px; height: 6px; border-radius: 50%;
 		border: 1px solid GrayText; background: transparent;
 		transition: background-color 120ms linear;
 	}
