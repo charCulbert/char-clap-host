@@ -68,9 +68,15 @@ const char *kPage = R"(<!doctype html>
 	.cell { display: flex; flex-direction: column; gap: 3px; min-width: 0; align-items: center; text-align: center; }
 	.choiceCell { grid-column: span 2; align-items: stretch; text-align: left; }
 	compost-select { width: 100%; }
-	/* Sized to its column like everything else, rather than growing a box
-	   around whatever the plug-in called it. */
-	compost-button { width: 100%; font-size: 12px; }
+	/* Sized to its column like everything else, and its label kept inside it:
+	   a plug-in may call a switch anything, including one long word. */
+	compost-button {
+		--compost-button-width: 100%;
+		--compost-button-label-size: 0.95em;
+		--compost-button-label-padding: 0 4px;
+		width: 100%; font-size: 11px;
+	}
+	compost-button::part(label) { overflow-wrap: anywhere; hyphens: auto; }
 	compost-knob {
 		--knob-scale: 0.82;
 		--compost-accent: #35d07f;
@@ -78,9 +84,11 @@ const char *kPage = R"(<!doctype html>
 	/* The knob's own readout is hidden: the plug-in's value_to_text goes
 	   underneath instead, because only the plug-in knows the unit. */
 	compost-knob::part(value) { display: none; }
+	/* Wrapped, never clipped: this window exists to show what the plug-in
+	   actually says, and an elided value is the one you needed to see. */
 	.reading {
 		font-variant-numeric: tabular-nums; color: GrayText;
-		max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+		max-width: 100%; overflow-wrap: anywhere;
 	}
 	.presets { display: flex; gap: 6px; align-items: stretch; }
 	.presets select { flex: 1; min-width: 0; font: inherit; }
@@ -204,7 +212,13 @@ const char *kPage = R"(<!doctype html>
 		return "knob";
 	}
 
+	// Building a choice asks the plug-in to name its steps, so a refresh can
+	// still be in flight when the next one starts. Only the newest may write
+	// to the page, or two runs interleave and every section appears twice.
+	let paramGeneration = 0;
+
 	async function showParams() {
+		const generation = ++paramGeneration;
 		const container = document.getElementById("params");
 		let data;
 		try {
@@ -218,7 +232,7 @@ const char *kPage = R"(<!doctype html>
 			container.innerHTML = '<p class="empty">This plug-in has no parameters.</p>';
 			return;
 		}
-		container.textContent = "";
+		const built = document.createDocumentFragment();
 		let section = null;
 		let grid = null;
 		for (const param of params) {
@@ -229,14 +243,18 @@ const char *kPage = R"(<!doctype html>
 				if (section) {
 					const heading = document.createElement("h3");
 					heading.textContent = section;
-					container.append(heading);
+					built.append(heading);
 				}
 				grid = document.createElement("div");
 				grid.className = "knobs";
-				container.append(grid);
+				built.append(grid);
 			}
 			grid.append(await buildParam(param));
 		}
+		if (generation !== paramGeneration)
+			return;
+		container.textContent = "";
+		container.append(built);
 	}
 
 	async function buildParam(param) {
