@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <thread>
 
 namespace nch {
 namespace {
@@ -32,6 +33,10 @@ bool Engine::start(std::string &error) {
 		error = "no plug-in loaded";
 		return false;
 	}
+	// Already processing: rebuilding the buffers now would pull them out from
+	// under a block on the device thread.
+	if (isRunning())
+		return true;
 	if (!session_.isActive() && !session_.activate(session_.sampleRate(), 1, session_.blockSize(), error))
 		return false;
 	// Buffers are shaped by the port layout, which may only change while the
@@ -39,24 +44,63 @@ bool Engine::start(std::string &error) {
 	buffers_.build(session_.instance(), session_.blockSize());
 	if (!session_.instance().startProcessing(error))
 		return false;
-	running_ = true;
+	running_.store(true, std::memory_order_release);
 	return true;
 }
 
 void Engine::stop() {
-	if (!running_)
+	if (!isRunning())
 		return;
-	session_.instance().stopProcessing();
-	running_ = false;
+	// No new block starts once this is false; one already inside process()
+	// is waited for, so stop_processing never overlaps it.
+	running_.store(false, std::memory_order_release);
+	if (acquireAudioExclusion()) {
+		session_.instance().stopProcessing();
+		releaseAudioExclusion();
+	} else {
+		session_.validator().error("clap_plugin.process", "a block did not finish in time for stop_processing");
+		session_.instance().stopProcessing();
+	}
+}
+
+bool Engine::acquireAudioExclusion() {
+	// A block is short; a few hundred milliseconds is far longer than any
+	// legitimate one and short enough that a stuck plug-in still fails fast.
+	const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+	for (;;) {
+		bool expected = false;
+		if (insideProcess_.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
+			return true;
+		if (std::chrono::steady_clock::now() >= deadline)
+			return false;
+		std::this_thread::yield();
+	}
+}
+
+void Engine::releaseAudioExclusion() {
+	insideProcess_.store(false, std::memory_order_release);
+}
+
+bool Engine::runAsAudioThread(const std::function<void()> &work) {
+	if (!acquireAudioExclusion())
+		return false;
+	{
+		ScopedThreadRole role(ThreadRole::Audio);
+		work();
+	}
+	releaseAudioExclusion();
+	return true;
 }
 
 void Engine::resetPlayhead() {
 	// "clap_process.steady_time may jump backward" only across reset(), so the
 	// plug-in has to be told; otherwise anything deriving time from the deltas
-	// sees a negative one.
-	if (session_.isActive() && session_.plugin() != nullptr && session_.plugin()->reset != nullptr) {
-		ScopedThreadRole role(ThreadRole::Audio);
-		session_.plugin()->reset(session_.plugin());
+	// sees a negative one. reset is [audio-thread], and not concurrent with
+	// process(), so it waits its turn with the device callback.
+	if (session_.isActive() && session_.plugin() != nullptr) {
+		const clap_plugin_t *plugin = session_.plugin();
+		if (!runAsAudioThread([plugin] { plugin->reset(plugin); }))
+			session_.validator().error("clap_plugin.reset", "a block did not finish in time; reset was skipped");
 	}
 	playhead_ = 0;
 	inputPosition_ = 0;
@@ -211,6 +255,10 @@ void Engine::scheduleParamMod(clap_id paramId, void *cookie, double amount, int1
 }
 
 void Engine::noteOn(int16_t port, int16_t channel, int16_t key, double velocity, int32_t noteId, uint64_t delayFrames) {
+	// "A note-on event with a '-1' for port, channel or key is invalid": the
+	// host will not commit one, whatever it was asked.
+	if (port < 0 || channel < 0 || key < 0)
+		return;
 	const clap_event_note_t event = makeNote(CLAP_EVENT_NOTE_ON, port, channel, key, velocity, noteId);
 	if (noteEncoding(port).wantsClapNotes()) {
 		scheduleAfter(&event.header, delayFrames);
@@ -371,7 +419,7 @@ int32_t Engine::processBlock(uint32_t frames, AudioData *output) {
 }
 
 int32_t Engine::processBlock(uint32_t frames, const BlockIo &io) {
-	if (!running_ || !session_.isLoaded()) {
+	if (!isRunning() || !session_.isLoaded()) {
 		if (io.interleavedOutput != nullptr)
 			std::memset(io.interleavedOutput,
 			            0,
@@ -446,11 +494,17 @@ int32_t Engine::processBlock(uint32_t frames, const BlockIo &io) {
 		buffers_.silence(blockFrames);
 	}
 
-	session_.absorbOutputEvents(outEvents_);
+	session_.absorbOutputEvents(outEvents_, playhead_);
 	if (io.collected != nullptr)
 		buffers_.appendMainOutput(*io.collected, blockFrames);
-	if (io.interleavedOutput != nullptr)
+	if (io.interleavedOutput != nullptr) {
 		buffers_.readMainOutput(io.interleavedOutput, blockFrames, io.interleavedOutputChannels);
+		// The device asked for more than the plug-in was activated for; the
+		// rest of its buffer is silence rather than whatever was there.
+		if (blockFrames < frames)
+			std::memset(io.interleavedOutput + static_cast<size_t>(blockFrames) * io.interleavedOutputChannels, 0,
+			            static_cast<size_t>(frames - blockFrames) * io.interleavedOutputChannels * sizeof(float));
+	}
 	playhead_ += blockFrames;
 	advanceTransport(blockFrames);
 
@@ -473,14 +527,14 @@ bool Engine::runSilentBlock(std::string &error) {
 		error = "no plug-in loaded";
 		return false;
 	}
-	if (running_) {
+	if (isRunning()) {
 		// Already processing: the next block carries whatever is queued.
 		return true;
 	}
 	buffers_.build(session_.instance(), session_.blockSize());
 	if (!session_.instance().startProcessing(error))
 		return false;
-	running_ = true;
+	running_.store(true, std::memory_order_release);
 	processBlock(session_.blockSize(), nullptr);
 	stop();
 	return true;

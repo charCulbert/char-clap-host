@@ -3,6 +3,9 @@
 #include "thread-role.h"
 
 #include <algorithm>
+#if !defined(_WIN32)
+#include <poll.h>
+#endif
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -41,6 +44,15 @@ uint64_t nowMs() {
 Session::Session(Options options)
     : options_(std::move(options)), host_(*this, validator_), instance_(host_.clapHost(), validator_), engine_(*this), audioDevice_(*this), midiInput_(*this), gui_(instance_), settings_(*this), panel_(*this) {
 	instance_.setPreferredFormat(options_.sampleRate, options_.blockSize);
+	instance_.setPhaseObserver([this](PluginInstance::Phase phase) {
+		host_.setPluginState(phase == PluginInstance::Phase::Ready      ? Host::PluginState::Ready
+		                     : phase == PluginInstance::Phase::Creating ? Host::PluginState::Creating
+		                                                                : Host::PluginState::None);
+	});
+	pendingOutputEvents_.reserve(kMaxPendingOutputEvents, 256 * 1024);
+	pendingOutputFrames_.reserve(kMaxPendingOutputEvents);
+	drainingOutputEvents_.reserve(kMaxPendingOutputEvents, 256 * 1024);
+	drainingOutputFrames_.reserve(kMaxPendingOutputEvents);
 	registerCommands();
 	registerAudioCommands();
 	registerStateCommands();
@@ -57,15 +69,8 @@ Session::~Session() {
 
 bool Session::load(const std::string &path, const std::string &id, uint32_t index, std::string &error) {
 	unload();
-	// "It is forbidden to call it before plugin->init(). You can call it
-	// within plugin->init() call, and after." So the host must already be
-	// answering before load runs init, or a plug-in doing the legal thing is
-	// reported as doing the wrong one.
-	host_.setPluginReady(true);
-	if (!instance_.load(path, id, index, error)) {
-		host_.setPluginReady(false);
+	if (!instance_.load(path, id, index, error))
 		return false;
-	}
 	// Worked out here, on the main thread, so a MIDI message arriving on a
 	// device thread never has to ask the plug-in.
 	engine_.refreshNoteEncoding();
@@ -87,7 +92,6 @@ void Session::unload() {
 		midiInput_.close();
 		midiOutput_.close();
 		engine_.stop();
-		host_.setPluginReady(false);
 	}
 	instance_.unload();
 	// The home window stays; it just has nothing to show now.
@@ -100,9 +104,20 @@ void Session::unload() {
 }
 
 bool Session::activate(double sampleRate, uint32_t minFrames, uint32_t maxFrames, std::string &error) {
-	if (!instance_.activate(sampleRate, minFrames, maxFrames, error))
+	// Activating again deactivates on the way, which ends processing; a
+	// device callback still calling process() would then be doing so on a
+	// plug-in that is not processing. The engine leaves first and, since the
+	// port layout may have changed, comes back with fresh buffers.
+	const bool wasProcessing = engine_.isRunning();
+	engine_.stop();
+	activating_ = true;
+	const bool activated = instance_.activate(sampleRate, minFrames, maxFrames, error);
+	activating_ = false;
+	if (!activated)
 		return false;
 	engine_.refreshNoteEncoding();
+	if (wasProcessing && !engine_.start(error))
+		return false;
 	return true;
 }
 
@@ -125,17 +140,22 @@ void Session::runMainThreadWork() {
 	for (auto &work : pending)
 		work();
 
+	drainOutputEvents();
 	if (callbackRequested_.exchange(false, std::memory_order_acq_rel))
 		instance_.runMainThreadCallback();
 
 	serviceFlushRequest();
+	drainOutputEvents();
 
 	if (notePortsChanged_) {
 		notePortsChanged_ = false;
 		engine_.refreshNoteEncoding();
 	}
 
-	if (!instance_.isLoaded() || timers_.empty())
+	if (!instance_.isLoaded())
+		return;
+	servicePosixFds();
+	if (timers_.empty())
 		return;
 	const auto *timerSupport = pluginExtension<clap_plugin_timer_support_t>(CLAP_EXT_TIMER_SUPPORT);
 	if (timerSupport == nullptr || timerSupport->on_timer == nullptr)
@@ -159,6 +179,48 @@ void Session::runMainThreadWork() {
 			continue;
 		timerSupport->on_timer(instance_.plugin(), id);
 	}
+}
+
+void Session::servicePosixFds() {
+#if !defined(_WIN32)
+	// clap.posix-fd-support: "let your plugin hook itself into the host
+	// select/poll/epoll/kqueue reactor". Registering a descriptor is a promise
+	// that on_fd will follow, so the main loop polls them each turn. Level
+	// triggered, as the extension says, which is what poll() gives.
+	const auto &registered = services_.registeredFds();
+	if (registered.empty())
+		return;
+	const auto *fdSupport = pluginExtension<clap_plugin_posix_fd_support_t>(CLAP_EXT_POSIX_FD_SUPPORT);
+	if (fdSupport == nullptr || fdSupport->on_fd == nullptr)
+		return;
+	std::vector<pollfd> fds;
+	fds.reserve(registered.size());
+	for (const auto &[fd, flags] : registered) {
+		pollfd entry{};
+		entry.fd = fd;
+		if ((flags & CLAP_POSIX_FD_READ) != 0)
+			entry.events |= POLLIN;
+		if ((flags & CLAP_POSIX_FD_WRITE) != 0)
+			entry.events |= POLLOUT;
+		fds.push_back(entry);
+	}
+	if (poll(fds.data(), static_cast<nfds_t>(fds.size()), 0) <= 0)
+		return;
+	for (const pollfd &entry : fds) {
+		clap_posix_fd_flags_t ready = 0;
+		if ((entry.revents & POLLIN) != 0)
+			ready |= CLAP_POSIX_FD_READ;
+		if ((entry.revents & POLLOUT) != 0)
+			ready |= CLAP_POSIX_FD_WRITE;
+		if ((entry.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0)
+			ready |= CLAP_POSIX_FD_ERROR;
+		// The callback may unregister descriptors, so each is checked again
+		// before it fires, the way timers are.
+		if (ready == 0 || !instance_.isLoaded() || services_.registeredFds().count(entry.fd) == 0)
+			continue;
+		fdSupport->on_fd(instance_.plugin(), entry.fd, ready);
+	}
+#endif
 }
 
 bool Session::prepareForDevice(double sampleRate, uint32_t blockSize, std::string &error) {
@@ -206,7 +268,8 @@ void Session::onAudioCallback(const float *input, float *output, uint32_t frames
 	if (hadGlitch)
 		audioUnderruns_.fetch_add(1, std::memory_order_relaxed);
 	const uint32_t channels = engine_.deviceOutputChannels();
-	engine_.processInterleaved(input, input != nullptr ? 2 : 0, output, channels, frames);
+	engine_.processInterleaved(input, input != nullptr ? engine_.deviceInputChannels() : 0, output, channels,
+	                           frames);
 	renderTestTone(output, frames, channels);
 	measureOutput(output, frames, channels);
 }
@@ -359,9 +422,9 @@ void Session::onParamsRescan(clap_param_rescan_flags flags) {
 }
 
 void Session::onParamsClear(clap_id paramId, clap_param_clear_flags flags) {
+	// Already recorded by the host callback; nothing to act on yet.
 	(void)paramId;
 	(void)flags;
-	services_.recordCall("clap_host_params.clear");
 }
 
 void Session::onParamsRequestFlush() {
@@ -389,13 +452,51 @@ void Session::serviceFlushRequest() {
 	EventList in;
 	EventList out;
 	params->flush(instance_.plugin(), in.input(), out.output());
-	absorbOutputEvents(out);
+	absorbOutputEvents(out, engine_.playhead());
 }
 
-void Session::absorbOutputEvents(const EventList &events) {
+void Session::absorbOutputEvents(const EventList &events, uint64_t blockStart) {
+	if (events.empty())
+		return;
+	// try_lock, never lock: the main thread may be draining, and a block that
+	// waited for it would be a block that missed its deadline.
+	std::unique_lock<std::mutex> lock(outputHandoffMutex_, std::try_to_lock);
+	if (!lock.owns_lock()) {
+		outputEventsDropped_.fetch_add(events.size(), std::memory_order_relaxed);
+		return;
+	}
+	for (uint32_t i = 0; i < events.size(); ++i) {
+		const clap_event_header_t *header = events.at(i);
+		if (pendingOutputEvents_.size() >= kMaxPendingOutputEvents ||
+		    pendingOutputEvents_.bytes() + header->size > pendingOutputEvents_.capacityBytes() ||
+		    !pendingOutputEvents_.push(header)) {
+			outputEventsDropped_.fetch_add(1, std::memory_order_relaxed);
+			continue;
+		}
+		pendingOutputFrames_.push_back(blockStart + header->time);
+	}
+}
+
+void Session::drainOutputEvents() {
+	{
+		std::lock_guard<std::mutex> lock(outputHandoffMutex_);
+		if (pendingOutputEvents_.empty())
+			return;
+		drainingOutputEvents_.clear();
+		drainingOutputFrames_.clear();
+		// Copies rather than swaps, so both lists keep the capacity they were
+		// given and the audio thread never meets an unreserved one.
+		for (uint32_t i = 0; i < pendingOutputEvents_.size(); ++i)
+			drainingOutputEvents_.push(pendingOutputEvents_.at(i));
+		drainingOutputFrames_ = pendingOutputFrames_;
+		pendingOutputEvents_.clear();
+		pendingOutputFrames_.clear();
+	}
+	const EventList &events = drainingOutputEvents_;
 	const auto *params = pluginExtension<clap_plugin_params_t>(CLAP_EXT_PARAMS);
 	for (uint32_t i = 0; i < events.size(); ++i) {
 		const clap_event_header_t *header = events.at(i);
+		const uint64_t frame = drainingOutputFrames_[i];
 		outputEventsSeen_ += 1;
 
 		std::string description;
@@ -471,7 +572,7 @@ void Session::absorbOutputEvents(const EventList &events) {
 		constexpr size_t kMaxRecorded = 512;
 		if (outputEvents_.size() >= kMaxRecorded)
 			outputEvents_.erase(outputEvents_.begin());
-		outputEvents_.push_back({engine_.playhead() + header->time, header->type, std::move(description)});
+		outputEvents_.push_back({frame, header->type, std::move(description)});
 
 		// Whatever the plug-in emits that has a MIDI form goes to the device,
 		// which is what makes a note effect useful rather than merely
@@ -500,6 +601,7 @@ Value Session::outputEventReport() const {
 	Object out;
 	out["events"] = Value(std::move(rows));
 	out["seen"] = Value(outputEventsSeen_);
+	out["dropped"] = Value(outputEventsDropped_.load(std::memory_order_relaxed));
 	return Value(std::move(out));
 }
 
@@ -508,9 +610,15 @@ void Session::onStateMarkDirty() {
 }
 
 void Session::onLatencyChanged() {
-	// Recorded by the host callback. The value itself is [main-thread &
-	// (being-activated | active)], so `latency` reads it on demand rather than
-	// the host caching a number that is only valid in that window.
+	// "The latency is only allowed to change during plugin->activate. If the
+	// plugin is activated, call host->request_restart()." The value itself is
+	// read on demand by `latency`, so the only thing to decide here is
+	// whether the call was legal.
+	if (!activating_)
+		validator_.error("clap_host_latency.changed",
+		                 instance_.isActive() ? "called while active; the latency may only change during activate(), "
+		                                        "so the plug-in should have called request_restart"
+		                                      : "called outside activate(), where the latency may not change");
 }
 
 void Session::onTailChanged() {
@@ -570,7 +678,8 @@ bool Session::onTimerUnregister(clap_id timerId) {
 }
 
 void Session::onGuiResizeHintsChanged() {
-	// Recorded by the host callback; the hints are read when resizing.
+	// [thread-safe] in, [main-thread] out: get_resize_hints is main-thread.
+	postToMainThread([this] { gui_.onResizeHintsChanged(); });
 }
 
 bool Session::onGuiRequestResize(uint32_t width, uint32_t height) {

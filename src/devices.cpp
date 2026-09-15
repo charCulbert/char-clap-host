@@ -158,6 +158,7 @@ bool AudioDevice::start(const std::string &deviceName, uint32_t inputChannels, s
 	}
 	impl_->blockSize = bufferFrames;
 	session_.engine().setDeviceOutputChannels(impl_->outputChannels);
+	session_.engine().setDeviceInputChannels(useInput ? impl_->inputChannels : 0);
 
 	std::string activationError;
 	if (!session_.prepareForDevice(impl_->sampleRate, bufferFrames, activationError)) {

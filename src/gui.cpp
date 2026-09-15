@@ -57,6 +57,7 @@ bool PluginGui::open(const std::string &api, bool floating, std::string &error) 
 		return false;
 	}
 	close();
+	closedByPlugin_ = false;
 
 	// Before any plug-in code builds an interface, the process needs to be one
 	// that can have interfaces.
@@ -68,6 +69,17 @@ bool PluginGui::open(const std::string &api, bool floating, std::string &error) 
 	if (!api.empty() && !wantsWebview && !wantsNative) {
 		error = "usage: gui.open [native|webview] [floating]";
 		return false;
+	}
+
+	// Nothing asked for in particular: the plug-in's own preference decides
+	// whether the native window is embedded or floating, which is how a
+	// plug-in that only floats gets a window at all.
+	if (api.empty() && !floating && gui != nullptr && gui->get_preferred_api != nullptr) {
+		const char *preferred = nullptr;
+		bool prefersFloating = false;
+		if (gui->get_preferred_api(instance_.plugin(), &preferred, &prefersFloating) && preferred != nullptr &&
+		    std::strcmp(preferred, nativeWindowApi()) == 0)
+			floating = prefersFloating;
 	}
 
 	if (!wantsWebview) {
@@ -110,12 +122,9 @@ bool PluginGui::openNative(bool floating, std::string &error) {
 	closedByPlugin_ = false;
 
 	// The opening sequence is the one clap.gui documents, in that order.
-	// set_scale is deliberately skipped for cocoa and uikit, which work in
-	// logical size and say not to call it.
-	const bool wantsScale = std::strcmp(nativeWindowApi(), CLAP_WINDOW_API_COCOA) != 0 &&
-	                        std::strcmp(nativeWindowApi(), CLAP_WINDOW_API_UIKIT) != 0;
-	if (!floating && wantsScale && gui->set_scale != nullptr)
-		gui->set_scale(instance_.plugin(), 1.0);
+	// set_scale is not called: it "overrides any OS info", and the host has
+	// no better idea of the display's scale than the OS does. Left alone, the
+	// plug-in asks the OS itself, which the extension allows.
 
 	// can_resize is [main-thread & !floating]; a floating window is the
 	// plug-in's own and the host does not size it.
@@ -133,7 +142,8 @@ bool PluginGui::openNative(bool floating, std::string &error) {
 		    instance_.descriptor()->name != nullptr ? instance_.descriptor()->name : "CLAP plug-in";
 		window_->native = createNativeWindow(width, height, title, error);
 		if (window_->native == nullptr) {
-			gui->destroy(instance_.plugin());
+			if (gui->destroy != nullptr)
+				gui->destroy(instance_.plugin());
 			api_ = GuiApi::None;
 			return false;
 		}
@@ -148,8 +158,10 @@ bool PluginGui::openNative(bool floating, std::string &error) {
 		// and the interface inside it disagree about how big they are.
 		window_->native->setUserResizable(resizable);
 		if (resizable) {
+			readResizeHints();
 			NativeWindow::Resizer resizer;
 			resizer.adjust = [this](uint32_t &width, uint32_t &height) {
+				applyResizeHints(width, height);
 				const clap_plugin_gui_t *live = extension();
 				if (live != nullptr && live->adjust_size != nullptr)
 					live->adjust_size(instance_.plugin(), &width, &height);
@@ -173,7 +185,8 @@ bool PluginGui::openNative(bool floating, std::string &error) {
 		parent.ptr = window_->native->handle();
 		if (gui->set_parent == nullptr || !gui->set_parent(instance_.plugin(), &parent)) {
 			window_->native.reset();
-			gui->destroy(instance_.plugin());
+			if (gui->destroy != nullptr)
+				gui->destroy(instance_.plugin());
 			api_ = GuiApi::None;
 			error = "the plug-in refused to be embedded in the host's window";
 			return false;
@@ -265,6 +278,8 @@ bool PluginGui::openWebview(std::string &error) {
 
 	api_ = GuiApi::Webview;
 	floating_ = false;
+	// A webview is laid out by its page; the host has nothing to resize.
+	resizable_ = false;
 	width_ = width;
 	height_ = height;
 	if (gui != nullptr && gui->show != nullptr)
@@ -287,7 +302,38 @@ void PluginGui::close() {
 	api_ = GuiApi::None;
 	width_ = 0;
 	height_ = 0;
+	resizable_ = false;
+	floating_ = false;
+	webviewUri_.clear();
+	hints_ = {};
 	closedByPlugin_ = false;
+}
+
+void PluginGui::readResizeHints() {
+	hints_ = {};
+	const clap_plugin_gui_t *gui = extension();
+	if (api_ != GuiApi::Native || gui == nullptr || gui->get_resize_hints == nullptr)
+		return;
+	if (!gui->get_resize_hints(instance_.plugin(), &hints_))
+		hints_ = {};
+}
+
+void PluginGui::applyResizeHints(uint32_t &width, uint32_t &height) const {
+	// The hints say which way the interface may grow and whether its shape is
+	// fixed; the plug-in's adjust_size still has the last word after this.
+	if (!hints_.can_resize_horizontally)
+		width = width_;
+	if (!hints_.can_resize_vertically)
+		height = height_;
+	if (hints_.preserve_aspect_ratio && hints_.aspect_ratio_width != 0 && hints_.aspect_ratio_height != 0 &&
+	    hints_.can_resize_horizontally && hints_.can_resize_vertically) {
+		const double ratio = static_cast<double>(hints_.aspect_ratio_width) / hints_.aspect_ratio_height;
+		height = static_cast<uint32_t>(width / ratio + 0.5);
+	}
+}
+
+void PluginGui::onResizeHintsChanged() {
+	readResizeHints();
 }
 
 bool PluginGui::resize(uint32_t width, uint32_t height, std::string &error) {
@@ -314,19 +360,25 @@ bool PluginGui::resize(uint32_t width, uint32_t height, std::string &error) {
 		error = "the plug-in refused that size";
 		return false;
 	}
-	if (window_->native != nullptr)
-		window_->native->setSize(adjustedWidth, adjustedHeight);
+	// Recorded before the window moves: the window reports its new size the
+	// way it reports a drag, and the commit for that must find nothing to do.
 	width_ = adjustedWidth;
 	height_ = adjustedHeight;
+	if (window_->native != nullptr)
+		window_->native->setSize(adjustedWidth, adjustedHeight);
 	return true;
 }
 
 bool PluginGui::requestResize(uint32_t width, uint32_t height) {
 	if (api_ != GuiApi::Native || window_->native == nullptr)
 		return false;
-	window_->native->setSize(width, height);
+	// "If the host returns true the new size is accepted, the host doesn't
+	// have to call clap_plugin_gui->set_size()." So the size is taken as
+	// already known before the window changes, or the resize the window
+	// reports would call set_size from inside the plug-in's own request.
 	width_ = width;
 	height_ = height;
+	window_->native->setSize(width, height);
 	return true;
 }
 

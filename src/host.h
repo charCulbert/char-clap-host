@@ -22,9 +22,12 @@ public:
 
 	const clap_host_t *clapHost() const { return &host_; }
 
-	// Set once the plug-in instance exists, so callbacks arriving before
-	// creation can be reported rather than crashing.
-	void setPluginReady(bool ready) { pluginReady_.store(ready, std::memory_order_release); }
+	// Where the plug-in is in its life, so a callback arriving before creation,
+	// or a get_extension before init, can be reported rather than crashing or
+	// passing unnoticed.
+	enum class PluginState { None, Creating, Ready };
+	void setPluginState(PluginState state) { pluginState_.store(state, std::memory_order_release); }
+	PluginState pluginState() const { return pluginState_.load(std::memory_order_acquire); }
 
 	static Host &from(const clap_host_t *host);
 	Session &session() { return session_; }
@@ -42,7 +45,7 @@ private:
 	clap_host_t host_{};
 	Session &session_;
 	Validator &validator_;
-	std::atomic<bool> pluginReady_{false};
+	std::atomic<PluginState> pluginState_{PluginState::None};
 };
 
 } // namespace nch

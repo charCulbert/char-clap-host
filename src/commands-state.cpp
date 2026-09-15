@@ -91,8 +91,9 @@ Response saveState(Session &session, const std::string &path, const std::string 
 		const std::string sidecarPath = path + ".json";
 		const std::string json = sidecar(session, bytes.size()).toJson();
 		const std::vector<uint8_t> jsonBytes(json.begin(), json.end());
-		if (writeAllBytes(sidecarPath, jsonBytes, error))
-			result["sidecar"] = Value(sidecarPath);
+		if (!writeAllBytes(sidecarPath, jsonBytes, error))
+			return Response::failure("the state was written but its sidecar was not: " + error);
+		result["sidecar"] = Value(sidecarPath);
 	}
 	session.clearStateDirty();
 	return Response::success(Value(std::move(result)));

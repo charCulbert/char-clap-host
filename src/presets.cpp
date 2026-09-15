@@ -38,6 +38,8 @@ struct Indexing {
 	std::string currentLocation;
 	uint32_t currentLocationKind = CLAP_PRESET_DISCOVERY_LOCATION_FILE;
 	std::vector<std::string> errors;
+	// Whether begin_preset has been called for the file being read.
+	bool presetOpen = false;
 };
 
 Indexing &indexingOf(const clap_preset_discovery_indexer_t *indexer) {
@@ -84,6 +86,7 @@ void receiverOnError(const clap_preset_discovery_metadata_receiver_t *receiver, 
 bool receiverBeginPreset(const clap_preset_discovery_metadata_receiver_t *receiver, const char *name,
                          const char *loadKey) {
 	Indexing &indexing = indexingOf(receiver);
+	indexing.presetOpen = true;
 	Preset preset;
 	preset.name = name != nullptr ? name : "";
 	preset.loadKey = loadKey != nullptr ? loadKey : "";
@@ -95,32 +98,42 @@ bool receiverBeginPreset(const clap_preset_discovery_metadata_receiver_t *receiv
 
 void receiverAddPluginId(const clap_preset_discovery_metadata_receiver_t *, const clap_universal_plugin_id_t *) {}
 
+// "begin_preset() must be called for every preset in the file and before any
+// preset metadata is sent." Metadata arriving outside one would otherwise
+// land on whichever preset came last, likely from a different file.
+Preset *openPreset(Indexing &indexing, const char *what) {
+	if (indexing.presetOpen && !indexing.presets.empty())
+		return &indexing.presets.back();
+	indexing.errors.push_back(std::string(what) + " called before begin_preset; the value was dropped");
+	return nullptr;
+}
+
 void receiverSetSoundpackId(const clap_preset_discovery_metadata_receiver_t *receiver, const char *soundpackId) {
-	Indexing &indexing = indexingOf(receiver);
-	if (!indexing.presets.empty() && soundpackId != nullptr)
-		indexing.presets.back().soundpack = soundpackId;
+	Preset *preset = openPreset(indexingOf(receiver), "set_soundpack_id");
+	if (preset != nullptr && soundpackId != nullptr)
+		preset->soundpack = soundpackId;
 }
 
 void receiverSetFlags(const clap_preset_discovery_metadata_receiver_t *, uint32_t) {}
 
 void receiverAddCreator(const clap_preset_discovery_metadata_receiver_t *receiver, const char *creator) {
-	Indexing &indexing = indexingOf(receiver);
-	if (!indexing.presets.empty() && creator != nullptr)
-		indexing.presets.back().creators.emplace_back(creator);
+	Preset *preset = openPreset(indexingOf(receiver), "add_creator");
+	if (preset != nullptr && creator != nullptr)
+		preset->creators.emplace_back(creator);
 }
 
 void receiverSetDescription(const clap_preset_discovery_metadata_receiver_t *receiver, const char *description) {
-	Indexing &indexing = indexingOf(receiver);
-	if (!indexing.presets.empty() && description != nullptr)
-		indexing.presets.back().description = description;
+	Preset *preset = openPreset(indexingOf(receiver), "set_description");
+	if (preset != nullptr && description != nullptr)
+		preset->description = description;
 }
 
 void receiverSetTimestamps(const clap_preset_discovery_metadata_receiver_t *, clap_timestamp, clap_timestamp) {}
 
 void receiverAddFeature(const clap_preset_discovery_metadata_receiver_t *receiver, const char *feature) {
-	Indexing &indexing = indexingOf(receiver);
-	if (!indexing.presets.empty() && feature != nullptr)
-		indexing.presets.back().features.emplace_back(feature);
+	Preset *preset = openPreset(indexingOf(receiver), "add_feature");
+	if (preset != nullptr && feature != nullptr)
+		preset->features.emplace_back(feature);
 }
 
 void receiverAddExtraInfo(const clap_preset_discovery_metadata_receiver_t *, const char *, const char *) {}
@@ -269,16 +282,23 @@ Value Session::presetReport() {
 		if (provider == nullptr)
 			continue;
 		const size_t locationsBefore = indexing.locations.size();
+		const size_t filetypesBefore = indexing.filetypes.size();
 		if (provider->init != nullptr && !provider->init(provider)) {
 			validator_.warn("clap_preset_discovery_provider.init", std::string("failed for ") + descriptor->id);
 			if (provider->destroy != nullptr)
 				provider->destroy(provider);
 			continue;
 		}
+		// This provider's own file types, not every provider's so far: a
+		// second provider would otherwise match the first one's files too, and
+		// one declaring none would inherit a list instead of matching all.
+		const std::vector<std::string> filetypes(indexing.filetypes.begin() + static_cast<long>(filetypesBefore),
+		                                         indexing.filetypes.end());
 		for (size_t location = locationsBefore; location < indexing.locations.size(); ++location) {
 			indexing.currentLocationKind = indexing.locations[location].kind;
 			if (provider->get_metadata == nullptr)
 				continue;
+			indexing.presetOpen = false;
 
 			if (indexing.locations[location].kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN) {
 				// The plug-in's own list, which CLAP spells as a null location.
@@ -287,8 +307,9 @@ Value Session::presetReport() {
 				continue;
 			}
 
-			for (const auto &file : presetFilesUnder(indexing.locationPaths[location], indexing.filetypes)) {
+			for (const auto &file : presetFilesUnder(indexing.locationPaths[location], filetypes)) {
 				indexing.currentLocation = file;
+				indexing.presetOpen = false;
 				provider->get_metadata(provider, indexing.locations[location].kind, file.c_str(),
 				                       &indexing.receiver);
 			}

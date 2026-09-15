@@ -3,6 +3,8 @@
 #include "engine.h"
 #include "event-list.h"
 #include "commands-common.h"
+
+#include <cmath>
 #include "session.h"
 #include "thread-role.h"
 
@@ -356,7 +358,12 @@ void Session::registerCommands() {
 		               if (!ready.ok)
 			               return ready;
 		               const double rate = request.arg(0, "sampleRate").asNumber(session.sampleRate());
-		               const auto block = static_cast<uint32_t>(request.arg(1, "blockSize").asNumber(session.blockSize()));
+		               const double requestedBlock = request.arg(1, "blockSize").asNumber(session.blockSize());
+		               if (!(rate > 0.0) || !std::isfinite(rate))
+			               return Response::failure("the sample rate must be a positive number");
+		               if (!(requestedBlock >= 1.0) || requestedBlock > 1048576.0)
+			               return Response::failure("the block size must be 1..1048576 frames");
+		               const auto block = static_cast<uint32_t>(requestedBlock);
 		               std::string error;
 		               if (!session.activate(rate, 1, block, error))
 			               return Response::failure(error);

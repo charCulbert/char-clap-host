@@ -13,6 +13,7 @@ constexpr uint8_t kNoteOn = 0x90;
 constexpr uint8_t kPolyPressure = 0xA0;
 constexpr uint8_t kControlChange = 0xB0;
 constexpr uint8_t kChannelPressure = 0xD0;
+constexpr uint8_t kProgramChange = 0xC0;
 constexpr uint8_t kPitchBend = 0xE0;
 
 void append(NoteTranslation &out, const clap_event_header_t *header) {
@@ -201,6 +202,12 @@ NoteTranslation translateMidi(const uint8_t *bytes, uint32_t size, const NoteEnc
 	const uint8_t status = bytes[0] & 0xF0;
 	const auto channel = static_cast<int16_t>(bytes[0] & 0x0F);
 	if (status < kNoteOff || status == 0xF0) {
+		out.unrecognised = true;
+		return out;
+	}
+	// A message shorter than its status says it is has no third byte to read.
+	const uint32_t expected = status == kProgramChange || status == kChannelPressure ? 2 : 3;
+	if (size < expected) {
 		out.unrecognised = true;
 		return out;
 	}

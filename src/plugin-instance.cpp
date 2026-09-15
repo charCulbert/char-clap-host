@@ -25,15 +25,49 @@ bool PluginInstance::load(const std::string &path, const std::string &id, uint32
 		return false;
 	}
 
+	if (bundle_.factory()->create_plugin == nullptr) {
+		error = "the plug-in factory has no create_plugin";
+		bundle_.close();
+		return false;
+	}
+	enterPhase(Phase::Creating);
 	const clap_plugin_t *plugin = bundle_.factory()->create_plugin(bundle_.factory(), host_, descriptor->id);
 	if (plugin == nullptr) {
+		enterPhase(Phase::None);
 		error = std::string("create_plugin returned null for ") + descriptor->id;
 		bundle_.close();
 		return false;
 	}
+	// Every entry in clap_plugin is mandatory. Checking once here is what
+	// lets the rest of the host call them without looking; a null would
+	// otherwise be found by crashing in it.
+	const char *missing = plugin->init == nullptr                 ? "init"
+	                      : plugin->destroy == nullptr            ? "destroy"
+	                      : plugin->activate == nullptr           ? "activate"
+	                      : plugin->deactivate == nullptr         ? "deactivate"
+	                      : plugin->start_processing == nullptr   ? "start_processing"
+	                      : plugin->stop_processing == nullptr    ? "stop_processing"
+	                      : plugin->reset == nullptr              ? "reset"
+	                      : plugin->process == nullptr            ? "process"
+	                      : plugin->get_extension == nullptr      ? "get_extension"
+	                      : plugin->on_main_thread == nullptr     ? "on_main_thread"
+	                                                              : nullptr;
+	if (missing != nullptr) {
+		error = std::string("plug-in ") + descriptor->id + " has no " + missing + ", which clap_plugin requires";
+		validator_.error("clap_plugin", error);
+		if (plugin->destroy != nullptr)
+			plugin->destroy(plugin);
+		enterPhase(Phase::None);
+		bundle_.close();
+		return false;
+	}
+	// "You can call it within plugin->init() call, and after." The host is
+	// answering from here on.
+	enterPhase(Phase::Ready);
 	// "If init returns false, the host must destroy the plugin instance."
 	if (!plugin->init(plugin)) {
 		plugin->destroy(plugin);
+		enterPhase(Phase::None);
 		error = std::string("init failed for ") + descriptor->id;
 		bundle_.close();
 		return false;
@@ -51,6 +85,8 @@ void PluginInstance::unload() {
 		deactivate();
 		plugin_->destroy(plugin_);
 		plugin_ = nullptr;
+		// Only after destroy: a plug-in may still call the host from inside it.
+		enterPhase(Phase::None);
 	}
 	descriptor_ = nullptr;
 	active_ = false;
@@ -114,6 +150,7 @@ void PluginInstance::stopProcessing() {
 
 void PluginInstance::setPreferredFormat(double sampleRate, uint32_t blockSize) {
 	sampleRate_ = sampleRate;
+	minFrames_ = 1;
 	maxFrames_ = blockSize;
 }
 

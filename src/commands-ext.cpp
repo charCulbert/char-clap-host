@@ -158,6 +158,10 @@ void Session::registerExtensionCommands() {
 		               Response ready = needPlugin(session);
 		               if (!ready.ok)
 			               return ready;
+		               // "The audio ports config scan has to be done while the
+		               // plugin is deactivated."
+		               if (session.isActive())
+			               return Response::failure("ports.configs needs the plug-in deactivated; run `deactivate` first");
 		               const auto *configs =
 		                   session.pluginExtension<clap_plugin_audio_ports_config_t>(CLAP_EXT_AUDIO_PORTS_CONFIG);
 		               if (configs == nullptr || configs->count == nullptr)
@@ -197,12 +201,17 @@ void Session::registerExtensionCommands() {
 		               // Selecting a configuration changes the port layout, so
 		               // the plug-in must be inactive for it.
 		               const bool wasActive = session.isActive();
+		               const bool wasProcessing = session.engine().isRunning();
 		               if (wasActive)
 			               session.deactivate();
 		               const bool selected = configs->select(session.plugin(), id);
 		               std::string error;
-		               if (wasActive)
-			               session.activate(session.sampleRate(), 1, session.blockSize(), error);
+		               if (wasActive && !session.activate(session.sampleRate(), 1, session.blockSize(), error))
+			               return Response::failure("could not reactivate after selecting: " + error);
+		               // "Once applied the host should scan again the audio
+		               // ports": the engine rebuilds its buffers on start.
+		               if (wasProcessing && !session.engine().start(error))
+			               return Response::failure("could not resume processing: " + error);
 		               if (!selected)
 			               return Response::failure("the plug-in refused that configuration");
 		               return Response::success();
@@ -236,7 +245,21 @@ void Session::registerExtensionCommands() {
 		               // sample_size is 32, 64, or 0 when unspecified -- not a
 		               // block size, which is what the host used to pass.
 		               constexpr uint32_t hostSampleSize = 32;
-		               if (!activation->set_active(session.plugin(), isInput, index, active, hostSampleSize))
+		               // set_active is [active ? audio-thread : main-thread]:
+		               // on an active plug-in it has to run as the audio
+		               // thread, and not alongside a block.
+		               bool accepted = false;
+		               const clap_plugin_t *plugin = session.plugin();
+		               const auto call = [&] {
+			               accepted = activation->set_active(plugin, isInput, index, active, hostSampleSize);
+		               };
+		               if (session.isActive()) {
+			               if (!session.engine().runAsAudioThread(call))
+				               return Response::failure("a block did not finish in time to change the port");
+		               } else {
+			               call();
+		               }
+		               if (!accepted)
 			               return Response::failure("the plug-in refused that port change");
 		               Object out;
 		               out["canActivateWhileProcessing"] = Value(whileProcessing);

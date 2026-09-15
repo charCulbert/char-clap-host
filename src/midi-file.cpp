@@ -10,8 +10,11 @@ namespace {
 struct Cursor {
 	const std::vector<uint8_t> &bytes;
 	size_t pos = 0;
+	// Reads stop at the current chunk's end, so a track whose declared
+	// length lies cannot spill into the next chunk's header.
+	size_t limit = 0;
 
-	bool has(size_t count) const { return pos + count <= bytes.size(); }
+	bool has(size_t count) const { return pos + count <= (limit != 0 ? std::min(limit, bytes.size()) : bytes.size()); }
 	uint8_t u8() { return has(1) ? bytes[pos++] : 0; }
 	uint16_t u16() {
 		const uint16_t high = u8();
@@ -66,7 +69,15 @@ uint8_t messageLength(uint8_t status) {
 	switch (status & 0xF0) {
 	case 0xC0:
 	case 0xD0: return 2;
-	case 0xF0: return 1;
+	case 0xF0:
+		// System common messages carry data too; getting their length wrong
+		// misreads every event after them as something else.
+		switch (status) {
+		case 0xF1:
+		case 0xF3: return 2;
+		case 0xF2: return 3;
+		default: return 1;
+		}
 	default: return 3;
 	}
 }
@@ -114,6 +125,7 @@ bool readMidiFile(const std::string &path, MidiFile &out, std::string &error) {
 
 		uint64_t tick = 0;
 		uint8_t runningStatus = 0;
+		cursor.limit = trackEnd;
 		while (cursor.pos < trackEnd) {
 			tick += cursor.variable();
 			uint8_t status = cursor.u8();
@@ -157,6 +169,7 @@ bool readMidiFile(const std::string &path, MidiFile &out, std::string &error) {
 			merged.push_back(event);
 		}
 		cursor.pos = trackEnd;
+		cursor.limit = 0;
 	}
 
 	std::stable_sort(merged.begin(), merged.end(), [](const TickEvent &a, const TickEvent &b) {

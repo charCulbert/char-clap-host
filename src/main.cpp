@@ -7,6 +7,8 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <memory>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -158,7 +160,17 @@ int main(int argc, char **argv) {
 
 	// The main thread belongs to the plug-in: CLAP main-thread calls, timers
 	// and the window all run here. stdin gets a thread of its own.
-	std::thread reader([&session, interactive, quiet = options.quiet] {
+	// A blocking read on stdin cannot be interrupted portably, so the thread
+	// is detached; it must not touch the session after main() has destroyed
+	// it. The shared flag is what it checks, under the same lock the session
+	// would otherwise be reached through.
+	struct ReaderLink {
+		std::mutex mutex;
+		Session *session = nullptr;
+	};
+	auto link = std::make_shared<ReaderLink>();
+	link->session = &session;
+	std::thread reader([link, interactive, quiet = options.quiet] {
 		std::string line;
 		while (true) {
 			if (interactive && !quiet) {
@@ -167,11 +179,24 @@ int main(int argc, char **argv) {
 			}
 			if (!std::getline(std::cin, line))
 				break;
-			session.postLine(line);
+			std::lock_guard<std::mutex> lock(link->mutex);
+			if (link->session == nullptr)
+				return;
+			link->session->postLine(line);
 		}
-		session.closeInput();
+		std::lock_guard<std::mutex> lock(link->mutex);
+		if (link->session != nullptr)
+			link->session->closeInput();
 	});
-	reader.detach(); // a blocking read on stdin cannot be interrupted portably
+	reader.detach();
+	// Severs the thread from the session before the session goes away.
+	struct Sever {
+		std::shared_ptr<ReaderLink> link;
+		~Sever() {
+			std::lock_guard<std::mutex> lock(link->mutex);
+			link->session = nullptr;
+		}
+	} sever{link};
 
 	// Cmd-Q and the Quit menu item take the same path as the `quit` command.
 	nch::setQuitHandler([&session] { session.requestQuit(); });

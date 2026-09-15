@@ -204,7 +204,14 @@ bool writeWav(const std::string &path, const AudioData &data, SampleFormat forma
 	const uint16_t formatTag = format == SampleFormat::Float32 ? 3 : 1;
 	const uint16_t blockAlign = static_cast<uint16_t>(channels * bitsPerSample / 8);
 	const uint32_t byteRate = static_cast<uint32_t>(data.sampleRate) * blockAlign;
-	const uint32_t dataBytes = frames * blockAlign;
+	// A RIFF chunk size is 32 bits; past it the header would lie about the
+	// file's length.
+	const uint64_t wantedBytes = static_cast<uint64_t>(frames) * blockAlign;
+	if (wantedBytes > 0xFFFFFFFFu - 44u) {
+		error = "too long for a WAV file (4 GB limit)";
+		return false;
+	}
+	const auto dataBytes = static_cast<uint32_t>(wantedBytes);
 
 	std::vector<uint8_t> out;
 	out.reserve(44 + dataBytes);

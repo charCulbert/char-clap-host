@@ -256,23 +256,8 @@ bool WebviewHost::open(const std::string &, void *, uint32_t, uint32_t, std::str
 
 void WebviewHost::close() {}
 void WebviewHost::setSize(uint32_t, uint32_t) {}
-bool WebviewHost::evaluate(const std::string &script) {
-	return impl_->view != nullptr && impl_->view->evaluateJavascript(script);
-}
-
-uint64_t WebviewHost::resourcesServed() const {
-	return impl_->resourcesServed;
-}
-
-uint64_t WebviewHost::messagesFromPage() const {
-	return impl_->messagesFromPage;
-}
-
 void *WebviewHost::viewHandle() const { return nullptr; }
-bool WebviewHost::evaluate(const std::string &script) {
-	return impl_->view != nullptr && impl_->view->evaluateJavascript(script);
-}
-
+bool WebviewHost::evaluate(const std::string &) { return false; }
 uint64_t WebviewHost::resourcesServed() const { return 0; }
 uint64_t WebviewHost::messagesFromPage() const { return 0; }
 bool WebviewHost::send(const void *, uint32_t) { return false; }

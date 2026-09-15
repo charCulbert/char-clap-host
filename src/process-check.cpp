@@ -38,7 +38,7 @@ bool channelIsQuiet(const float *samples, uint32_t frames) {
 		return true;
 	float lowest = samples[0];
 	float highest = samples[0];
-	for (uint32_t frame = 1; frame < frames; ++frame) {
+	for (uint32_t frame = 0; frame < frames; ++frame) {
 		if (!std::isfinite(samples[frame]))
 			return false;
 		lowest = std::min(lowest, samples[frame]);

@@ -49,6 +49,32 @@ public:
 
 	bool empty() const { return offsets_.empty(); }
 	uint32_t size() const { return static_cast<uint32_t>(offsets_.size()); }
+	size_t bytes() const { return storage_.size(); }
+	size_t capacityBytes() const { return storage_.capacity(); }
+
+	// The smallest size a core event of `type` can honestly claim. A plug-in
+	// declares its own size, and one that says a note event is header-sized
+	// would otherwise have the host read past what it copied.
+	static uint32_t minimumSize(uint16_t spaceId, uint16_t type) {
+		if (spaceId != CLAP_CORE_EVENT_SPACE_ID)
+			return sizeof(clap_event_header_t);
+		switch (type) {
+		case CLAP_EVENT_NOTE_ON:
+		case CLAP_EVENT_NOTE_OFF:
+		case CLAP_EVENT_NOTE_CHOKE:
+		case CLAP_EVENT_NOTE_END: return sizeof(clap_event_note_t);
+		case CLAP_EVENT_NOTE_EXPRESSION: return sizeof(clap_event_note_expression_t);
+		case CLAP_EVENT_PARAM_VALUE: return sizeof(clap_event_param_value_t);
+		case CLAP_EVENT_PARAM_MOD: return sizeof(clap_event_param_mod_t);
+		case CLAP_EVENT_PARAM_GESTURE_BEGIN:
+		case CLAP_EVENT_PARAM_GESTURE_END: return sizeof(clap_event_param_gesture_t);
+		case CLAP_EVENT_TRANSPORT: return sizeof(clap_event_transport_t);
+		case CLAP_EVENT_MIDI: return sizeof(clap_event_midi_t);
+		case CLAP_EVENT_MIDI_SYSEX: return sizeof(clap_event_midi_sysex_t);
+		case CLAP_EVENT_MIDI2: return sizeof(clap_event_midi2_t);
+		default: return sizeof(clap_event_header_t);
+		}
+	}
 
 	// The event at `index`. A sysex event's payload pointer is resolved here,
 	// which is what keeps it valid however much the storage has grown since.
@@ -66,6 +92,12 @@ public:
 	// header size is implausible.
 	bool push(const clap_event_header_t *header) {
 		if (header == nullptr || header->size < sizeof(clap_event_header_t))
+			return false;
+		if (header->size < minimumSize(header->space_id, header->type))
+			return false;
+		// try_push may refuse, and a list is allowed to be full: past this
+		// the plug-in is not sending events, it is sending memory.
+		if (storage_.size() + header->size > kMaxBytes)
 			return false;
 
 		const bool isSysex = header->space_id == CLAP_CORE_EVENT_SPACE_ID &&
@@ -112,6 +144,7 @@ private:
 	clap_input_events_t input_{};
 	clap_output_events_t output_{};
 	static constexpr size_t kNoPayload = static_cast<size_t>(-1);
+	static constexpr size_t kMaxBytes = 16u * 1024u * 1024u;
 
 	std::vector<uint8_t> storage_;
 	std::vector<size_t> offsets_;

@@ -134,6 +134,8 @@ public:
 	void postToMainThread(std::function<void()> work);
 	// Drains queued work, plug-in main-thread callbacks and due timers.
 	void runMainThreadWork();
+	// Fires on_fd for every registered descriptor that is ready.
+	void servicePosixFds();
 
 	// Host callbacks, called by Host on the plug-in's behalf.
 	void onRequestRestart();
@@ -162,9 +164,14 @@ public:
 	// Delivers a requested parameter flush by whatever route is legal in the
 	// current state, and collects whatever the plug-in sends back.
 	void serviceFlushRequest();
-	// Applies the events a plug-in emitted: parameter values become the host's
-	// view of them, note ends retire the note. Every event is recorded.
-	void absorbOutputEvents(const EventList &events);
+	// Takes the events a plug-in emitted in a block that began at `blockStart`.
+	// Called on the audio thread, so it only copies: the events are recorded,
+	// described and acted on by the main thread in drainOutputEvents(), which
+	// is where allocating and touching the host's own state are allowed.
+	void absorbOutputEvents(const EventList &events, uint64_t blockStart);
+	// Records what absorbOutputEvents() set aside: parameter values become the
+	// host's view of them, note ends retire the note, MIDI goes to the device.
+	void drainOutputEvents();
 	// The events the plug-in has emitted recently, newest last.
 	Value outputEventReport() const;
 	void clearOutputEvents();
@@ -276,6 +283,19 @@ private:
 	};
 	std::vector<OutputEvent> outputEvents_;
 	uint64_t outputEventsSeen_ = 0;
+	// The handoff from the audio thread. Sized up front so a copy never
+	// allocates; a block that finds the lock taken, or the room gone, counts
+	// what it could not keep instead of waiting.
+	std::mutex outputHandoffMutex_;
+	EventList pendingOutputEvents_;
+	std::vector<uint64_t> pendingOutputFrames_;
+	EventList drainingOutputEvents_;
+	std::vector<uint64_t> drainingOutputFrames_;
+	std::atomic<uint64_t> outputEventsDropped_{0};
+	static constexpr size_t kMaxPendingOutputEvents = 4096;
+	// True while inside plugin->activate(), which is the only time
+	// clap_host_latency.changed is legal.
+	bool activating_ = false;
 
 	std::mutex workMutex_;
 	std::vector<std::function<void()>> work_;

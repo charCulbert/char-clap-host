@@ -14,6 +14,7 @@
 
 #include <clap/clap.h>
 
+#include <functional>
 #include <string>
 
 namespace nch {
@@ -74,9 +75,21 @@ public:
 	// Calls on_main_thread, which only the main loop should do.
 	void runMainThreadCallback();
 
+	// Where the instance is in its life, told to whoever answers the plug-in's
+	// callbacks: a get_extension during Creating is the plug-in calling before
+	// init, and a callback during None has no instance to be about.
+	enum class Phase { None, Creating, Ready };
+	void setPhaseObserver(std::function<void(Phase)> observer) { onPhase_ = std::move(observer); }
+
 private:
+	void enterPhase(Phase phase) {
+		if (onPhase_)
+			onPhase_(phase);
+	}
+
 	const clap_host_t *host_ = nullptr;
 	Validator &validator_;
+	std::function<void(Phase)> onPhase_;
 	Bundle bundle_;
 	const clap_plugin_descriptor_t *descriptor_ = nullptr;
 	const clap_plugin_t *plugin_ = nullptr;

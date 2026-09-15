@@ -16,6 +16,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -53,8 +54,17 @@ public:
 	// Activates the plug-in if needed, sizes the buffers and enters
 	// processing. Safe to call repeatedly.
 	bool start(std::string &error);
+	// Leaves processing. Waits for a block already under way on the device
+	// thread to finish first: stop_processing is [audio-thread] and must not
+	// run alongside process().
 	void stop();
-	bool isRunning() const { return running_; }
+	bool isRunning() const { return running_.load(std::memory_order_acquire); }
+
+	// Runs `work` as the audio thread, with no block under way on any other
+	// thread. This is how a main-thread caller reaches an [audio-thread]
+	// function of an active plug-in (reset, set_active) without racing the
+	// device callback. Returns false if a block would not yield in time.
+	bool runAsAudioThread(const std::function<void()> &work);
 
 	// Frames rendered since the engine last reset.
 	uint64_t playhead() const { return playhead_; }
@@ -122,6 +132,11 @@ public:
 	// stream's layout is known.
 	void setDeviceOutputChannels(uint32_t channels) { deviceOutputChannels_ = channels; }
 	uint32_t deviceOutputChannels() const { return deviceOutputChannels_; }
+	// How many interleaved channels the device callback delivers. The engine
+	// reads the input with this stride, so it has to be the stream's real
+	// count rather than an assumption.
+	void setDeviceInputChannels(uint32_t channels) { deviceInputChannels_ = channels; }
+	uint32_t deviceInputChannels() const { return deviceInputChannels_; }
 
 	// Schedules a parameter modulation.
 	//
@@ -176,6 +191,10 @@ public:
 	bool runSilentBlock(std::string &error);
 
 private:
+	// Takes the process guard for a caller that is not a block, waiting a
+	// bounded time for one under way to finish.
+	bool acquireAudioExclusion();
+	void releaseAudioExclusion();
 	void buildTransportEvent();
 	void markBlockStart();
 	void collectBlockEvents(uint32_t frames);
@@ -196,6 +215,7 @@ private:
 	uint64_t inputPosition_ = 0;
 	uint64_t playhead_ = 0;
 	uint32_t deviceOutputChannels_ = 2;
+	uint32_t deviceInputChannels_ = 0;
 	// Where the timeline and the wall clock last agreed, so a timestamp from
 	// another thread can be turned into a frame.
 	std::atomic<uint64_t> blockStartFrame_{0};
@@ -206,7 +226,7 @@ private:
 	std::atomic<bool> insideProcess_{false};
 	ProcessCheck check_;
 	bool checkBlocks_ = false;
-	bool running_ = false;
+	std::atomic<bool> running_{false};
 
 	// The schedule is written by the main thread and by device threads, and
 	// read by the audio thread. The audio thread never waits for it: CLAP

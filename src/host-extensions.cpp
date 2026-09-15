@@ -4,6 +4,9 @@
 #include "session.h"
 #include "thread-role.h"
 
+#include <atomic>
+#include <cmath>
+
 // clap.h stops at the stable extensions; the draft ones are included by hand
 // so the host can answer for them too.
 #include <clap/ext/draft/background-progress.h>
@@ -38,8 +41,9 @@ HostServices &servicesOf(const clap_host_t *host) {
 
 // Records the call and flags a wrong-thread arrival in one step.
 void mainThreadCall(const clap_host_t *host, const char *where) {
+	// noteMainThreadCall records the call itself; counting it here as well
+	// would make `callbacks` report every one of these twice.
 	Host::from(host).noteMainThreadCall(where);
-	servicesOf(host).recordCall(where);
 }
 
 void anyThreadCall(const clap_host_t *host, const char *where) {
@@ -131,7 +135,7 @@ bool contextMenuPerform(const clap_host_t *host, const clap_context_menu_target_
 }
 
 bool contextMenuCanPopup(const clap_host_t *host) {
-	anyThreadCall(host, "clap_host_context_menu.can_popup");
+	mainThreadCall(host, "clap_host_context_menu.can_popup");
 	return false; // no window layer yet
 }
 
@@ -153,8 +157,23 @@ const clap_host_context_menu_t kContextMenu = {contextMenuPopulate, contextMenuP
 bool threadPoolRequestExec(const clap_host_t *host, uint32_t taskCount) {
 	anyThreadCall(host, "clap_host_thread_pool.request_exec");
 	Session &session = sessionOf(host);
-	if (currentThreadRole() != ThreadRole::Audio)
+	// "The host should check that the plugin is within the process call, and
+	// if not, reject the exec request." Reject, not merely note: serving it
+	// anyway would run exec() on threads the plug-in did not expect.
+	if (currentThreadRole() != ThreadRole::Audio) {
 		session.validator().error("clap_host_thread_pool.request_exec", "called outside the audio thread");
+		return false;
+	}
+	// "It can't be called concurrently or from the thread pool."
+	static std::atomic<bool> inside{false};
+	bool expected = false;
+	if (!inside.compare_exchange_strong(expected, true)) {
+		session.validator().error("clap_host_thread_pool.request_exec", "called re-entrantly or concurrently");
+		return false;
+	}
+	struct Leave {
+		~Leave() { inside.store(false); }
+	} leave;
 	const auto *pool = session.pluginExtension<clap_plugin_thread_pool_t>(CLAP_EXT_THREAD_POOL);
 	if (pool == nullptr || pool->exec == nullptr)
 		return false;
@@ -206,14 +225,29 @@ const clap_host_posix_fd_support_t kPosixFd = {posixFdRegister, posixFdModify, p
 
 // --- clap.resource-directory ----------------------------------------------
 
+// Granting a directory is only half of it: the plug-in learns where it is
+// through its own set_directory, and a grant it never hears about is no grant.
+void tellPluginDirectory(Session &session, const char *path, bool isShared) {
+	const auto *directory =
+	    session.pluginExtension<clap_plugin_resource_directory_t>(CLAP_EXT_RESOURCE_DIRECTORY);
+	if (directory != nullptr && directory->set_directory != nullptr)
+		directory->set_directory(session.plugin(), path, isShared);
+}
+
 bool resourceDirectoryRequest(const clap_host_t *host, bool isShared) {
 	mainThreadCall(host, "clap_host_resource_directory.request_directory");
-	return servicesOf(host).requestResourceDirectory(isShared);
+	Session &session = sessionOf(host);
+	if (!session.services().requestResourceDirectory(isShared))
+		return false;
+	tellPluginDirectory(session, session.services().resourceDirectoryPath(isShared).c_str(), isShared);
+	return true;
 }
 
 void resourceDirectoryRelease(const clap_host_t *host, bool isShared) {
 	mainThreadCall(host, "clap_host_resource_directory.release_directory");
-	servicesOf(host).releaseResourceDirectory(isShared);
+	Session &session = sessionOf(host);
+	tellPluginDirectory(session, nullptr, isShared);
+	session.services().releaseResourceDirectory(isShared);
 }
 
 const clap_host_resource_directory_t kResourceDirectory = {resourceDirectoryRequest, resourceDirectoryRelease};
@@ -355,11 +389,29 @@ void transportRequestToggleRecord(const clap_host_t *host) {
 	transport.recording = !transport.recording;
 }
 
+void transportRequestTempo(const clap_host_t *host, double tempo) {
+	mainThreadCall(host, "clap_host_transport_control.request_tempo");
+	if (std::isfinite(tempo) && tempo > 0.0)
+		sessionOf(host).engine().transport().tempo = tempo;
+}
+
+void transportRequestTimeSignature(const clap_host_t *host, uint16_t numerator, uint16_t denominator) {
+	mainThreadCall(host, "clap_host_transport_control.request_time_signature");
+	if (numerator == 0 || denominator == 0)
+		return;
+	Transport &transport = sessionOf(host).engine().transport();
+	transport.timeSigNumerator = numerator;
+	transport.timeSigDenominator = denominator;
+}
+
+// Every member, in the header's order: a short initializer leaves the rest
+// null, and a plug-in calling one of those would jump to nothing.
 const clap_host_transport_control_t kTransportControl = {
     transportRequestStart,      transportRequestStop,        transportRequestContinue,
     transportRequestPause,      transportRequestToggle,      transportRequestJump,
     transportRequestLoopRegion, transportRequestToggleLoop,  transportRequestEnableLoop,
-    transportRequestRecord,     transportRequestToggleRecord};
+    transportRequestRecord,     transportRequestToggleRecord, transportRequestTempo,
+    transportRequestTimeSignature};
 
 // --- clap.params-origin / clap.param-hovered ------------------------------
 
@@ -437,6 +489,8 @@ const clap_host_mini_curve_display_t kMiniCurveDisplay = {miniCurveGetHints, min
 double tuningGetRelative(const clap_host_t *host, clap_id tuningId, int32_t channel, int32_t key,
                          uint32_t sampleOffset) {
 	anyThreadCall(host, "clap_host_tuning.get_relative");
+	if (currentThreadRole() != ThreadRole::Audio)
+		sessionOf(host).validator().error("clap_host_tuning.get_relative", "called outside the audio thread");
 	(void)tuningId;
 	(void)channel;
 	(void)key;
@@ -446,6 +500,8 @@ double tuningGetRelative(const clap_host_t *host, clap_id tuningId, int32_t chan
 
 bool tuningShouldPlay(const clap_host_t *host, clap_id tuningId, int32_t channel, int32_t key) {
 	anyThreadCall(host, "clap_host_tuning.should_play");
+	if (currentThreadRole() != ThreadRole::Audio)
+		sessionOf(host).validator().error("clap_host_tuning.should_play", "called outside the audio thread");
 	(void)tuningId;
 	(void)channel;
 	(void)key;

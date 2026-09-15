@@ -31,8 +31,16 @@ void ProcessBuffers::build(const PluginInstance &instance, uint32_t maxFrames) {
 		const uint32_t count = ports->count(instance.plugin(), isInput);
 		for (uint32_t i = 0; i < count; ++i) {
 			clap_audio_port_info_t info{};
-			if (!ports->get(instance.plugin(), i, isInput, &info))
+			if (!ports->get(instance.plugin(), i, isInput, &info)) {
+				// "The index maps to clap_plugin_audio_ports->get()": a port
+				// that will not describe itself still keeps its slot, as an
+				// empty one, so every later port stays at its own index.
+				const_cast<PluginInstance &>(instance).validator().error(
+				    "clap_plugin_audio_ports.get",
+				    std::string("returned false for ") + (isInput ? "input" : "output") + " port " + std::to_string(i));
+				into.push_back({0, {}, {}});
 				continue;
+			}
 			if ((info.flags & CLAP_AUDIO_PORT_IS_MAIN) != 0)
 				mainIndex = static_cast<uint32_t>(into.size());
 			into.push_back({info.channel_count, {}, {}});

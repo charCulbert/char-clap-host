@@ -181,23 +181,30 @@ const clap_host_timer_support_t kTimerSupport = {timerRegister, timerUnregister}
 
 // --- clap.gui ------------------------------------------------------------
 
+// All five are [thread-safe]; recorded like every other callback so
+// `callbacks` sees them.
 void guiResizeHintsChanged(const clap_host_t *host) {
+	Host::from(host).noteCall("clap_host_gui.resize_hints_changed");
 	sessionOf(host).onGuiResizeHintsChanged();
 }
 
 bool guiRequestResize(const clap_host_t *host, uint32_t width, uint32_t height) {
+	Host::from(host).noteCall("clap_host_gui.request_resize");
 	return sessionOf(host).onGuiRequestResize(width, height);
 }
 
 bool guiRequestShow(const clap_host_t *host) {
+	Host::from(host).noteCall("clap_host_gui.request_show");
 	return sessionOf(host).onGuiRequestShow();
 }
 
 bool guiRequestHide(const clap_host_t *host) {
+	Host::from(host).noteCall("clap_host_gui.request_hide");
 	return sessionOf(host).onGuiRequestHide();
 }
 
 void guiClosed(const clap_host_t *host, bool wasDestroyed) {
+	Host::from(host).noteCall("clap_host_gui.closed");
 	sessionOf(host).onGuiClosed(wasDestroyed);
 }
 
@@ -205,7 +212,8 @@ const clap_host_gui_t kGui = {guiResizeHintsChanged, guiRequestResize, guiReques
 
 // --- clap.event-registry -------------------------------------------------
 
-bool eventRegistryQuery(const clap_host_t *, const char *, uint16_t *spaceId) {
+bool eventRegistryQuery(const clap_host_t *host, const char *, uint16_t *spaceId) {
+	Host::from(host).noteMainThreadCall("clap_host_event_registry.query");
 	// No custom event spaces are hosted yet.
 	if (spaceId != nullptr)
 		*spaceId = UINT16_MAX;
@@ -219,6 +227,11 @@ const clap_host_event_registry_t kEventRegistry = {eventRegistryQuery};
 const void *hostGetExtension(const clap_host_t *host, const char *extensionId) {
 	if (extensionId == nullptr)
 		return nullptr;
+	// "It is forbidden to call it before plugin->init()." A plug-in asking
+	// from inside create_plugin is the usual way to break this.
+	if (Host::from(host).pluginState() == Host::PluginState::Creating)
+		Host::from(host).validator().error("clap_host.get_extension",
+		                                   std::string("called before init() for ") + extensionId);
 	const auto is = [extensionId](const char *id) { return std::strcmp(extensionId, id) == 0; };
 
 	if (is(CLAP_EXT_LOG)) return &kLog;
@@ -280,7 +293,7 @@ void Host::noteMainThreadCall(const char *where) {
 	if (currentThreadRole() != ThreadRole::Main)
 		validator_.error(where, std::string("called from the ") + threadRoleName(currentThreadRole()) +
 		                            " thread; this call is main-thread only");
-	if (!pluginReady_.load(std::memory_order_acquire))
+	if (pluginState_.load(std::memory_order_acquire) == PluginState::None)
 		validator_.warn(where, "called while no plug-in instance was live");
 }
 

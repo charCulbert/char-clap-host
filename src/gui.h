@@ -40,6 +40,8 @@ public:
 	bool resize(uint32_t width, uint32_t height, std::string &error);
 	// The plug-in asking the host for a size, from clap_host_gui.
 	bool requestResize(uint32_t width, uint32_t height);
+	// The plug-in's resize hints changed; they are read again for the next drag.
+	void onResizeHintsChanged();
 	bool requestShow();
 	bool requestHide();
 	void onPluginClosed(bool wasDestroyed);
@@ -58,6 +60,9 @@ public:
 private:
 	const clap_plugin_gui_t *extension() const;
 	bool openNative(bool floating, std::string &error);
+	void readResizeHints();
+	// Constrains a dragged size the way the plug-in's hints ask.
+	void applyResizeHints(uint32_t &width, uint32_t &height) const;
 	bool openWebview(std::string &error);
 
 	struct Window;
@@ -71,6 +76,7 @@ private:
 	uint32_t height_ = 0;
 	std::string webviewUri_;
 	bool resizable_ = false;
+	clap_gui_resize_hints_t hints_{};
 	bool closedByPlugin_ = false;
 };
 

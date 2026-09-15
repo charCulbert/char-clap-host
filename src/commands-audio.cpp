@@ -84,7 +84,7 @@ void Session::registerAudioCommands() {
 		               return Response::success();
 	               }});
 
-	commands_.add({"transport", "play|stop|rewind|info", "Control or report the transport.",
+	commands_.add({"transport", "play|stop|rewind|record|loop|send|info", "Control or report the transport.",
 	               [](Session &session, const Request &request) -> Response {
 		               Transport &transport = session.engine().transport();
 		               const std::string action = request.arg(0, "action").asString("info");
@@ -142,6 +142,8 @@ void Session::registerAudioCommands() {
 		               double velocity = request.arg(1, "velocity").asNumber(0.8);
 		               if (velocity > 1.0)
 			               velocity /= 127.0;
+		               if (!(velocity >= 0.0) || velocity > 1.0)
+			               return Response::failure("a velocity must be 0..1, or 0..127 in MIDI terms");
 		               const double requestedChannel = request.arg(2, "channel").asNumber(0);
 		               const double requestedPort = request.arg(3, "port").asNumber(0);
 		               if (requestedChannel < 0 || requestedChannel > 15)
@@ -170,11 +172,22 @@ void Session::registerAudioCommands() {
 		               double velocity = request.arg(1, "velocity").asNumber(0.0);
 		               if (velocity > 1.0)
 			               velocity /= 127.0;
-		               const auto channel = static_cast<int16_t>(request.arg(2, "channel").asNumber(0));
-		               const auto port = static_cast<int16_t>(request.arg(3, "port").asNumber(0));
+		               if (!(velocity >= 0.0) || velocity > 1.0)
+			               return Response::failure("a velocity must be 0..1, or 0..127 in MIDI terms");
+		               // The same checks as note.on: a note off may address a
+		               // wildcard (-1), but not a key that never existed.
+		               const double requestedKey = request.arg(0, "key").asNumber(-2);
+		               const double requestedChannel = request.arg(2, "channel").asNumber(0);
+		               const double requestedPort = request.arg(3, "port").asNumber(0);
+		               if (requestedKey < -1 || requestedKey > 127)
+			               return Response::failure("a key must be 0..127, -1 for every key, or `all`");
+		               if (requestedChannel < -1 || requestedChannel > 15)
+			               return Response::failure("a channel must be 0..15, or -1 for every channel");
+		               if (requestedPort < -1)
+			               return Response::failure("a port must be 0 or more, or -1 for every port");
 		               const auto noteId = static_cast<int32_t>(request.arg("noteId").asNumber(-1));
-		               session.engine().noteOff(port, channel, static_cast<int16_t>(std::strtol(key.c_str(), nullptr, 10)),
-		                                        velocity, noteId, delay);
+		               session.engine().noteOff(static_cast<int16_t>(requestedPort), static_cast<int16_t>(requestedChannel),
+		                                        static_cast<int16_t>(requestedKey), velocity, noteId, delay);
 		               return Response::success();
 	               }});
 
@@ -202,10 +215,15 @@ void Session::registerAudioCommands() {
 			               return ready;
 		               if (!request.hasArg(0, "status") || !request.hasArg(1, "data1"))
 			               return Response::failure("usage: midi <status> <data1> [data2] [port]");
-		               const uint8_t bytes[3] = {
-		                   static_cast<uint8_t>(request.arg(0, "status").asNumber()),
-		                   static_cast<uint8_t>(request.arg(1, "data1").asNumber()),
-		                   static_cast<uint8_t>(request.arg(2, "data2").asNumber(0))};
+		               const double status = request.arg(0, "status").asNumber(-1);
+		               const double data1 = request.arg(1, "data1").asNumber(-1);
+		               const double data2 = request.arg(2, "data2").asNumber(0);
+		               if (status < 0x80 || status > 0xFF)
+			               return Response::failure("a status byte must be 128..255");
+		               if (data1 < 0 || data1 > 127 || data2 < 0 || data2 > 127)
+			               return Response::failure("a data byte must be 0..127");
+		               const uint8_t bytes[3] = {static_cast<uint8_t>(status), static_cast<uint8_t>(data1),
+		                                         static_cast<uint8_t>(data2)};
 		               const auto port = static_cast<int16_t>(request.arg(3, "port").asNumber(0));
 		               const uint64_t delay = framesFromArgument(request.arg("at"), session.sampleRate(), 0);
 		               // Encoded for the port rather than sent raw, so the same
@@ -222,10 +240,16 @@ void Session::registerAudioCommands() {
 			               return ready;
 		               if (!request.hasArg(0, "controller") || !request.hasArg(1, "value"))
 			               return Response::failure("usage: cc <controller> <value> [channel] [port]");
-		               const auto channel = static_cast<uint8_t>(request.arg(2, "channel").asNumber(0));
+		               const double controller = request.arg(0, "controller").asNumber(-1);
+		               const double value = request.arg(1, "value").asNumber(-1);
+		               const double requestedChannel = request.arg(2, "channel").asNumber(0);
+		               if (controller < 0 || controller > 127 || value < 0 || value > 127)
+			               return Response::failure("a controller and its value must be 0..127");
+		               if (requestedChannel < 0 || requestedChannel > 15)
+			               return Response::failure("a channel must be 0..15");
+		               const auto channel = static_cast<uint8_t>(requestedChannel);
 		               const uint8_t bytes[3] = {static_cast<uint8_t>(0xB0 | (channel & 0x0F)),
-		                                         static_cast<uint8_t>(request.arg(0, "controller").asNumber()),
-		                                         static_cast<uint8_t>(request.arg(1, "value").asNumber())};
+		                                         static_cast<uint8_t>(controller), static_cast<uint8_t>(value)};
 		               const auto port = static_cast<int16_t>(request.arg(3, "port").asNumber(0));
 		               const uint64_t delay = framesFromArgument(request.arg("at"), session.sampleRate(), 0);
 		               const NoteTranslation translation =
