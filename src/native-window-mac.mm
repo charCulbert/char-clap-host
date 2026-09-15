@@ -15,6 +15,7 @@ namespace nch {
 // before either exists.
 void requestQuit();
 void openSettings();
+void openPanel();
 void loadPlugin(const std::string &path);
 } // namespace nch
 
@@ -71,6 +72,11 @@ void loadPlugin(const std::string &path);
 	nch::openSettings();
 }
 
+- (void)showPluginPanel:(id)sender {
+	(void)sender;
+	nch::openPanel();
+}
+
 - (void)loadPlugin:(id)sender {
 	(void)sender;
 	NSOpenPanel *panel = [NSOpenPanel openPanel];
@@ -99,6 +105,11 @@ std::function<void()> &quitHandler() {
 }
 
 std::function<void()> &settingsHandler() {
+	static std::function<void()> handler;
+	return handler;
+}
+
+std::function<void()> &panelHandler() {
 	static std::function<void()> handler;
 	return handler;
 }
@@ -164,6 +175,11 @@ void installMainMenu() {
 	NSMenuItem *windowItem = [[NSMenuItem alloc] init];
 	[menubar addItem:windowItem];
 	NSMenu *windowMenu = [[NSMenu alloc] initWithTitle:@"Window"];
+	NSMenuItem *panelItem = [windowMenu addItemWithTitle:@"Parameters & Presets"
+	                                              action:@selector(showPluginPanel:)
+	                                       keyEquivalent:@"p"];
+	[panelItem setTarget:applicationDelegate()];
+	[windowMenu addItem:[NSMenuItem separatorItem]];
 	[windowMenu addItemWithTitle:@"Close" action:@selector(performClose:) keyEquivalent:@"w"];
 	[windowMenu addItemWithTitle:@"Minimise" action:@selector(performMiniaturize:) keyEquivalent:@"m"];
 	[windowMenu addItemWithTitle:@"Zoom" action:@selector(performZoom:) keyEquivalent:@""];
@@ -261,6 +277,14 @@ public:
 
 	void *handle() override { return (__bridge void *)view_; }
 
+	// A WKWebView registers for file drops itself, and so do views inside it,
+	// so every one has to give them up for the drop to reach the window.
+	static void unregisterDrops(NSView *view) {
+		[view unregisterDraggedTypes];
+		for (NSView *child in [view subviews])
+			unregisterDrops(child);
+	}
+
 	void attachChild(void *view) override {
 		NSView *child = (__bridge NSView *)view;
 		if (child == nil)
@@ -268,6 +292,11 @@ public:
 		[child setFrame:[view_ bounds]];
 		[child setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
 		[view_ addSubview:child];
+	}
+
+	void takeDropsFromChild() override {
+		for (NSView *child in [view_ subviews])
+			unregisterDrops(child);
 	}
 
 	void setTitle(const std::string &title) override {
@@ -360,6 +389,10 @@ void setSettingsHandler(std::function<void()> handler) {
 	settingsHandler() = std::move(handler);
 }
 
+void setPanelHandler(std::function<void()> handler) {
+	panelHandler() = std::move(handler);
+}
+
 void setLoadPluginHandler(std::function<void(const std::string &)> handler) {
 	loadPluginHandler() = std::move(handler);
 }
@@ -372,6 +405,11 @@ void loadPlugin(const std::string &path) {
 void openSettings() {
 	if (settingsHandler())
 		settingsHandler()();
+}
+
+void openPanel() {
+	if (panelHandler())
+		panelHandler()();
 }
 
 void prepareApplication() {

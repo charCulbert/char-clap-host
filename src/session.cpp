@@ -49,6 +49,9 @@ Session::Session(Options options)
 }
 
 Session::~Session() {
+	// The home window outlives a plug-in, so unload() leaves it open. Teardown
+	// is the one place it has to go.
+	panel_.close();
 	unload();
 }
 
@@ -66,6 +69,7 @@ bool Session::load(const std::string &path, const std::string &id, uint32_t inde
 	// Worked out here, on the main thread, so a MIDI message arriving on a
 	// device thread never has to ask the plug-in.
 	engine_.refreshNoteEncoding();
+	panel_.refresh();
 	return true;
 }
 
@@ -75,7 +79,6 @@ void Session::unload() {
 		// it belongs to, or a device thread still calling process(), are both
 		// worse than any ordering inside the instance itself.
 		gui_.close();
-		panel_.close();
 		audioDevice_.stop();
 		midiInput_.close();
 		midiOutput_.close();
@@ -83,6 +86,8 @@ void Session::unload() {
 		host_.setPluginReady(false);
 	}
 	instance_.unload();
+	// The home window stays; it just has nothing to show now.
+	panel_.refresh();
 	timers_.clear();
 	{
 		std::lock_guard<std::mutex> lock(workMutex_);
@@ -637,9 +642,9 @@ bool Session::tick() {
 		// Nothing was ever asked of it and there is no terminal to ask from,
 		// so this is a launch from the Finder: show a window rather than
 		// exiting silently.
-		if (options_.openWindowWhenIdle && linesRun_ == 0 && !settings_.isOpen()) {
+		if (options_.openWindowWhenIdle && linesRun_ == 0 && !panel_.isOpen()) {
 			std::string error;
-			if (settings_.open(error))
+			if (panel_.open(error))
 				return true;
 		}
 		// A window the user is still looking at outlives the input that

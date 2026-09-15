@@ -21,6 +21,11 @@ public:
 	virtual void setTitle(const std::string &title) = 0;
 	// Places another platform view inside this window, filling it.
 	virtual void attachChild(void *view) = 0;
+	// Takes drag-and-drop back from the embedded child. A webview of the
+	// host's own would otherwise swallow a .clap dropped on the window. A
+	// plug-in's view is left alone, because a plug-in may want drops of its
+	// own -- a sampler being the obvious one.
+	virtual void takeDropsFromChild() = 0;
 	virtual void setSize(uint32_t width, uint32_t height) = 0;
 	virtual void show() = 0;
 	virtual void hide() = 0;
@@ -58,6 +63,9 @@ void setLoadPluginHandler(std::function<void(const std::string &)> handler);
 // Runs when the Audio/MIDI Settings menu item is chosen. Called on the main
 // thread, like every other menu action.
 void setSettingsHandler(std::function<void()> handler);
+
+// Runs when the Parameters & Presets menu item is chosen, on the main thread.
+void setPanelHandler(std::function<void()> handler);
 
 // Asks the application to stop, as Cmd-Q or a Quit menu item would. The
 // handler runs on the main thread; the loop then unwinds normally so the

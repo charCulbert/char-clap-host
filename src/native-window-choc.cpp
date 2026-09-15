@@ -57,6 +57,11 @@ public:
 			window_.setContent(view);
 	}
 
+	void takeDropsFromChild() override {
+		// No drag-and-drop on this window layer yet, so there is nothing to
+		// take back.
+	}
+
 	void setTitle(const std::string &title) override { window_.setWindowTitle(title); }
 
 	void setSize(uint32_t width, uint32_t height) override {
@@ -95,6 +100,10 @@ void setLoadPluginHandler(std::function<void(const std::string &)>) {
 
 void setSettingsHandler(std::function<void()>) {
 	// No menu bar here yet; the `settings` command opens the window.
+}
+
+void setPanelHandler(std::function<void()>) {
+	// No menu bar here yet; the `panel` command opens the window.
 }
 
 void setQuitHandler(std::function<void()> handler) {

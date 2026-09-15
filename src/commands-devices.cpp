@@ -146,6 +146,19 @@ void Session::registerDeviceCommands() {
 		               return Response::success();
 	               }});
 
+	commands_.add({"panel.snapshot", "<file.png>", "Write a PNG of the host's parameter view.",
+	               [](Session &session, const Request &request) -> Response {
+		               const std::string path = request.arg(0, "file").asString();
+		               if (path.empty())
+			               return Response::failure("usage: panel.snapshot <file.png>");
+		               std::string error;
+		               if (!session.panel().writeSnapshot(path, error))
+			               return Response::failure(error);
+		               Object out;
+		               out["file"] = Value(path);
+		               return Response::success(Value(std::move(out)));
+	               }});
+
 	commands_.add({"panel.close", "", "Close the host's parameter view.",
 	               [](Session &session, const Request &) -> Response {
 		               session.panel().close();

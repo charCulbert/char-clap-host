@@ -47,11 +47,18 @@ const char *kPage = R"(<!doctype html>
 <h1 id="name">Loading…</h1>
 <p class="hint" id="vendor">&nbsp;</p>
 
-<h2>Parameters</h2>
-<div id="params"><p class="empty">None.</p></div>
+<div id="empty" hidden>
+	<p class="empty">Drop a <code>.clap</code> on this window, or choose one from
+	the File menu.</p>
+</div>
 
-<h2>Presets</h2>
-<div id="presets"><p class="empty">None.</p></div>
+<div id="loaded" hidden>
+	<h2>Parameters</h2>
+	<div id="params"><p class="empty">None.</p></div>
+
+	<h2>Presets</h2>
+	<div id="presets"><p class="empty">None.</p></div>
+</div>
 
 <p id="status">&nbsp;</p>
 
@@ -102,10 +109,20 @@ const char *kPage = R"(<!doctype html>
 	}
 
 	async function showPlugin() {
-		const info = await run("info");
-		document.getElementById("name").textContent = info.name || "Unnamed plug-in";
+		let info = null;
+		try {
+			info = await run("info");
+		} catch {
+			// `info` refuses without a plug-in, and that is the empty state: this
+			// window is the host's home, not a view that needs one.
+		}
+		document.getElementById("empty").hidden = info !== null;
+		document.getElementById("loaded").hidden = info === null;
+		document.getElementById("name").textContent =
+			info === null ? "No plug-in loaded" : (info.name || "Unnamed plug-in");
 		document.getElementById("vendor").textContent =
-			[info.vendor, info.version].filter(Boolean).join(" · ") || " ";
+			info === null ? " " : ([info.vendor, info.version].filter(Boolean).join(" · ") || " ");
+		return info !== null;
 	}
 
 	async function showParams() {
@@ -198,7 +215,9 @@ const char *kPage = R"(<!doctype html>
 	}
 
 	async function refreshAll() {
-		await showPlugin();
+		status.textContent = "";
+		if (!await showPlugin())
+			return;
 		await showParams();
 		await showPresets();
 	}
@@ -250,9 +269,17 @@ void PluginPanel::onMessage(const uint8_t *bytes, uint32_t size) {
 	webview_.send(encoded.data(), static_cast<uint32_t>(encoded.size()));
 }
 
+std::string PluginPanel::windowTitle() const {
+	if (session_.descriptor() != nullptr && session_.descriptor()->name != nullptr)
+		return std::string(session_.descriptor()->name) + " — parameters";
+	return "clap-host";
+}
+
 void PluginPanel::refresh() {
-	if (isOpen())
-		webview_.evaluate("window.nchRefresh && window.nchRefresh();");
+	if (!isOpen())
+		return;
+	window_->setTitle(windowTitle());
+	webview_.evaluate("window.nchRefresh && window.nchRefresh();");
 }
 
 bool PluginPanel::open(std::string &error) {
@@ -265,17 +292,8 @@ bool PluginPanel::open(std::string &error) {
 		error = "this build has no webview support, so there is no parameter view";
 		return false;
 	}
-	if (!session_.isLoaded()) {
-		error = "no plug-in loaded";
-		return false;
-	}
-
 	prepareApplication();
-	const std::string title =
-	    session_.descriptor() != nullptr && session_.descriptor()->name != nullptr
-	        ? std::string(session_.descriptor()->name) + " — parameters"
-	        : "Plug-in parameters";
-	window_ = createNativeWindow(kWidth, kHeight, title, error);
+	window_ = createNativeWindow(kWidth, kHeight, windowTitle(), error);
 	if (window_ == nullptr)
 		return false;
 	// On screen before the webview is made, or WebKit never composites.
@@ -285,7 +303,16 @@ bool PluginPanel::open(std::string &error) {
 		return false;
 	}
 	window_->attachChild(webview_.viewHandle());
+	window_->takeDropsFromChild();
 	return true;
+}
+
+bool PluginPanel::writeSnapshot(const std::string &path, std::string &error) {
+	if (!isOpen()) {
+		error = "the parameter window is not open";
+		return false;
+	}
+	return window_->writeSnapshot(path, error);
 }
 
 void PluginPanel::close() {

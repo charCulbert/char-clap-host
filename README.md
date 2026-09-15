@@ -60,8 +60,8 @@ the same program. Point them elsewhere with `-DNCH_APP_DIR=` and
 rebuild does not take the command away.
 
 Opened from the Finder, with no plug-in and no script, the host has no input to
-read, so it opens the settings window instead of exiting. Given anything to do
-it behaves exactly as it does from a shell.
+read, so it opens its home window instead of exiting. Given anything to do it
+behaves exactly as it does from a shell.
 
 ## Three ways in
 
@@ -119,16 +119,19 @@ beginning with `#` are comments.
 
 ### In a window
 
-`settings` opens the device selector; `gui.open` opens the plug-in's own
-interface. On macOS there is a menu bar: **File → Load Plug-in…** (⌘O), a
-`.clap` dropped on a window, **Settings → Audio/MIDI Settings…** (⌘,), and ⌘Q.
+**Window → Parameters & Presets** (⌘P), or `panel`, opens the home window:
+every parameter as a control, and every preset the bundle declares as a button.
+It opens with nothing loaded and outlives any one plug-in, so it is also where
+the Finder lands you. It is a client of the command table rather than a second
+implementation — the page sends `params.list`, `param.set`, `presets.list` and
+`preset.load`, exactly what you would type — so a plug-in with no interface of
+its own is still playable, and anything the command set gains appears there
+without new code. `panel.snapshot <file.png>` photographs it.
 
-`panel` opens the host's own view: every parameter as a control, and every
-preset the bundle declares as a button. It is a client of the command table
-rather than a second implementation — the page sends `params.list`,
-`param.set`, `presets.list` and `preset.load`, exactly what you would type — so
-a plug-in with no interface of its own is still playable, and anything the
-command set gains appears there without new code.
+`gui.open` opens the plug-in's own interface; `settings` opens the device
+selector. On macOS there is a menu bar: **File → Load Plug-in…** (⌘O), a `.clap`
+dropped on any of the host's windows, **Settings → Audio/MIDI Settings…** (⌘,),
+and ⌘Q.
 
 The window deliberately covers *using* a plug-in — load, play, parameters,
 devices, state, presets. The validator, the event log and the extension probes
@@ -147,7 +150,7 @@ stay on the command line.
 | Ports | `ports` `ports.configs` `ports.select` `ports.activate` `surround` `ambisonic` |
 | Reported by the plug-in | `latency` `tail` `voices` `note.names` `remote.pages` `triggers` `render.mode` |
 | Devices | `audio.devices` `audio.start` `audio.stop` `audio.status` `audio.test` `midi.ports` `midi.open` `midi.close` `midi.outputs` `midi.out` |
-| Interface | `gui.open` `gui.close` `gui.resize` `gui` `gui.contents` `gui.snapshot` `panel` `panel.close` `settings` `settings.close` |
+| Interface | `gui.open` `gui.close` `gui.resize` `gui` `gui.contents` `gui.snapshot` `panel` `panel.snapshot` `panel.close` `settings` `settings.close` |
 | Modulation | `param.mod` |
 | Validation | `validate` `validate.clear` `validate.run` `validate.tests` |
 | Host behaviour | `track.info` `threadpool` `undo` `callbacks` |

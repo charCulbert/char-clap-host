@@ -393,6 +393,7 @@ bool SettingsWindow::open(std::string &error) {
 		return false;
 	}
 	window_->attachChild(webview_.viewHandle());
+	window_->takeDropsFromChild();
 	sendSnapshot();
 	return true;
 }
