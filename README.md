@@ -128,8 +128,11 @@ implementation — the page sends `params.list`, `param.set`, `presets.list` and
 its own is still playable, and anything the command set gains appears there
 without new code. `panel.snapshot <file.png>` photographs it.
 
-`gui.open` opens the plug-in's own interface; `settings` opens the device
-selector. On macOS there is a menu bar: **File → Load Plug-in…** (⌘O), a `.clap`
+`gui.open` opens the plug-in's own interface, and dragging its window's corner
+asks the plug-in for the size as the drag happens (`adjust_size`) and hands it
+over once it lands (`set_size`); a fixed-size interface gets no resize handle at
+all. `settings` opens the device selector, which sizes its window to whatever
+the machine's device lists come to, so nothing there scrolls. On macOS there is a menu bar: **File → Load Plug-in…** (⌘O), a `.clap`
 dropped on any of the host's windows, **Settings → Audio/MIDI Settings…** (⌘,),
 and ⌘Q. Every host window carries a pin in its title bar that keeps it in front
 of other applications, which is what you want while watching a plug-in from a

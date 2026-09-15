@@ -27,6 +27,20 @@ public:
 	// keeps its own drops, since a sampler may want them.
 	virtual void acceptDropsAboveChild() = 0;
 	virtual void setSize(uint32_t width, uint32_t height) = 0;
+
+	// Who decides what sizes the user may drag the window to, and hears the
+	// one they landed on. `adjust` runs while the drag is happening, so the
+	// window snaps to a size the plug-in will accept rather than being
+	// corrected afterwards; `commit` runs once the window has taken it.
+	// Together they are CLAP's adjust_size and set_size.
+	struct Resizer {
+		std::function<void(uint32_t &width, uint32_t &height)> adjust;
+		std::function<void(uint32_t width, uint32_t height)> commit;
+	};
+	virtual void setResizer(Resizer resizer) = 0;
+	// Whether the window has a resize handle at all. A plug-in whose interface
+	// is a fixed size must not be given one.
+	virtual void setUserResizable(bool resizable) = 0;
 	virtual void show() = 0;
 	virtual void hide() = 0;
 	// True once the user closed the window.

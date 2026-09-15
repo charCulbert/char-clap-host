@@ -222,6 +222,14 @@ const char *kPage = R"(<!doctype html>
 		});
 	}
 
+	// The device selector is as tall as the machine has devices, so the window
+	// cannot know its own size in advance. The page measures itself and the
+	// host grows the window to match, which is why nothing here scrolls.
+	function reportHeight() {
+		post({ contentHeight: Math.ceil(document.documentElement.scrollHeight) });
+	}
+	new ResizeObserver(reportHeight).observe(document.documentElement);
+
 	selector.connectHost({
 		getSnapshot: () => call("snapshot"),
 		applySettings: request => call("apply", request).then(snapshot => {
@@ -333,6 +341,13 @@ void SettingsWindow::onMessage(const uint8_t *bytes, uint32_t size) {
 	std::string parseError;
 	if (!Value::parse(text, request, parseError))
 		return;
+
+	if (request.has("contentHeight")) {
+		const auto height = static_cast<uint32_t>(request["contentHeight"].asNumber());
+		if (window_ != nullptr && height != 0)
+			window_->setSize(kWidth, height);
+		return;
+	}
 
 	if (request.has("rendered")) {
 		// A note from the page about what it drew, not a request.

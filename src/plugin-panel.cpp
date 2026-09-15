@@ -28,7 +28,10 @@ const char *kPage = R"(<!doctype html>
 	}
 	*, *::before, *::after { box-sizing: border-box; }
 	h1 { font-size: 15px; font-weight: 600; margin: 0; }
-	p.hint { margin: 2px 0 16px; color: GrayText; }
+	p.hint { margin: 2px 0 0; color: GrayText; }
+	.header { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
+	.header > div { flex: 1; min-width: 0; }
+	#settings { flex: none; width: 2.2em; padding: 0; font-size: 15px; line-height: 1; }
 	h2 { font-size: 13px; font-weight: 600; margin: 18px 0 8px; }
 	.param { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; margin-bottom: 10px; }
 	.param label { color: GrayText; }
@@ -46,8 +49,13 @@ const char *kPage = R"(<!doctype html>
 	#status { margin-top: 14px; color: GrayText; min-height: 1.5em; }
 	.empty { color: GrayText; }
 </style>
-<h1 id="name">Loading…</h1>
-<p class="hint" id="vendor">&nbsp;</p>
+<div class="header">
+	<div>
+		<h1 id="name">Loading…</h1>
+		<p class="hint" id="vendor">&nbsp;</p>
+	</div>
+	<button id="settings" title="Audio and MIDI settings" aria-label="Audio and MIDI settings">⚙</button>
+</div>
 
 <div id="empty" hidden>
 	<p class="empty">Drop a <code>.clap</code> on this window, or choose one from
@@ -249,6 +257,14 @@ const char *kPage = R"(<!doctype html>
 		await showParams();
 		await showPresets();
 	}
+
+	document.getElementById("settings").addEventListener("click", async () => {
+		try {
+			await run("settings");
+		} catch (error) {
+			status.textContent = String(error);
+		}
+	});
 
 	window.nchRefresh = refreshAll;
 	refreshAll().catch(error => { status.textContent = String(error); });

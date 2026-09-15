@@ -287,18 +287,45 @@ void ensureApplication() {
 
 } // namespace nch
 
-// Tracks the close button without needing a delegate object per window.
+// Tracks the close button, and carries whoever is entitled to a say in the
+// window's size, without needing a delegate object per window.
 @interface NchWindowDelegate : NSObject <NSWindowDelegate>
 @property(nonatomic) BOOL closed;
+- (void)takeResizer:(nch::NativeWindow::Resizer)resizer;
 @end
 
-@implementation NchWindowDelegate
+@implementation NchWindowDelegate {
+	nch::NativeWindow::Resizer resizer_;
+}
+
 - (BOOL)windowShouldClose:(NSWindow *)sender {
 	(void)sender;
 	self.closed = YES;
 	return NO; // the host closes the plug-in's gui first, then the window
 }
 
+- (void)takeResizer:(nch::NativeWindow::Resizer)resizer {
+	resizer_ = std::move(resizer);
+}
+
+// Answers the drag while it happens, so the window snaps to a size the plug-in
+// will accept rather than being corrected once the user lets go.
+- (NSSize)windowWillResize:(NSWindow *)sender toSize:(NSSize)size {
+	if (!resizer_.adjust)
+		return size;
+	const NSRect content = [sender contentRectForFrameRect:NSMakeRect(0, 0, size.width, size.height)];
+	auto width = static_cast<uint32_t>(content.size.width);
+	auto height = static_cast<uint32_t>(content.size.height);
+	resizer_.adjust(width, height);
+	return [sender frameRectForContentRect:NSMakeRect(0, 0, width, height)].size;
+}
+
+- (void)windowDidResize:(NSNotification *)notification {
+	if (!resizer_.commit)
+		return;
+	const NSSize size = [[[notification object] contentView] frame].size;
+	resizer_.commit(static_cast<uint32_t>(size.width), static_cast<uint32_t>(size.height));
+}
 @end
 
 // Keeps a window above the others while it is on. A plug-in's interface is
@@ -422,6 +449,17 @@ public:
 		[view_ addSubview:child];
 	}
 
+	void setResizer(Resizer resizer) override { [delegate_ takeResizer:std::move(resizer)]; }
+
+	void setUserResizable(bool resizable) override {
+		NSWindowStyleMask mask = [window_ styleMask];
+		if (resizable)
+			mask |= NSWindowStyleMaskResizable;
+		else
+			mask &= ~NSWindowStyleMaskResizable;
+		[window_ setStyleMask:mask];
+	}
+
 	void acceptDropsAboveChild() override {
 		if (overlay_ != nil)
 			return;
@@ -438,10 +476,29 @@ public:
 	void setSize(uint32_t width, uint32_t height) override {
 		NSRect frame = [window_ frame];
 		const NSRect content = [window_ contentRectForFrameRect:frame];
+		// A window taller than the screen is worse than one that scrolls, and a
+		// page that sizes itself has no idea how big the screen is.
+		NSScreen *screen = [window_ screen] != nil ? [window_ screen] : [NSScreen mainScreen];
+		if (screen != nil) {
+			const NSRect visible = [screen visibleFrame];
+			const NSRect room = [window_ contentRectForFrameRect:visible];
+			height = std::min<uint32_t>(height, static_cast<uint32_t>(room.size.height));
+			width = std::min<uint32_t>(width, static_cast<uint32_t>(room.size.width));
+		}
 		// Keep the top-left corner still while the content box changes.
 		frame.origin.y += content.size.height - height;
-		[window_ setFrame:[window_ frameRectForContentRect:NSMakeRect(frame.origin.x, frame.origin.y, width, height)]
-		          display:YES];
+		NSRect grown =
+		    [window_ frameRectForContentRect:NSMakeRect(frame.origin.x, frame.origin.y, width, height)];
+		// Growing downwards off the bottom of the screen hides what it grew to
+		// show, so slide it back up.
+		if (screen != nil) {
+			const NSRect visible = [screen visibleFrame];
+			if (NSMinY(grown) < NSMinY(visible))
+				grown.origin.y = NSMinY(visible);
+			if (NSMaxY(grown) > NSMaxY(visible))
+				grown.origin.y = NSMaxY(visible) - grown.size.height;
+		}
+		[window_ setFrame:grown display:YES];
 		[view_ setFrame:NSMakeRect(0, 0, width, height)];
 	}
 

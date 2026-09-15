@@ -143,6 +143,31 @@ bool PluginGui::openNative(bool floating, std::string &error) {
 		window_->native->setSize(width, height);
 		window_->native->show();
 
+		// The user's drag is answered by the plug-in as it happens: adjust_size
+		// says what it will take, set_size makes it so. Without this the window
+		// and the interface inside it disagree about how big they are.
+		window_->native->setUserResizable(resizable);
+		if (resizable) {
+			NativeWindow::Resizer resizer;
+			resizer.adjust = [this](uint32_t &width, uint32_t &height) {
+				const clap_plugin_gui_t *live = extension();
+				if (live != nullptr && live->adjust_size != nullptr)
+					live->adjust_size(instance_.plugin(), &width, &height);
+			};
+			resizer.commit = [this](uint32_t width, uint32_t height) {
+				const clap_plugin_gui_t *live = extension();
+				if (live == nullptr || live->set_size == nullptr)
+					return;
+				if (width == width_ && height == height_)
+					return;
+				if (!live->set_size(instance_.plugin(), width, height))
+					return;
+				width_ = width;
+				height_ = height;
+			};
+			window_->native->setResizer(std::move(resizer));
+		}
+
 		clap_window_t parent{};
 		parent.api = nativeWindowApi();
 		parent.ptr = window_->native->handle();

@@ -57,6 +57,12 @@ public:
 			window_.setContent(view);
 	}
 
+	void setResizer(Resizer) override {
+		// This window layer reports no resizes yet, so there is nobody to ask.
+	}
+
+	void setUserResizable(bool) override {}
+
 	void acceptDropsAboveChild() override {
 		// No drag-and-drop on this window layer yet; `load` does the same job.
 	}
