@@ -120,7 +120,10 @@ beginning with `#` are comments.
 ### In a window
 
 **Window → Parameters & Presets** (⌘P), or `panel`, opens the home window:
-every parameter as a `<compost-knob>` grouped by its module, and every preset
+every parameter as the control it deserves -- a `<compost-knob>` for a
+continuous one, a `<compost-button>` switch for a two-step one, a
+`<compost-select>` for a handful of named steps -- grouped by module, and every
+preset
 the bundle declares in a dropdown with previous and next. The reading under each
 knob is the plug-in's own `value_to_text`, since only the plug-in knows the unit.
 It opens with nothing loaded and outlives any one plug-in, so it is also where

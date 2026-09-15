@@ -418,6 +418,41 @@ void Session::registerCommands() {
 		               return setParamValue(session, id, request.arg(1, "value").asNumber());
 	               }});
 
+	commands_.add({"param.steps", "<id> [limit]",
+	               "Name every step of a stepped parameter, as the plug-in words them.",
+	               [](Session &session, const Request &request) -> Response {
+		               Response ready = needPlugin(session);
+		               if (!ready.ok)
+			               return ready;
+		               if (!request.hasArg(0, "id"))
+			               return Response::failure("usage: param.steps <id> [limit]");
+		               const auto id = static_cast<clap_id>(request.arg(0, "id").asNumber());
+		               clap_param_info_t info{};
+		               if (!paramInfoById(session, id, info))
+			               return Response::failure("no parameter with id " + std::to_string(id));
+		               if ((info.flags & CLAP_PARAM_IS_STEPPED) == 0)
+			               return Response::failure("parameter " + std::to_string(id) + " is not stepped");
+		               // A stepped parameter can still span thousands of steps,
+		               // and naming them all helps nobody; the caller says how
+		               // many are worth having.
+		               const auto limit = static_cast<uint32_t>(request.arg(1, "limit").asNumber(64));
+		               const double span = info.max_value - info.min_value;
+		               if (span < 0 || span + 1 > limit)
+			               return Response::failure("parameter " + std::to_string(id) + " has more than " +
+			                                        std::to_string(limit) + " steps");
+		               Array steps;
+		               for (double value = info.min_value; value <= info.max_value; value += 1.0) {
+			               Object step;
+			               step["value"] = Value(value);
+			               step["text"] = Value(paramDisplay(session, info, value));
+			               steps.push_back(Value(std::move(step)));
+		               }
+		               Object out;
+		               out["id"] = Value(static_cast<uint64_t>(id));
+		               out["steps"] = Value(std::move(steps));
+		               return Response::success(Value(std::move(out)));
+	               }});
+
 	commands_.add({"param.mod", "<id> <amount> [key] [channel] [port]",
 	               "Modulate a parameter, without changing its value.",
 	               [](Session &session, const Request &request) -> Response {

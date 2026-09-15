@@ -62,8 +62,15 @@ const char *kPage = R"(<!doctype html>
 	.silent { color: GrayText; }
 	h2 { font-size: 13px; font-weight: 600; margin: 18px 0 8px; }
 	h3 { font-size: 12px; font-weight: 600; margin: 14px 0 6px; color: GrayText; }
-	.knobs { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px 8px; }
-	.knobCell { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }
+	/* One grid for every control, so knobs, switches and choices line up on the
+	   same rhythm and a wide control takes more columns rather than the window. */
+	.knobs { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 14px 10px; align-items: start; }
+	.cell { display: flex; flex-direction: column; gap: 3px; min-width: 0; align-items: center; text-align: center; }
+	.choiceCell { grid-column: span 2; align-items: stretch; text-align: left; }
+	compost-select { width: 100%; }
+	/* Sized to its column like everything else, rather than growing a box
+	   around whatever the plug-in called it. */
+	compost-button { width: 100%; font-size: 12px; }
 	compost-knob {
 		--knob-scale: 0.82;
 		--compost-accent: #35d07f;
@@ -118,6 +125,8 @@ const char *kPage = R"(<!doctype html>
 <script type="module">
 	import "./compost/components/compost-meter.js";
 	import "./compost/components/compost-knob.js";
+	import "./compost/components/compost-button.js";
+	import "./compost/components/compost-select.js";
 
 	// The page drives the host's own command table, so everything here is the
 	// same command a person would type.
@@ -181,6 +190,20 @@ const char *kPage = R"(<!doctype html>
 		return info !== null;
 	}
 
+	// CLAP says only whether a parameter is stepped and what it spans. That is
+	// enough to pick the control a person expects: two steps is a switch, a
+	// handful is a choice, anything else turns.
+	function controlKindFor(param, flags) {
+		if (!flags.includes("stepped"))
+			return "knob";
+		const steps = param.max - param.min + 1;
+		if (steps === 2)
+			return "switch";
+		if (steps >= 3 && steps <= 24)
+			return "choice";
+		return "knob";
+	}
+
 	async function showParams() {
 		const container = document.getElementById("params");
 		let data;
@@ -212,41 +235,84 @@ const char *kPage = R"(<!doctype html>
 				grid.className = "knobs";
 				container.append(grid);
 			}
-
-			const flags = param.flags || [];
-			const cell = document.createElement("div");
-			cell.className = "knobCell";
-
-			const knob = document.createElement("compost-knob");
-			knob.setAttribute("label", param.name);
-			knob.setAttribute("min", param.min);
-			knob.setAttribute("max", param.max);
-			knob.setAttribute("value", param.value);
-			knob.setAttribute("reset-value", param.default ?? param.value);
-			if (flags.includes("stepped"))
-				knob.setAttribute("step", 1);
-			if (flags.includes("readonly"))
-				knob.setAttribute("disabled", "");
-
-			// The plug-in's own value_to_text is the only honest readout: it knows
-			// the unit and the wording, and the knob does not.
-			const reading = document.createElement("span");
-			reading.className = "reading";
-			reading.textContent = param.text || String(param.value);
-
-			knob.addEventListener("parameter-edit", async event => {
-				try {
-					const set = await run("param.set " + param.id + " " + event.detail.value);
-					reading.textContent = set.text || String(set.value);
-					status.textContent = "";
-				} catch (error) {
-					status.textContent = String(error);
-				}
-			});
-
-			cell.append(knob, reading);
-			grid.append(cell);
+			grid.append(await buildParam(param));
 		}
+	}
+
+	async function buildParam(param) {
+		const flags = param.flags || [];
+		const readonly = flags.includes("readonly");
+		const kind = controlKindFor(param, flags);
+
+		const cell = document.createElement("div");
+		// A choice needs room for its longest wording; a knob and a switch are
+		// both one column wide.
+		cell.className = kind === "choice" ? "cell wideCell" : "cell knobCell";
+
+		// The plug-in's own value_to_text is the only honest readout: it knows
+		// the unit and the wording, and no control here does.
+		const reading = document.createElement("span");
+		reading.className = "reading";
+		reading.textContent = param.text || String(param.value);
+
+		async function apply(value) {
+			try {
+				const set = await run("param.set " + param.id + " " + value);
+				reading.textContent = set.text || String(set.value);
+				status.textContent = "";
+			} catch (error) {
+				status.textContent = String(error);
+			}
+		}
+
+		let control;
+		if (kind === "switch") {
+			control = document.createElement("compost-button");
+			control.setAttribute("mode", "switch");
+			control.setAttribute("label", param.name);
+			if (param.value > param.min)
+				control.setAttribute("pressed", "");
+			control.addEventListener("parameter-edit", event =>
+				apply(event.detail.value > 0 ? param.max : param.min));
+		} else if (kind === "choice") {
+			control = document.createElement("compost-select");
+			control.setAttribute("label", param.name);
+			let steps = [];
+			try {
+				steps = (await run("param.steps " + param.id)).steps || [];
+			} catch {
+				steps = [];
+			}
+			for (const step of steps) {
+				const option = document.createElement("option");
+				option.value = String(step.value);
+				option.textContent = step.text || String(step.value);
+				if (step.value === param.value)
+					option.selected = true;
+				control.append(option);
+			}
+			control.setAttribute("value", String(param.value));
+			control.addEventListener("parameter-edit", event => apply(event.detail.value));
+		} else {
+			control = document.createElement("compost-knob");
+			control.setAttribute("label", param.name);
+			control.setAttribute("min", param.min);
+			control.setAttribute("max", param.max);
+			control.setAttribute("value", param.value);
+			control.setAttribute("reset-value", param.default ?? param.value);
+			if (flags.includes("stepped"))
+				control.setAttribute("step", 1);
+			control.addEventListener("parameter-edit", event => apply(event.detail.value));
+		}
+
+		if (readonly)
+			control.setAttribute("disabled", "");
+		cell.append(control);
+		// A choice already shows the plug-in's wording in the chosen option, so
+		// a reading under it would say the same thing twice.
+		if (kind !== "choice")
+			cell.append(reading);
+		return cell;
 	}
 
 	async function showPresets() {
