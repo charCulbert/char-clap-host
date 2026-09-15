@@ -638,20 +638,12 @@ bool Session::tick() {
 		pending.swap(lines_);
 		finished = inputClosed_ && pending.empty();
 	}
-	if (finished) {
-		// Nothing was ever asked of it and there is no terminal to ask from,
-		// so this is a launch from the Finder: show a window rather than
-		// exiting silently.
-		if (options_.openWindowWhenIdle && linesRun_ == 0 && !panel_.isOpen()) {
-			std::string error;
-			if (panel_.open(error))
-				return true;
-		}
-		// A window the user is still looking at outlives the input that
-		// opened it.
-		if (settings_.isOpen() || panel_.isOpen() || gui_.isOpen())
-			return !quit_;
-		return false;
+	// Nothing was ever asked of it and there is no terminal to ask from, so
+	// this is a launch from the Finder: show a window rather than exiting
+	// silently.
+	if (finished && options_.openWindowWhenIdle && linesRun_ == 0 && !panel_.isOpen()) {
+		std::string error;
+		panel_.open(error);
 	}
 
 	for (const auto &line : pending) {
@@ -660,6 +652,9 @@ bool Session::tick() {
 			return false;
 	}
 
+	// This runs whether or not there is more input to come: a window the user
+	// is looking at has to keep working after the input that opened it ended,
+	// and its close button is the only way out of a Finder launch.
 	runMainThreadWork();
 	if (gui_.wantsClose())
 		gui_.close();
@@ -667,7 +662,12 @@ bool Session::tick() {
 		settings_.close();
 	if (panel_.wantsClose())
 		panel_.close();
-	return !quit_;
+	if (quit_)
+		return false;
+	// Input is done, so the windows are all that is left to wait for.
+	if (finished)
+		return settings_.isOpen() || panel_.isOpen() || gui_.isOpen();
+	return true;
 }
 
 void Session::setOutput(std::function<void(const std::string &)> sink) {
