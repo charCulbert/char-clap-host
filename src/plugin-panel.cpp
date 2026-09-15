@@ -35,12 +35,14 @@ const char *kPage = R"(<!doctype html>
 	.param .reading { font-variant-numeric: tabular-nums; }
 	.param input { grid-column: 1 / -1; width: 100%; margin: 0; }
 	.param.readonly input { opacity: 0.4; }
-	ul.presets { list-style: none; margin: 0; padding: 0; }
-	ul.presets li { margin-bottom: 4px; }
-	button {
+	.presets { display: flex; gap: 6px; align-items: stretch; }
+	.presets select { flex: 1; min-width: 0; font: inherit; }
+	.presets button { flex: none; width: 2.4em; padding: 0; }
+	button, select {
 		min-height: 2em; padding: 0 0.9em; border: 1px solid GrayText; border-radius: 0;
 		background: ButtonFace; color: ButtonText; font: inherit; cursor: pointer;
 	}
+	button:disabled { opacity: 0.4; cursor: default; }
 	#status { margin-top: 14px; color: GrayText; min-height: 1.5em; }
 	.empty { color: GrayText; }
 </style>
@@ -53,11 +55,11 @@ const char *kPage = R"(<!doctype html>
 </div>
 
 <div id="loaded" hidden>
-	<h2>Parameters</h2>
-	<div id="params"><p class="empty">None.</p></div>
-
 	<h2>Presets</h2>
 	<div id="presets"><p class="empty">None.</p></div>
+
+	<h2>Parameters</h2>
+	<div id="params"><p class="empty">None.</p></div>
 </div>
 
 <p id="status">&nbsp;</p>
@@ -189,29 +191,55 @@ const char *kPage = R"(<!doctype html>
 			container.innerHTML = '<p class="empty">This plug-in declares no presets.</p>';
 			return;
 		}
-		const list = document.createElement("ul");
-		list.className = "presets";
-		for (const preset of presets) {
-			const item = document.createElement("li");
-			const button = document.createElement("button");
-			button.textContent = preset.name || preset.loadKey || "Preset";
-			button.addEventListener("click", async () => {
-				try {
-					const where = preset.location === "internal" ? "internal" : quoted(preset.location);
-					const key = preset.loadKey ? " " + quoted(preset.loadKey) : "";
-					await run("preset.load " + where + key);
-					status.textContent = "Loaded " + button.textContent + ".";
-					// A preset moves parameters, so what is shown is redrawn.
-					await showParams();
-				} catch (error) {
-					status.textContent = String(error);
-				}
-			});
-			item.append(button);
-			list.append(item);
+
+		const row = document.createElement("div");
+		row.className = "presets";
+		const previous = document.createElement("button");
+		previous.textContent = "\u2039";
+		previous.title = "Previous preset";
+		const next = document.createElement("button");
+		next.textContent = "\u203a";
+		next.title = "Next preset";
+		const choice = document.createElement("select");
+		for (let i = 0; i < presets.length; ++i) {
+			const option = document.createElement("option");
+			option.value = String(i);
+			option.textContent = presets[i].name || presets[i].loadKey || "Preset " + (i + 1);
+			choice.append(option);
 		}
+		// Nothing is loaded yet, so the dropdown shows the first name without
+		// claiming the plug-in is on it. Stepping from here lands on the first.
+		let current = -1;
+
+		async function loadAt(index) {
+			const preset = presets[index];
+			if (preset === undefined)
+				return;
+			try {
+				const where = preset.location === "internal" ? "internal" : quoted(preset.location);
+				const key = preset.loadKey ? " " + quoted(preset.loadKey) : "";
+				await run("preset.load " + where + key);
+				current = index;
+				choice.value = String(index);
+				status.textContent = "Loaded " + choice.options[index].textContent + ".";
+				// A preset moves parameters, so what is shown is redrawn.
+				await showParams();
+			} catch (error) {
+				status.textContent = String(error);
+			}
+			previous.disabled = current <= 0;
+			next.disabled = current >= presets.length - 1;
+		}
+
+		choice.addEventListener("change", () => loadAt(Number(choice.value)));
+		previous.addEventListener("click", () => loadAt(Math.max(0, current - 1)));
+		next.addEventListener("click", () => loadAt(current + 1));
+		previous.disabled = true;
+		next.disabled = presets.length === 0;
+
+		row.append(previous, choice, next);
 		container.textContent = "";
-		container.append(list);
+		container.append(row);
 	}
 
 	async function refreshAll() {

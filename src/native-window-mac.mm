@@ -17,6 +17,9 @@ void requestQuit();
 void openSettings();
 void openPanel();
 void loadPlugin(const std::string &path);
+// The dragged .clap, or an empty string when the drag carries none. Shared by
+// the content view and the window delegate, which both offer to take a drop.
+NSString *clapPathFromDrag(id<NSDraggingInfo> sender);
 } // namespace nch
 
 // Draws the border that says a drop will land here. It is a view of its own,
@@ -44,6 +47,8 @@ void loadPlugin(const std::string &path);
 // A window that accepts a .clap dropped onto it. Dropping is the quickest way
 // to try a plug-in, and it costs one view subclass.
 @interface NchContentView : NSView
+// Draws the border that says a drop will land here.
+- (void)setHighlighted:(BOOL)highlighted;
 @end
 
 @implementation NchContentView {
@@ -58,6 +63,10 @@ void loadPlugin(const std::string &path);
 }
 
 - (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
+	if (getenv("NCH_DROP_LOG") != nullptr)
+		std::fprintf(stderr, "drag entered: types %s path \"%s\"\n",
+		             [[[[sender draggingPasteboard] types] description] UTF8String],
+		             [[self pathFromDrag:sender] UTF8String]);
 	const BOOL wanted = [self pathFromDrag:sender].length != 0;
 	[self setHighlighted:wanted];
 	return wanted ? NSDragOperationCopy : NSDragOperationNone;
@@ -75,6 +84,8 @@ void loadPlugin(const std::string &path);
 }
 
 - (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
+	if (getenv("NCH_DROP_LOG") != nullptr)
+		std::fprintf(stderr, "drop: \"%s\"\n", [[self pathFromDrag:sender] UTF8String]);
 	[self setHighlighted:NO];
 	NSString *path = [self pathFromDrag:sender];
 	if (path.length == 0)
@@ -99,18 +110,7 @@ void loadPlugin(const std::string &path);
 }
 
 - (NSString *)pathFromDrag:(id<NSDraggingInfo>)sender {
-	NSArray *urls = [[sender draggingPasteboard] readObjectsForClasses:@[ [NSURL class] ]
-	                                                           options:@{NSPasteboardURLReadingFileURLsOnlyKey : @YES}];
-	for (NSURL *url in urls)
-		if ([[url pathExtension] caseInsensitiveCompare:@"clap"] == NSOrderedSame)
-			return [url path];
-	return @"";
-}
-
-// The drop lands on this view even when a webview covers it, so the webview
-// must not take the mouse away from the drag machinery.
-- (BOOL)wantsPeriodicDraggingUpdates {
-	return NO;
+	return nch::clapPathFromDrag(sender);
 }
 @end
 
@@ -268,9 +268,15 @@ void ensureApplication() {
 
 } // namespace nch
 
-// Tracks the close button without needing a delegate object per window.
-@interface NchWindowDelegate : NSObject <NSWindowDelegate>
+// Tracks the close button, and takes the window's drops.
+//
+// A webview fills these windows and swallows a drag before AppKit's search
+// reaches the view underneath, even with the webview unregistered. A window
+// registered for dragged types sends them to its delegate instead, which is
+// above the whole view hierarchy and so cannot be intercepted.
+@interface NchWindowDelegate : NSObject <NSWindowDelegate, NSDraggingDestination>
 @property(nonatomic) BOOL closed;
+@property(nonatomic, assign) NSView *highlightHost;
 @end
 
 @implementation NchWindowDelegate
@@ -278,6 +284,41 @@ void ensureApplication() {
 	(void)sender;
 	self.closed = YES;
 	return NO; // the host closes the plug-in's gui first, then the window
+}
+
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
+	return [self dragOperation:sender];
+}
+
+- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)sender {
+	return [self dragOperation:sender];
+}
+
+- (void)draggingExited:(id<NSDraggingInfo>)sender {
+	(void)sender;
+	[(NchContentView *)[self highlightHost] setHighlighted:NO];
+}
+
+- (BOOL)prepareForDragOperation:(id<NSDraggingInfo>)sender {
+	return nch::clapPathFromDrag(sender).length != 0;
+}
+
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
+	[(NchContentView *)[self highlightHost] setHighlighted:NO];
+	NSString *path = nch::clapPathFromDrag(sender);
+	if (path.length == 0)
+		return NO;
+	nch::loadPlugin(std::string([path UTF8String]));
+	return YES;
+}
+
+- (NSDragOperation)dragOperation:(id<NSDraggingInfo>)sender {
+	const BOOL wanted = nch::clapPathFromDrag(sender).length != 0;
+	if (getenv("NCH_DROP_LOG") != nullptr)
+		std::fprintf(stderr, "window drag: types %s wanted %d\n",
+		             [[[[sender draggingPasteboard] types] description] UTF8String], wanted);
+	[(NchContentView *)[self highlightHost] setHighlighted:wanted];
+	return wanted ? NSDragOperationCopy : NSDragOperationNone;
 }
 @end
 
@@ -297,6 +338,16 @@ void ensureApplication() {
 @end
 
 namespace nch {
+
+NSString *clapPathFromDrag(id<NSDraggingInfo> sender) {
+	NSArray *urls = [[sender draggingPasteboard] readObjectsForClasses:@[ [NSURL class] ]
+	                                                           options:@{NSPasteboardURLReadingFileURLsOnlyKey : @YES}];
+	for (NSURL *url in urls)
+		if ([[url pathExtension] caseInsensitiveCompare:@"clap"] == NSOrderedSame)
+			return [url path];
+	return @"";
+}
+
 namespace {
 
 // The pin, drawn as a title-bar accessory so it sits beside the traffic lights
@@ -365,10 +416,15 @@ public:
 		                  defer:NO];
 		delegate_ = [[NchWindowDelegate alloc] init];
 		[window_ setDelegate:delegate_];
+		// Registered on the window rather than only on the content view: a
+		// webview fills these windows and takes the drag before AppKit's view
+		// search gets underneath it.
+		[window_ registerForDraggedTypes:@[ NSPasteboardTypeFileURL, NSPasteboardTypeURL ]];
 		[window_ setTitle:[NSString stringWithUTF8String:title.c_str()]];
 		[window_ setReleasedWhenClosed:NO];
 		view_ = [[NchContentView alloc] initWithFrame:frame];
 		[view_ setWantsLayer:YES];
+		[delegate_ setHighlightHost:view_];
 		[window_ setContentView:view_];
 		pin_ = [[NchPinController alloc] init];
 		[window_ addTitlebarAccessoryViewController:makePinAccessory(window_, pin_)];
