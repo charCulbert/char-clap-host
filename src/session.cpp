@@ -178,6 +178,42 @@ void Session::onAudioCallback(const float *input, float *output, uint32_t frames
 	const uint32_t channels = engine_.deviceOutputChannels();
 	engine_.processInterleaved(input, input != nullptr ? 2 : 0, output, channels, frames);
 	renderTestTone(output, frames, channels);
+	measureOutput(output, frames, channels);
+}
+
+void Session::measureOutput(const float *output, uint32_t frames, uint32_t channels) {
+	if (output == nullptr)
+		return;
+	const uint32_t metered = std::min(channels, kMaxMeterChannels);
+	for (uint32_t channel = 0; channel < metered; ++channel) {
+		float peak = 0.0f;
+		for (uint32_t frame = 0; frame < frames; ++frame) {
+			const float sample = std::fabs(output[frame * channels + channel]);
+			// NaN compares false either way, so it never becomes the peak.
+			if (sample > peak)
+				peak = sample;
+		}
+		// Kept rather than replaced: a meter polling slower than the device
+		// must see the loudest block, not the last one.
+		float seen = outputPeaks_[channel].load(std::memory_order_relaxed);
+		while (peak > seen &&
+		       !outputPeaks_[channel].compare_exchange_weak(seen, peak, std::memory_order_relaxed))
+			;
+	}
+}
+
+Value Session::takeOutputPeaks() {
+	const uint32_t channels = std::min(engine_.deviceOutputChannels(), kMaxMeterChannels);
+	Array peaks;
+	for (uint32_t channel = 0; channel < channels; ++channel)
+		peaks.push_back(Value(outputPeaks_[channel].exchange(0.0f, std::memory_order_relaxed)));
+	Object out;
+	out["running"] = Value(audioDevice_.isRunning());
+	out["peaks"] = Value(std::move(peaks));
+	out["midiMessages"] = Value(static_cast<double>(midiMessageCount()));
+	out["midiDropped"] = Value(static_cast<double>(midiDroppedCount()));
+	out["audioCallbacks"] = Value(static_cast<double>(audioCallbackCount()));
+	return Value(std::move(out));
 }
 
 bool Session::startTestTone(double seconds, double frequency, std::string &error) {

@@ -126,7 +126,10 @@ the Finder lands you. It is a client of the command table rather than a second
 implementation — the page sends `params.list`, `param.set`, `presets.list` and
 `preset.load`, exactly what you would type — so a plug-in with no interface of
 its own is still playable, and anything the command set gains appears there
-without new code. `panel.snapshot <file.png>` photographs it.
+without new code. A lamp beside the settings button lights when a MIDI message
+arrives and a `<compost-meter>` shows the output level, both polled through the
+`meters` command, so an agent reads exactly what a person sees.
+`panel.snapshot <file.png>` photographs it.
 
 `gui.open` opens the plug-in's own interface, and dragging its window's corner
 asks the plug-in for the size as the drag happens (`adjust_size`) and hands it

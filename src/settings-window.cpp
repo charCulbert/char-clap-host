@@ -1,5 +1,7 @@
 #include "settings-window.h"
 
+#include "web-assets.h"
+
 #include "device-settings.h"
 #include "devices.h"
 #include "native-window.h"
@@ -14,36 +16,6 @@ namespace {
 
 constexpr uint32_t kWidth = 560;
 constexpr uint32_t kHeight = 460;
-
-// Compost is vendored as a submodule, so its modules are served straight from
-// the checkout rather than bundled or copied.
-std::filesystem::path compostRoot() {
-	return std::filesystem::path(NCH_COMPOST_ROOT);
-}
-
-std::string mimeForPath(const std::string &path) {
-	const auto dot = path.find_last_of('.');
-	const std::string extension = dot == std::string::npos ? "" : path.substr(dot);
-	if (extension == ".js" || extension == ".mjs")
-		return "text/javascript";
-	if (extension == ".css")
-		return "text/css";
-	if (extension == ".html")
-		return "text/html";
-	if (extension == ".json")
-		return "application/json";
-	if (extension == ".svg")
-		return "image/svg+xml";
-	return "application/octet-stream";
-}
-
-bool readFile(const std::filesystem::path &path, std::vector<uint8_t> &out) {
-	std::ifstream input(path, std::ios::binary);
-	if (!input)
-		return false;
-	out.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
-	return true;
-}
 
 const char *kPage = R"(<!doctype html>
 <meta charset="utf-8">
@@ -282,21 +254,9 @@ bool SettingsWindow::wantsClose() const {
 }
 
 std::optional<WebviewHost::Resource> SettingsWindow::fetch(const std::string &path) const {
-	WebviewHost::Resource resource;
-	if (path == "/" || path.empty()) {
-		const std::string page = kPage;
-		resource.data.assign(page.begin(), page.end());
-		resource.mimeType = "text/html";
-		return resource;
-	}
-	const std::string prefix = "/compost/";
-	if (path.rfind(prefix, 0) != 0 || path.find("..") != std::string::npos)
-		return {};
-	const std::filesystem::path file = compostRoot() / "src" / path.substr(prefix.size());
-	if (!readFile(file, resource.data))
-		return {};
-	resource.mimeType = mimeForPath(path);
-	return resource;
+	if (path == "/" || path.empty())
+		return htmlResource(kPage);
+	return compostResource(path);
 }
 
 DeviceState SettingsWindow::deviceState() const {

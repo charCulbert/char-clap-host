@@ -106,6 +106,11 @@ public:
 	// Messages the plug-in's note dialect has no form for, counted rather than
 	// silently discarded.
 	uint64_t midiDroppedCount() const { return midiDropped_.load(std::memory_order_relaxed); }
+	// The loudest sample each output channel has produced since this was last
+	// asked, and how many channels there are. Reading clears it, so a meter
+	// that polls sees peaks rather than whatever the last block happened to
+	// end on.
+	Value takeOutputPeaks();
 	bool activate(double sampleRate, uint32_t minFrames, uint32_t maxFrames, std::string &error);
 	void deactivate();
 	bool isActive() const { return instance_.isActive(); }
@@ -201,6 +206,8 @@ public:
 private:
 	// Mixes the test tone into a device block, if one is playing.
 	void renderTestTone(float *output, uint32_t frames, uint32_t channels);
+	// Records what the block actually sent to the speakers.
+	void measureOutput(const float *output, uint32_t frames, uint32_t channels);
 
 	void registerCommands();
 	void registerAudioCommands();
@@ -226,6 +233,9 @@ private:
 	std::atomic<uint64_t> audioUnderruns_{0};
 	std::atomic<uint64_t> midiMessages_{0};
 	std::atomic<uint64_t> midiDropped_{0};
+	// Written by the audio thread, drained by whoever is drawing a meter.
+	static constexpr uint32_t kMaxMeterChannels = 8;
+	std::atomic<float> outputPeaks_[kMaxMeterChannels] = {};
 	// Written by the main thread, consumed by the audio thread.
 	std::atomic<uint64_t> testToneRemaining_{0};
 	std::atomic<double> testToneFrequency_{440.0};

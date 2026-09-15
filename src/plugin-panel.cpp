@@ -1,6 +1,7 @@
 #include "plugin-panel.h"
 
 #include "native-window.h"
+#include "web-assets.h"
 #include "session.h"
 
 #include <cstdio>
@@ -29,9 +30,30 @@ const char *kPage = R"(<!doctype html>
 	*, *::before, *::after { box-sizing: border-box; }
 	h1 { font-size: 15px; font-weight: 600; margin: 0; }
 	p.hint { margin: 2px 0 0; color: GrayText; }
-	.header { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
+	.header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
 	.header > div { flex: 1; min-width: 0; }
 	#settings { flex: none; width: 2.2em; padding: 0; font-size: 15px; line-height: 1; }
+
+	/* Aligned on the baseline of the meter's channel labels, so the lamp sits
+	   with the bars rather than floating against the meter's own heading. */
+	.activity { display: flex; align-items: flex-end; gap: 12px; margin-bottom: 18px; }
+	.lampRow { display: flex; align-items: center; gap: 6px; padding-bottom: 1.6em; }
+	/* A custom element's own :host display beats the UA rule for [hidden], so
+	   hiding one takes saying so. */
+	compost-meter[hidden] { display: none; }
+	compost-meter {
+		--meter-length: 2.2em;
+		--meter-channel-width: 0.9em;
+		--compost-accent: #35d07f;
+	}
+	.lamp {
+		flex: none; width: 10px; height: 10px; border-radius: 50%;
+		border: 1px solid GrayText; background: transparent;
+		transition: background-color 120ms linear;
+	}
+	.lamp.lit { background: #35d07f; border-color: #35d07f; }
+	.lampLabel { color: GrayText; }
+	.silent { color: GrayText; }
 	h2 { font-size: 13px; font-weight: 600; margin: 18px 0 8px; }
 	.param { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; margin-bottom: 10px; }
 	.param label { color: GrayText; }
@@ -54,7 +76,13 @@ const char *kPage = R"(<!doctype html>
 		<h1 id="name">Loading…</h1>
 		<p class="hint" id="vendor">&nbsp;</p>
 	</div>
+	<span class="lamp" id="midiLamp" title="MIDI in"></span>
 	<button id="settings" title="Audio and MIDI settings" aria-label="Audio and MIDI settings">⚙</button>
+</div>
+
+<div class="activity">
+	<compost-meter id="meter" label="Output" min="-60" max="0" curve="log"></compost-meter>
+	<span class="silent" id="silent">No audio device open.</span>
 </div>
 
 <div id="empty" hidden>
@@ -73,6 +101,8 @@ const char *kPage = R"(<!doctype html>
 <p id="status">&nbsp;</p>
 
 <script type="module">
+	import "./compost/components/compost-meter.js";
+
 	// The page drives the host's own command table, so everything here is the
 	// same command a person would type.
 	const pending = new Map();
@@ -258,6 +288,65 @@ const char *kPage = R"(<!doctype html>
 		await showPresets();
 	}
 
+	// Levels and MIDI arrivals come from the same command anyone can type, on a
+	// poll rather than a push: the host has no way to call into the page
+	// except a reply, and a meter that misses a frame costs nothing.
+	const midiLamp = document.getElementById("midiLamp");
+	const meter = document.getElementById("meter");
+	const silent = document.getElementById("silent");
+	const channelNames = ["L", "R", "3", "4", "5", "6", "7", "8"];
+	let lastMidiCount = null;
+	let litUntil = 0;
+	let holds = [];
+
+	function decibels(peak) {
+		return peak > 0 ? 20 * Math.log10(peak) : -Infinity;
+	}
+
+	function showLevels(peaks) {
+		if (holds.length !== peaks.length)
+			holds = peaks.map(() => -Infinity);
+		meter.setState({
+			primaryLabel: "Peak",
+			holdLabel: "Hold",
+			unit: "dB",
+			channels: peaks.map((peak, i) => {
+				const db = decibels(peak);
+				// The hold falls slowly so a transient stays readable, which is
+				// the whole reason to have one.
+				holds[i] = db > holds[i] ? db : Math.max(db, holds[i] - 1.5);
+				return {
+					label: channelNames[i] ?? String(i + 1),
+					primary: db,
+					peak: holds[i],
+					clipped: peak >= 1,
+				};
+			}),
+		});
+	}
+
+	async function pollActivity() {
+		let data;
+		try {
+			data = await run("meters");
+		} catch {
+			return;
+		}
+		const now = performance.now();
+		if (lastMidiCount !== null && data.midiMessages > lastMidiCount)
+			litUntil = now + 120;
+		lastMidiCount = data.midiMessages;
+		midiLamp.classList.toggle("lit", now < litUntil);
+
+		meter.hidden = !data.running;
+		silent.hidden = !!data.running;
+		if (data.running)
+			showLevels(data.peaks || []);
+	}
+
+
+	setInterval(pollActivity, 60);
+
 	document.getElementById("settings").addEventListener("click", async () => {
 		try {
 			await run("settings");
@@ -291,13 +380,9 @@ bool PluginPanel::wantsClose() const {
 }
 
 std::optional<WebviewHost::Resource> PluginPanel::fetch(const std::string &path) const {
-	if (!path.empty() && path != "/")
-		return {};
-	WebviewHost::Resource resource;
-	const std::string page = kPage;
-	resource.data.assign(page.begin(), page.end());
-	resource.mimeType = "text/html";
-	return resource;
+	if (path.empty() || path == "/")
+		return htmlResource(kPage);
+	return compostResource(path);
 }
 
 void PluginPanel::onMessage(const uint8_t *bytes, uint32_t size) {

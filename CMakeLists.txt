@@ -81,6 +81,7 @@ add_library(nch-core STATIC
     src/json.cpp
     src/session.cpp
     src/settings-window.cpp
+    src/web-assets.cpp
     src/thread-pool.cpp
     src/thread-role.cpp
     src/timeline.cpp
