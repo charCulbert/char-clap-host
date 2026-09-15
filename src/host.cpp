@@ -231,7 +231,8 @@ const void *hostGetExtension(const clap_host_t *host, const char *extensionId) {
 	// from inside create_plugin is the usual way to break this.
 	if (Host::from(host).pluginState() == Host::PluginState::Creating)
 		Host::from(host).validator().error("clap_host.get_extension",
-		                                   std::string("called before init() for ") + extensionId);
+		                                   std::string("the plug-in asked for ") + extensionId +
+		                                       " before init(), which the host forbids; query host extensions from init() or later");
 	const auto is = [extensionId](const char *id) { return std::strcmp(extensionId, id) == 0; };
 
 	if (is(CLAP_EXT_LOG)) return &kLog;

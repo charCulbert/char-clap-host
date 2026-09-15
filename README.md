@@ -153,6 +153,38 @@ The window deliberately covers *using* a plug-in — load, play, parameters,
 devices, state, presets. The validator, the event log and the extension probes
 stay on the command line.
 
+### A sequence without a MIDI file
+
+`note.on` and `note.off` take `--at`, an offset from the playhead, so a short
+performance is a few lines of script and needs no `.mid`:
+
+```text
+activate 48000 512
+note on 60 100
+note off 60 --at=0.5
+note on 67 100 --at=1.0
+note off 67 --at=1.5
+render 2.0 out.wav
+```
+
+`midi.load` is for when the performance already exists as a file.
+
+### Instrument into effect
+
+The host runs one plug-in per process and has no graph. To hear an instrument
+through an effect, run two processes and pass a WAV between them:
+`audio.input` feeds a file to the second plug-in's main input.
+
+```sh
+printf 'activate 48000 512\nmidi.load take.mid\nrender 4.0 synth.wav\n' \
+  | clap-host --json --quiet Synth.clap
+printf 'audio.input synth.wav\nactivate 48000 512\nrender 4.0 out.wav\n' \
+  | clap-host --json --quiet Reverb.clap
+```
+
+Each stage is a complete, validated single-plug-in run, and the intermediate
+file can be inspected. The shell is the graph.
+
 ## Commands
 
 | Area | Commands |
@@ -354,3 +386,17 @@ activation policy and quit handling live there.
 - The choc window path has no menu bar, so no ⌘Q equivalent off macOS.
 - One plug-in per process, by design. There is no graph and no routing.
 - `gui.snapshot` cannot capture a webview: WebKit renders out of process.
+
+## For agents
+
+`skills/clap-host/SKILL.md` teaches an agent (Claude Code, Codex, pi) how to
+install and drive the host: the JSON envelope, `help` as the source of truth
+for commands, the common recipes, and the rule that a missing feature is
+reported as a host gap rather than worked around. Symlink it into the agent's
+skills directory:
+
+```sh
+ln -s "$PWD/skills/clap-host" ~/.claude/skills/clap-host
+ln -s "$PWD/skills/clap-host" ~/.codex/skills/clap-host
+ln -s "$PWD/skills/clap-host" ~/.pi/agent/skills/clap-host
+```

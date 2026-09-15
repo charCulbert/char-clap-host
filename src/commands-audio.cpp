@@ -123,13 +123,13 @@ void Session::registerAudioCommands() {
 		               return Response::success(Value(std::move(out)));
 	               }});
 
-	commands_.add({"note.on", "<key> [velocity] [channel] [port]", "Start a note at the playhead.",
+	commands_.add({"note.on", "<key> [velocity] [channel] [port] [--at=<seconds|Nf>]", "Start a note at the playhead, or --at after it.",
 	               [](Session &session, const Request &request) -> Response {
 		               Response ready = needPlugin(session);
 		               if (!ready.ok)
 			               return ready;
 		               if (!request.hasArg(0, "key"))
-			               return Response::failure("usage: note.on <key> [velocity] [channel] [port]");
+			               return Response::failure("usage: note.on <key> [velocity] [channel] [port] [--at=<seconds|Nf>]");
 		               const double requestedKey = request.arg(0, "key").asNumber(-1);
 		               // "A note-on event with a '-1' for port, channel or key
 		               // is invalid and can be rejected or ignored by a plugin
@@ -158,7 +158,7 @@ void Session::registerAudioCommands() {
 		               return Response::success();
 	               }});
 
-	commands_.add({"note.off", "<key|all> [velocity] [channel] [port]", "End a sounding note.",
+	commands_.add({"note.off", "<key|all> [velocity] [channel] [port] [--at=<seconds|Nf>]", "End a sounding note, now or --at after the playhead.",
 	               [](Session &session, const Request &request) -> Response {
 		               Response ready = needPlugin(session);
 		               if (!ready.ok)
