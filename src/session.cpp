@@ -177,9 +177,15 @@ bool Session::prepareForDevice(double sampleRate, uint32_t blockSize, std::strin
 
 void Session::openDefaultDevices() {
 	devicesOpenedByDefault_ = true;
+	std::string error;
 	if (!audioDevice_.isRunning()) {
-		std::string error;
 		if (!audioDevice_.start({}, 0, error))
+			std::fprintf(stderr, "error: %s\n", error.c_str());
+	} else if (isLoaded() && !engine_.isRunning()) {
+		// The window opened its device before there was a plug-in to play
+		// through it, so the stream is live but nothing is processing. A
+		// plug-in dropped on that window has to be joined to it.
+		if (!engine_.start(error))
 			std::fprintf(stderr, "error: %s\n", error.c_str());
 	}
 	// Every MIDI input rather than one: which keyboard the user reaches for is
@@ -189,7 +195,6 @@ void Session::openDefaultDevices() {
 		std::vector<std::string> everyPort;
 		for (const auto &port : midiInput_.ports())
 			everyPort.push_back(port.id);
-		std::string error;
 		if (!everyPort.empty() && !midiInput_.setOpenPorts(everyPort, error))
 			std::fprintf(stderr, "error: %s\n", error.c_str());
 		settings_.followAllMidiInputs(true);
