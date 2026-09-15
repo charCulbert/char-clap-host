@@ -32,7 +32,9 @@ void Session::registerExtensionCommands() {
 
 	commands_.add({"tail", "", "Report how long the plug-in keeps sounding after input stops.",
 	               [](Session &session, const Request &) -> Response {
-		               Response ready = needPlugin(session);
+		               // A tail is a number of samples, which a plug-in cannot
+		               // know before activate() tells it the sample rate.
+		               Response ready = needActive(session, "tail");
 		               if (!ready.ok)
 			               return ready;
 		               const auto *tail = session.pluginExtension<clap_plugin_tail_t>(CLAP_EXT_TAIL);

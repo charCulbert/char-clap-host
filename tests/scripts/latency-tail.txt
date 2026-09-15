@@ -1,12 +1,15 @@
-# What the plug-in reports about its own timing. Latency and voice info live in
-# the activated processor, so the host refuses to read them before activation
-# and the script activates first.
+# What the plug-in reports about its own timing. Latency, tail and voice info
+# live in the activated processor (a tail is a count of samples, which needs a
+# sample rate), so the host refuses to read them before activation and the
+# script activates first.
 load @FIXTURES@/latency.clap
 latency
 activate 48000 512
 latency
 unload
 load @FIXTURES@/tail.clap
+tail
+activate 48000 512
 tail
 unload
 load @FIXTURES@/voice-info.clap

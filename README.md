@@ -267,9 +267,17 @@ works as the extension describes, and relays messages both ways.
 | Plug-in-side extensions called | **23 of 40** |
 | Factories | **2 of 4** — plug-in and preset-discovery |
 
-Not yet called: `posix-fd-support` (the host answers but never delivers the
-callback), `context-menu`, `configurable-audio-ports`, `extensible-audio-ports`,
-`audio-ports-config-info`, `flush-events`, `params-origin`, `resource-directory`,
+**Sleep.** The status `process()` returns is acted on, not only recorded. After
+`CLAP_PROCESS_SLEEP`, after `CLAP_PROCESS_TAIL` once the declared tail has run
+out in silence, or after `CLAP_PROCESS_CONTINUE_IF_NOT_QUIET` with quiet output,
+the host calls `stop_processing()` and stops calling `process()`. The next
+event, audio in an input port, or `clap_host.request_process()` calls
+`start_processing()` and resumes. `status` shows `sleeping`, the last status
+and how many blocks were skipped, so a plug-in's tail handling can be measured
+rather than assumed.
+
+Not yet called: `context-menu`, `configurable-audio-ports`, `extensible-audio-ports`,
+`audio-ports-config-info`, `flush-events`, `params-origin`,
 `undo-context`, `undo-delta`, `tuning`, `gain-adjustment-metering`, and five
 that would need interface the host does not have (`mini-curve-display`,
 `project-location`, `octave-number`, `background-activation`,

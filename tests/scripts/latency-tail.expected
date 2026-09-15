@@ -19,3 +19,52 @@ description: Schroeder room CLAP tail example
 features:
   audio-effect
   reverb
+error: tail is only readable while the plug-in is active; activate first
+sampleRate: 48000
+blockSize: 512
+frames: 96000
+infinite: false
+seconds: 2
+id: com.charlieculbert.wclap-runtime-voice-info-example
+name: WCLAP Runtime Voice Info Example
+vendor: Charlie Culbert
+version: 0.1.0
+description: Switchable mono/four/eight-voice synth
+features:
+  instrument
+  synthesizer
+  stereo
+error: voice info is only readable while the plug-in is active; activate first
+sampleRate: 48000
+blockSize: 512
+voiceCount: 4
+voiceCapacity: 8
+supportsOverlappingNotes: true
+id: com.charlieculbert.wclap-runtime-note-name-example
+name: WCLAP Runtime Note Name Example
+vendor: Charlie Culbert
+version: 0.1.0
+description: Named keys with a dynamic main-thread update
+features:
+  instrument
+  synthesizer
+  stereo
+noteNames:
+  name  port  channel  key
+  Kick  0  -1  36
+  Snare  0  -1  38
+  Closed hi-hat  0  -1  42
+  Open hi-hat  0  -1  46
+  Any key  0  -1  -1
+id: com.charlieculbert.wclap-runtime-remote-controls-example
+name: WCLAP Runtime Remote Controls Example
+vendor: Charlie Culbert
+version: 0.1.0
+description: Two hardware-controller pages and both host callbacks
+features:
+  instrument
+pages:
+  id  section  page  params
+  100  Controls  Page 1  0,1,2,3,-,-,-,-
+  200  Controls  Page 2  2,3,-,-,-,-,-,-
+suggested: -

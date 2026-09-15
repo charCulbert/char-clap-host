@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <climits>
 #include <cstring>
 #include <thread>
 
@@ -44,8 +45,61 @@ bool Engine::start(std::string &error) {
 	buffers_.build(session_.instance(), session_.blockSize());
 	if (!session_.instance().startProcessing(error))
 		return false;
+	sleeping_.store(false, std::memory_order_release);
+	tailRemaining_ = 0;
 	running_.store(true, std::memory_order_release);
 	return true;
+}
+
+bool Engine::blockHasInput(uint32_t frames) const {
+	// "until the next event or variation in audio input": either wakes it.
+	return !inEvents_.empty() || !buffers_.inputsQuiet(frames);
+}
+
+void Engine::applyProcessStatus(int32_t status, uint32_t frames, bool hadInput) {
+	lastStatus_.store(status, std::memory_order_relaxed);
+	bool sleep = false;
+	switch (status) {
+	case CLAP_PROCESS_SLEEP:
+		// "no more processing is required, until the next event or variation
+		// in audio input."
+		sleep = !hadInput;
+		break;
+	case CLAP_PROCESS_CONTINUE_IF_NOT_QUIET:
+		// "keep processing if the output is not quiet."
+		sleep = !hadInput && buffers_.outputsQuiet(frames);
+		break;
+	case CLAP_PROCESS_TAIL: {
+		// "Rely upon the plugin's tail to determine if the plugin should
+		// continue to process." Input restarts the tail; silence runs it down.
+		if (hadInput) {
+			tailRemaining_ = 0;
+			break;
+		}
+		if (tailRemaining_ == 0) {
+			const auto *tail = session_.pluginExtension<clap_plugin_tail_t>(CLAP_EXT_TAIL);
+			const uint32_t declared = tail != nullptr && tail->get != nullptr ? tail->get(session_.plugin()) : 0;
+			// "Any value greater or equal to INT32_MAX implies infinite tail."
+			// UINT64_MAX stands in for never.
+			tailRemaining_ = declared >= static_cast<uint32_t>(INT32_MAX) ? UINT64_MAX : std::max<uint64_t>(declared, 1);
+		}
+		if (tailRemaining_ != UINT64_MAX) {
+			tailRemaining_ = frames >= tailRemaining_ ? 0 : tailRemaining_ - frames;
+			sleep = tailRemaining_ == 0;
+		}
+		break;
+	}
+	default:
+		tailRemaining_ = 0;
+		break;
+	}
+	if (!sleep)
+		return;
+	// A sleeping plug-in is one the host has stopped processing: the same
+	// [audio-thread] pair that brackets every run of blocks, so what the
+	// plug-in sees is a stop, and later a start, not a gap.
+	session_.instance().stopProcessing();
+	sleeping_.store(true, std::memory_order_release);
 }
 
 void Engine::stop() {
@@ -131,6 +185,7 @@ void Engine::scheduleAt(const clap_event_header_t *event, uint64_t frame) {
 	scheduled.bytes.resize(event->size);
 	std::memcpy(scheduled.bytes.data(), event, event->size);
 
+	wakeRequested_.store(true, std::memory_order_release);
 	std::lock_guard<std::mutex> lock(scheduleMutex_);
 	// Inserted in place rather than appended and re-sorted: the list is
 	// already ordered, so this is a walk rather than a sort, and it holds the
@@ -460,6 +515,34 @@ int32_t Engine::processBlock(uint32_t frames, const BlockIo &io) {
 	outEvents_.clear();
 	buildTransportEvent();
 
+	const bool hadInput = blockHasInput(blockFrames);
+	if (sleeping_.load(std::memory_order_acquire)) {
+		if (hadInput || wakeRequested_.exchange(false, std::memory_order_acq_rel)) {
+			std::string error;
+			if (!session_.instance().startProcessing(error)) {
+				session_.validator().error("clap_plugin.start_processing", "refused when waking: " + error);
+				insideProcess_.store(false, std::memory_order_release);
+				return CLAP_PROCESS_ERROR;
+			}
+			sleeping_.store(false, std::memory_order_release);
+			tailRemaining_ = 0;
+		} else {
+			// Asleep and nothing to hear: the block is silence and the plug-in
+			// is not called, which is the whole point of the status it gave.
+			sleptBlocks_.fetch_add(1, std::memory_order_relaxed);
+			if (io.interleavedOutput != nullptr)
+				std::memset(io.interleavedOutput, 0,
+				            static_cast<size_t>(frames) * io.interleavedOutputChannels * sizeof(float));
+			if (io.collected != nullptr)
+				buffers_.appendMainOutput(*io.collected, blockFrames);
+			playhead_ += blockFrames;
+			advanceTransport(blockFrames);
+			insideProcess_.store(false, std::memory_order_release);
+			return CLAP_PROCESS_SLEEP;
+		}
+	}
+	wakeRequested_.store(false, std::memory_order_relaxed);
+
 	clap_process_t process{};
 	process.steady_time = static_cast<int64_t>(playhead_);
 	process.frames_count = blockFrames;
@@ -495,6 +578,8 @@ int32_t Engine::processBlock(uint32_t frames, const BlockIo &io) {
 	}
 
 	session_.absorbOutputEvents(outEvents_, playhead_);
+	if (status != CLAP_PROCESS_ERROR)
+		applyProcessStatus(status, blockFrames, hadInput);
 	if (io.collected != nullptr)
 		buffers_.appendMainOutput(*io.collected, blockFrames);
 	if (io.interleavedOutput != nullptr) {

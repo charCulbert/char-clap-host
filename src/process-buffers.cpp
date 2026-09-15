@@ -1,5 +1,7 @@
 #include "process-buffers.h"
 
+#include "process-check.h"
+
 
 
 #include <algorithm>
@@ -74,6 +76,24 @@ uint32_t ProcessBuffers::mainOutputChannels() const {
 	if (mainOutputIndex_ >= outputPorts_.size())
 		return 0;
 	return outputPorts_[mainOutputIndex_].channelCount;
+}
+
+namespace {
+bool portsQuiet(const std::vector<ProcessBuffers::Port> &ports, uint32_t frames) {
+	for (const auto &port : ports)
+		for (const auto &channel : port.channels)
+			if (!channelIsQuiet(channel.data(), std::min<uint32_t>(frames, static_cast<uint32_t>(channel.size()))))
+				return false;
+	return true;
+}
+} // namespace
+
+bool ProcessBuffers::inputsQuiet(uint32_t frames) const {
+	return portsQuiet(inputPorts_, frames);
+}
+
+bool ProcessBuffers::outputsQuiet(uint32_t frames) const {
+	return portsQuiet(outputPorts_, frames);
 }
 
 void ProcessBuffers::silence(uint32_t frames) {

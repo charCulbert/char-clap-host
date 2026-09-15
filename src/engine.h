@@ -59,6 +59,17 @@ public:
 	// run alongside process().
 	void stop();
 	bool isRunning() const { return running_.load(std::memory_order_acquire); }
+	// True while the plug-in has been put to sleep: it answered SLEEP, or
+	// TAIL and its tail has run out, or CONTINUE_IF_NOT_QUIET with quiet
+	// output, and nothing has arrived since. process() is not called while
+	// this holds; the next event, audio input, or request_process ends it.
+	bool isSleeping() const { return sleeping_.load(std::memory_order_acquire); }
+	// The plug-in asked to be processed again (clap_host.request_process).
+	void wake() { wakeRequested_.store(true, std::memory_order_release); }
+	// The status process() last returned.
+	int32_t lastStatus() const { return lastStatus_.load(std::memory_order_relaxed); }
+	// How many blocks were skipped because the plug-in was asleep.
+	uint64_t sleptBlocks() const { return sleptBlocks_.load(std::memory_order_relaxed); }
 
 	// Runs `work` as the audio thread, with no block under way on any other
 	// thread. This is how a main-thread caller reaches an [audio-thread]
@@ -191,6 +202,11 @@ public:
 	bool runSilentBlock(std::string &error);
 
 private:
+	// Whether a block carried anything the plug-in should hear: events, or
+	// audio in its input ports.
+	bool blockHasInput(uint32_t frames) const;
+	// Applies the status process() returned: enters or leaves the tail, sleeps.
+	void applyProcessStatus(int32_t status, uint32_t frames, bool hadInput);
 	// Takes the process guard for a caller that is not a block, waiting a
 	// bounded time for one under way to finish.
 	bool acquireAudioExclusion();
@@ -224,6 +240,14 @@ private:
 	std::atomic<uint32_t> cachedDialect_{CLAP_NOTE_DIALECT_CLAP};
 	// Guards the one thing CLAP says must never happen twice at once.
 	std::atomic<bool> insideProcess_{false};
+	// Decided on the audio thread from the status codes, read from anywhere.
+	std::atomic<bool> sleeping_{false};
+	std::atomic<bool> wakeRequested_{false};
+	std::atomic<int32_t> lastStatus_{CLAP_PROCESS_CONTINUE};
+	std::atomic<uint64_t> sleptBlocks_{0};
+	// Frames of tail still owed after a TAIL status; only the audio thread
+	// touches it.
+	uint64_t tailRemaining_ = 0;
 	ProcessCheck check_;
 	bool checkBlocks_ = false;
 	std::atomic<bool> running_{false};

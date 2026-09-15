@@ -303,6 +303,7 @@ Value Session::outputLevels() const {
 		peaks.push_back(Value(outputPeaks_[channel].load(std::memory_order_relaxed)));
 	Object out;
 	out["running"] = Value(audioDevice_.isRunning());
+	out["sleeping"] = Value(engine_.isSleeping());
 	out["peaks"] = Value(std::move(peaks));
 	out["midiMessages"] = Value(static_cast<double>(midiMessageCount()));
 	out["midiDropped"] = Value(static_cast<double>(midiDroppedCount()));
@@ -398,8 +399,12 @@ void Session::onRequestProcess() {
 	// 'sleep'." A plug-in that returned CLAP_PROCESS_SLEEP has no other way
 	// back, so the host resumes rather than counting the request.
 	postToMainThread([this] {
-		if (!instance_.isLoaded() || engine_.isRunning())
+		if (!instance_.isLoaded())
 			return;
+		if (engine_.isRunning()) {
+			engine_.wake();
+			return;
+		}
 		std::string error;
 		if (!engine_.start(error))
 			validator_.warn("clap_host.request_process", "could not start processing: " + error);
@@ -729,6 +734,9 @@ Value Session::statusReport() const {
 	}
 	out["active"] = Value(instance_.isActive());
 	out["processing"] = Value(instance_.isProcessing());
+	out["sleeping"] = Value(engine_.isSleeping());
+	out["lastProcessStatus"] = Value(engine_.lastStatus());
+	out["sleptBlocks"] = Value(engine_.sleptBlocks());
 	out["sampleRate"] = Value(instance_.sampleRate());
 	out["blockSize"] = Value(instance_.blockSize());
 	out["stateDirty"] = Value(stateDirty_);

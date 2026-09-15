@@ -26,6 +26,10 @@ public:
 	clap_audio_buffer_t *inputs() { return inputs_.empty() ? nullptr : inputs_.data(); }
 	clap_audio_buffer_t *outputs() { return outputs_.empty() ? nullptr : outputs_.data(); }
 	uint32_t mainOutputChannels() const;
+	// Whether every channel of every input, or of every output, is quiet
+	// over `frames`. What the process status codes mean by "quiet".
+	bool inputsQuiet(uint32_t frames) const;
+	bool outputsQuiet(uint32_t frames) const;
 
 	// Zeroes every input and output for a fresh block.
 	void silence(uint32_t frames);
@@ -42,12 +46,13 @@ public:
 	void writeMainInput(const float *interleaved, uint32_t frames, uint32_t sourceChannels);
 	void readMainOutput(float *interleaved, uint32_t frames, uint32_t destinationChannels) const;
 
-private:
 	struct Port {
 		uint32_t channelCount = 0;
 		std::vector<std::vector<float>> channels;
 		std::vector<float *> pointers;
 	};
+
+private:
 
 	void allocate(std::vector<Port> &ports, std::vector<clap_audio_buffer_t> &buffers, uint32_t maxFrames);
 
