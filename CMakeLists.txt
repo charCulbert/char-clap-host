@@ -91,6 +91,15 @@ add_library(nch-core STATIC
 target_include_directories(nch-core PUBLIC src)
 target_link_libraries(nch-core PUBLIC clap rtaudio rtmidi)
 
+# choc's Linux window layer is GTK-based, and its optional WebView layer adds
+# WebKitGTK.  Keep the platform dependencies here rather than relying on the
+# consuming executable to discover headers and transitive libraries.
+if(UNIX AND NOT APPLE)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0)
+    target_link_libraries(nch-core PUBLIC PkgConfig::GTK3)
+endif()
+
 find_package(Threads REQUIRED)
 target_link_libraries(nch-core PUBLIC Threads::Threads)
 
@@ -123,6 +132,9 @@ if(NCH_WITH_WEBVIEW)
     if(APPLE)
         set_source_files_properties(src/webview.cpp PROPERTIES LANGUAGE OBJCXX)
         target_link_libraries(nch-core PUBLIC "-framework WebKit")
+    elseif(UNIX)
+        pkg_check_modules(WEBKIT2GTK REQUIRED IMPORTED_TARGET webkit2gtk-4.1)
+        target_link_libraries(nch-core PUBLIC PkgConfig::WEBKIT2GTK)
     endif()
     # choc is a header-only library, so its inline functions and function-local
     # statics are emitted as weak symbols. A plug-in that also uses choc has the
