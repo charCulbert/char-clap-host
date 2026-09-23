@@ -151,6 +151,7 @@ const char *kPage = R"(<!doctype html>
 		<button data-part="loop" aria-pressed="false" title="Loop the file">Loop</button>
 		<input type="range" data-part="seek" min="0" max="1" step="any" value="0" aria-label="Position">
 		<span data-part="time">0:00.0 / 0:00.0</span>
+		<span data-part="badge" class="warn" hidden></span>
 		<button data-part="eject" title="Unload the file">✕</button>
 	</div>
 	<p class="hint" data-part="hint">Or drop a <code>.wav</code> on this window.</p>
@@ -167,6 +168,7 @@ const char *kPage = R"(<!doctype html>
 		<button data-part="loop" aria-pressed="false" title="Loop the file">Loop</button>
 		<input type="range" data-part="seek" min="0" max="1" step="any" value="0" aria-label="Position">
 		<span data-part="time">0:00.0 / 0:00.0</span>
+		<span data-part="badge" class="warn" hidden></span>
 		<button data-part="eject" title="Unload the file">✕</button>
 	</div>
 	<p class="hint" data-part="hint">Or drop a <code>.mid</code> on this window.</p>
@@ -587,10 +589,27 @@ const char *kPage = R"(<!doctype html>
 			seeking = false;
 		});
 
+		const badge = part("badge");
+		let current = null;
+
 		return {
 			report: element.dataset.report,
-			show(file) {
+			name,
+			file: () => current,
+			// `streamRate` is what the device runs at. A WAV at another rate is
+			// played sample for sample, so it comes out at the wrong speed and
+			// pitch; the badge says so where the file is, rather than once in
+			// the status line.
+			show(file, streamRate) {
+				current = file;
 				transport.hidden = !file;
+				const mismatch = !!(file && file.sampleRate && streamRate && file.sampleRate !== streamRate);
+				badge.hidden = !mismatch;
+				if (mismatch) {
+					badge.textContent = "⚠ " + file.sampleRate / 1000 + " kHz";
+					badge.title = "This file is " + file.sampleRate + " Hz and the audio runs at " + streamRate +
+						" Hz, so it plays at the wrong speed and pitch.";
+				}
 				hint.hidden = !!file;
 				const path = file ? file.path : "";
 				if (path !== shownPath) {
@@ -631,7 +650,7 @@ const char *kPage = R"(<!doctype html>
 		showDevices(data.device, data.inputFile, data.audioLoad, data.underruns);
 		showGain(data.gainDb ?? 0);
 		for (const player of players)
-			player.show(data[player.report]);
+			player.show(data[player.report], data.device && data.device.sampleRate);
 
 		showOutput(data.running ? data.peaks : null);
 		showInput(data.running ? data.inputPeaks : null);
@@ -652,6 +671,21 @@ const char *kPage = R"(<!doctype html>
 			pollActivity();
 		}
 	}
+
+	// Space plays or pauses whatever files are loaded, together: if any is
+	// playing, everything stops; otherwise everything loaded plays. Not while
+	// a control has the keyboard, where space already means something.
+	document.addEventListener("keydown", event => {
+		if (event.key !== " " || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return;
+		if (event.target.closest("button, input, select, textarea, compost-knob, compost-button, compost-select"))
+			return;
+		const loaded = players.filter(player => player.file());
+		if (loaded.length === 0) return;
+		event.preventDefault();
+		const playing = loaded.some(player => player.file().playing);
+		for (const player of loaded)
+			command(player.name + ".play " + (playing ? "off" : "on"));
+	});
 
 	const gain = document.getElementById("gain");
 	const gainReading = document.getElementById("gainReading");

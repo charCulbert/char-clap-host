@@ -150,7 +150,8 @@ the output in place of what it made, crossfading over one block. Under
 (`audio.input.recent`) plays in place of the device input, with play/pause
 (`audio.input.play`), **Loop** (`audio.input.loop`), a position bar
 (`audio.input.seek`) and ✕ (`audio.input clear`) to go back to the device.
-**MIDI file** is the same player for a `.mid` (`midi.file`,
+Space plays or pauses whatever files are loaded, and a WAV at another rate
+than the stream shows a ⚠ with its rate. **MIDI file** is the same player for a `.mid` (`midi.file`,
 `midi.file.play`, `midi.file.loop`, `midi.file.seek`, `midi.file.recent`): it
 plays the file into the plug-in's first note port in its own dialect, ends the
 notes it started whenever it pauses, seeks or loops, and sets the transport to
