@@ -111,6 +111,15 @@ void setPanelHandler(std::function<void()>) {
 	// No menu bar here yet; the `panel` command opens the window.
 }
 
+void setPlayAudioFileHandler(std::function<void(const std::string &)>) {
+	// No .wav drops here yet; `audio.input <file.wav>` does the same thing.
+}
+
+std::string chooseFile(const std::string &, const std::vector<std::string> &) {
+	// No open dialog on this window layer yet; `audio.input` takes a path.
+	return {};
+}
+
 void setQuitHandler(std::function<void()> handler) {
 	quitHandler() = std::move(handler);
 }

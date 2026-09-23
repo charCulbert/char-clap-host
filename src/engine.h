@@ -101,9 +101,33 @@ public:
 	void scheduleLive(const clap_event_header_t *event, std::chrono::steady_clock::time_point arrival);
 	size_t scheduledCount() const;
 
-	// The audio fed to the main input port, consumed from the playhead.
-	void setInput(AudioData input);
-	void clearInput();
+	// --- the input file ---------------------------------------------------
+	// A file played into the main input in place of the device's; with no
+	// plug-in loaded it goes straight to the output. It starts playing from
+	// the top. Swapped between blocks, so it is safe while a stream runs;
+	// false if a block would not yield in time. An empty file clears it.
+	bool setInput(AudioData input, bool loop, std::string path);
+	bool clearInput();
+	// Main thread only: what was loaded, empty with nothing.
+	const std::string &inputPath() const { return inputPath_; }
+	uint64_t inputFrames() const { return inputFrames_; }
+	double inputSampleRate() const { return inputSampleRate_; }
+	// Paused, the file holds its place and the input is silence -- not the
+	// device, which a loaded file stands in for either way. A file without
+	// loop pauses itself at its end and rewinds, ready to play again.
+	void setInputPlaying(bool playing) { inputPlaying_.store(playing, std::memory_order_release); }
+	bool isInputPlaying() const { return inputPlaying_.load(std::memory_order_acquire); }
+	void setInputLoop(bool loop) { inputLoop_.store(loop, std::memory_order_release); }
+	bool inputLoops() const { return inputLoop_.load(std::memory_order_acquire); }
+	// Moves the file to `frame`, between blocks. False if one would not yield.
+	bool seekInput(uint64_t frame);
+	// Where the file is, as of the last block.
+	uint64_t inputPosition() const { return inputPositionShown_.load(std::memory_order_relaxed); }
+
+	// Keeps the input -- the device's or the file's -- out of the signal
+	// while the stream stays up.
+	void setInputMuted(bool muted) { inputMuted_.store(muted, std::memory_order_release); }
+	bool isInputMuted() const { return inputMuted_.load(std::memory_order_acquire); }
 
 	// Renders `frames` frames, appending the main output to `out`. Runs on the
 	// calling thread with the audio thread role.
@@ -220,6 +244,7 @@ private:
 	void markBlockStart();
 	void collectBlockEvents(uint32_t frames);
 	void advanceTransport(uint32_t frames);
+	void advanceInput(uint32_t frames);
 
 	struct ScheduledEvent {
 		uint64_t frame = 0;
@@ -232,8 +257,17 @@ private:
 	EventList inEvents_;
 	EventList outEvents_;
 	clap_event_transport_t transportEvent_{};
+	// The input file. Read and advanced only under the process guard, so
+	// swapping or seeking it takes the guard too.
 	AudioData input_;
 	uint64_t inputPosition_ = 0;
+	std::atomic<uint64_t> inputPositionShown_{0};
+	std::atomic<bool> inputPlaying_{false};
+	std::atomic<bool> inputLoop_{false};
+	std::string inputPath_;
+	uint64_t inputFrames_ = 0;
+	double inputSampleRate_ = 0.0;
+	std::atomic<bool> inputMuted_{false};
 	uint64_t playhead_ = 0;
 	uint32_t deviceOutputChannels_ = 2;
 	uint32_t deviceInputChannels_ = 0;
@@ -245,6 +279,8 @@ private:
 	std::atomic<uint32_t> cachedDialect_{CLAP_NOTE_DIALECT_CLAP};
 	// Guards the one thing CLAP says must never happen twice at once.
 	std::atomic<bool> insideProcess_{false};
+	// Set while the host holds that guard for itself between blocks.
+	std::atomic<bool> hostExclusive_{false};
 	// Decided on the audio thread from the status codes, read from anywhere.
 	std::atomic<bool> sleeping_{false};
 	std::atomic<bool> wakeRequested_{false};

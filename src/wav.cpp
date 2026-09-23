@@ -268,4 +268,16 @@ bool writeWav(const std::string &path, const AudioData &data, SampleFormat forma
 	return true;
 }
 
+Value describeAudio(const AudioData &audio) {
+	const AudioStats stats = measure(audio);
+	Object out;
+	out["frames"] = Value(static_cast<uint64_t>(audio.frameCount()));
+	out["channels"] = Value(audio.channelCount());
+	out["sampleRate"] = Value(audio.sampleRate);
+	out["peak"] = Value(stats.peak);
+	out["rms"] = Value(stats.rms);
+	out["silent"] = Value(stats.silent);
+	return Value(std::move(out));
+}
+
 } // namespace nch

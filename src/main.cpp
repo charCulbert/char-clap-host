@@ -110,11 +110,14 @@ int main(int argc, char **argv) {
 	// a test out of process.
 	if (argc > 0 && argv[0] != nullptr)
 		options.hostPath = argv[0];
-
 	// With no terminal, no plug-in, no script and no commands, there is
 	// nothing this run could be except a launch from the Finder.
-	options.openWindowWhenIdle = isatty(fileno(stdin)) == 0 && options.pluginPath.empty() &&
-	                             scriptPath.empty() && immediateCommands.empty();
+	const bool interactive = isatty(fileno(stdin)) != 0;
+	options.openWindowWhenIdle =
+	    !interactive && options.pluginPath.empty() && scriptPath.empty() && immediateCommands.empty();
+
+	options.recentFilesPath = nch::RecentFiles::defaultStorePath();
+	options.interactive = interactive && scriptPath.empty();
 
 	Session session(options);
 	session.validator().setLive(options.strict);
@@ -151,7 +154,6 @@ int main(int argc, char **argv) {
 	// is a one-shot: do not wait on stdin.
 	// A run that was given its commands up front and has no terminal is a
 	// script or a CI job: its exit status is the verdict.
-	const bool interactive = isatty(fileno(stdin)) != 0;
 	if (!immediateCommands.empty() && !interactive)
 		return exitStatus(session, options);
 
@@ -206,6 +208,12 @@ int main(int argc, char **argv) {
 	nch::setLoadPluginHandler([&session](const std::string &path) {
 		session.postLine("load \"" + path + "\"");
 		session.postLine("gui.open");
+	});
+
+	// A .wav dropped on a window plays into the plug-in, round and round,
+	// which is what auditioning an effect on a loop wants.
+	nch::setPlayAudioFileHandler([&session](const std::string &path) {
+		session.postLine("audio.input \"" + path + "\" --loop");
 	});
 
 	nch::setSettingsHandler([&session] {

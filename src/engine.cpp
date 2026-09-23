@@ -21,20 +21,27 @@ clap_sectime toSecTime(double seconds) {
 	return static_cast<clap_sectime>(seconds * CLAP_SECTIME_FACTOR);
 }
 
-// With no plug-in processing, the device hears its own input: a host with
-// nothing loaded is a wire, not a mute. A mono input feeds every output.
-void passThrough(const Engine::BlockIo &io, uint32_t frames) {
+// Writes the device output from a source of `sources` channels, read through
+// `sample(channel, frame)`. A mono source feeds every output; an output the
+// source has no channel for is silence.
+template <typename Sample>
+void writeOutput(const Engine::BlockIo &io, uint32_t frames, uint32_t sources, Sample sample) {
 	if (io.interleavedOutput == nullptr)
 		return;
 	const uint32_t outputs = io.interleavedOutputChannels;
-	const uint32_t inputs = io.interleavedInput != nullptr ? io.interleavedInputChannels : 0;
 	for (uint32_t frame = 0; frame < frames; ++frame) {
 		for (uint32_t channel = 0; channel < outputs; ++channel) {
-			const uint32_t source = inputs == 1 ? 0 : channel;
-			io.interleavedOutput[frame * outputs + channel] =
-			    source < inputs ? io.interleavedInput[frame * inputs + source] : 0.0f;
+			const uint32_t source = sources == 1 ? 0 : channel;
+			io.interleavedOutput[frame * outputs + channel] = source < sources ? sample(source, frame) : 0.0f;
 		}
 	}
+}
+
+// With nothing processing, the device output is its input.
+void passThrough(const Engine::BlockIo &io, uint32_t frames, const float *input) {
+	const uint32_t channels = input != nullptr ? io.interleavedInputChannels : 0;
+	writeOutput(io, frames, channels,
+	            [&](uint32_t channel, uint32_t frame) { return input[frame * channels + channel]; });
 }
 
 } // namespace
@@ -135,6 +142,9 @@ void Engine::stop() {
 }
 
 bool Engine::acquireAudioExclusion() {
+	// Said before trying, so a device block that loses the race knows it lost
+	// to the host between blocks and not to a second audio thread.
+	hostExclusive_.store(true, std::memory_order_release);
 	// A block is short; a few hundred milliseconds is far longer than any
 	// legitimate one and short enough that a stuck plug-in still fails fast.
 	const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
@@ -142,14 +152,17 @@ bool Engine::acquireAudioExclusion() {
 		bool expected = false;
 		if (insideProcess_.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
 			return true;
-		if (std::chrono::steady_clock::now() >= deadline)
+		if (std::chrono::steady_clock::now() >= deadline) {
+			hostExclusive_.store(false, std::memory_order_release);
 			return false;
+		}
 		std::this_thread::yield();
 	}
 }
 
 void Engine::releaseAudioExclusion() {
 	insideProcess_.store(false, std::memory_order_release);
+	hostExclusive_.store(false, std::memory_order_release);
 }
 
 bool Engine::runAsAudioThread(const std::function<void()> &work) {
@@ -168,13 +181,17 @@ void Engine::resetPlayhead() {
 	// plug-in has to be told; otherwise anything deriving time from the deltas
 	// sees a negative one. reset is [audio-thread], and not concurrent with
 	// process(), so it waits its turn with the device callback.
-	if (session_.isActive() && session_.plugin() != nullptr) {
-		const clap_plugin_t *plugin = session_.plugin();
-		if (!runAsAudioThread([plugin] { plugin->reset(plugin); }))
-			session_.validator().error("clap_plugin.reset", "a block did not finish in time; reset was skipped");
-	}
+	// The input file rewinds with it, under the same guard as its reader.
+	const clap_plugin_t *plugin = session_.isActive() ? session_.plugin() : nullptr;
+	const bool reset = runAsAudioThread([this, plugin] {
+		if (plugin != nullptr)
+			plugin->reset(plugin);
+		inputPosition_ = 0;
+		inputPositionShown_.store(0, std::memory_order_relaxed);
+	});
+	if (!reset && plugin != nullptr)
+		session_.validator().error("clap_plugin.reset", "a block did not finish in time; reset was skipped");
 	playhead_ = 0;
-	inputPosition_ = 0;
 	transport_.songBeats = 0.0;
 	transport_.songSeconds = 0.0;
 	activeNotes_.clear(); // reset "kills all voices"
@@ -218,14 +235,54 @@ size_t Engine::scheduledCount() const {
 	return schedule_.size();
 }
 
-void Engine::setInput(AudioData input) {
-	input_ = std::move(input);
+bool Engine::setInput(AudioData input, bool loop, std::string path) {
+	// Swapped between blocks, never under one; the old file is freed here on
+	// the calling thread rather than on the audio thread.
+	if (input.frameCount() == 0) {
+		input = {};
+		path.clear();
+	}
+	const uint64_t frames = input.frameCount();
+	const double sampleRate = input.sampleRate;
+	if (!acquireAudioExclusion())
+		return false;
+	std::swap(input_, input);
 	inputPosition_ = 0;
+	inputPositionShown_.store(0, std::memory_order_relaxed);
+	inputLoop_.store(loop, std::memory_order_release);
+	inputPlaying_.store(frames != 0, std::memory_order_release);
+	releaseAudioExclusion();
+	inputPath_ = std::move(path);
+	inputFrames_ = frames;
+	inputSampleRate_ = sampleRate;
+	return true;
 }
 
-void Engine::clearInput() {
-	input_ = {};
-	inputPosition_ = 0;
+bool Engine::clearInput() {
+	return setInput({}, false, {});
+}
+
+bool Engine::seekInput(uint64_t frame) {
+	if (!acquireAudioExclusion())
+		return false;
+	inputPosition_ = std::min<uint64_t>(frame, input_.frameCount());
+	inputPositionShown_.store(inputPosition_, std::memory_order_relaxed);
+	releaseAudioExclusion();
+	return true;
+}
+
+void Engine::advanceInput(uint32_t frames) {
+	if (input_.channels.empty() || !inputPlaying_.load(std::memory_order_acquire))
+		return;
+	const uint64_t length = input_.frameCount();
+	inputPosition_ += frames;
+	if (inputLoop_.load(std::memory_order_acquire)) {
+		inputPosition_ %= length;
+	} else if (inputPosition_ >= length) {
+		inputPosition_ = 0;
+		inputPlaying_.store(false, std::memory_order_release);
+	}
+	inputPositionShown_.store(inputPosition_, std::memory_order_relaxed);
 }
 
 namespace {
@@ -491,29 +548,45 @@ int32_t Engine::processBlock(uint32_t frames, AudioData *output) {
 }
 
 int32_t Engine::processBlock(uint32_t frames, const BlockIo &io) {
-	if (!isRunning() || !session_.isLoaded()) {
-		passThrough(io, frames);
-		return CLAP_PROCESS_ERROR;
-	}
+	// A muted input is no input, whichever the source.
+	const bool inputMuted = inputMuted_.load(std::memory_order_acquire);
+	const float *deviceInput = inputMuted ? nullptr : io.interleavedInput;
 
 	// "the host must guarantee that single plugin instance will not be two
 	// audio-threads at the same time." A render typed at the prompt while a
 	// device stream is live would be exactly that.
 	bool expected = false;
 	if (!insideProcess_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
-		// stop() holds the guard while it winds the plug-in down; a device
-		// block arriving then is not a second audio thread, just early.
-		if (isRunning())
+		// The host holds the guard between blocks to stop, reset or swap the
+		// input file; a device block arriving then is early, not a second
+		// audio thread. Either way it is silence: which input it should hear
+		// is exactly what may be changing.
+		if (isRunning() && !hostExclusive_.load(std::memory_order_acquire))
 			session_.validator().error("clap_plugin.process",
 			                           "two threads tried to process the same plug-in at once");
-		passThrough(io, frames);
+		passThrough(io, frames, nullptr);
 		return CLAP_PROCESS_ERROR;
 	}
-	// Checked again under the guard: stop() may have landed between the
-	// check above and taking it, and then the plug-in must not be called.
+	// A loaded file stands in for the device whether or not it is playing;
+	// paused or muted, the input is silence.
+	const bool fromFile = !input_.channels.empty();
+	const bool fileAudible = fromFile && !inputMuted && inputPlaying_.load(std::memory_order_acquire);
+	const bool loop = inputLoop_.load(std::memory_order_acquire);
+
+	// Nothing processing: the host is a wire from its input to its output,
+	// not a mute. Checked under the guard, so a stop() that lands in between
+	// cannot let the plug-in be called.
 	if (!isRunning() || !session_.isLoaded()) {
+		if (fileAudible)
+			writeOutput(io, frames, input_.channelCount(), [this, loop](uint32_t channel, uint32_t frame) {
+				const uint64_t length = input_.frameCount();
+				const uint64_t index = loop ? (inputPosition_ + frame) % length : inputPosition_ + frame;
+				return index < length ? input_.channels[channel][index] : 0.0f;
+			});
+		else
+			passThrough(io, frames, fromFile ? nullptr : deviceInput);
+		advanceInput(frames);
 		insideProcess_.store(false, std::memory_order_release);
-		passThrough(io, frames);
 		return CLAP_PROCESS_ERROR;
 	}
 
@@ -525,13 +598,13 @@ int32_t Engine::processBlock(uint32_t frames, const BlockIo &io) {
 		session_.validator().warn("clap_plugin.process",
 		                          "a block larger than the activated maximum was clamped");
 
+	// A muted file keeps moving, the way a tape would; a paused one does not.
 	buffers_.silence(blockFrames);
-	if (io.interleavedInput != nullptr) {
-		buffers_.writeMainInput(io.interleavedInput, blockFrames, io.interleavedInputChannels);
-	} else if (!input_.channels.empty()) {
-		buffers_.fillMainInput(input_, inputPosition_, blockFrames);
-		inputPosition_ += blockFrames;
-	}
+	if (fileAudible)
+		buffers_.fillMainInput(input_, inputPosition_, blockFrames, loop);
+	else if (!fromFile && deviceInput != nullptr)
+		buffers_.writeMainInput(deviceInput, blockFrames, io.interleavedInputChannels);
+	advanceInput(blockFrames);
 	collectBlockEvents(blockFrames);
 	outEvents_.clear();
 	buildTransportEvent();

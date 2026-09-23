@@ -67,9 +67,9 @@ void Session::registerDeviceCommands() {
 	commands_.add({"input.mute", "[on|off|toggle]", "Keep the device input out of the signal.",
 	               [](Session &session, const Request &request) -> Response {
 		               bool muted = false;
-		               if (!switchArg(request, session.isInputMuted(), muted))
+		               if (!switchArg(request, session.engine().isInputMuted(), muted))
 			               return Response::failure("usage: input.mute [on|off|toggle]");
-		               session.setInputMuted(muted);
+		               session.engine().setInputMuted(muted);
 		               Object out;
 		               out["inputMuted"] = Value(muted);
 		               return Response::success(Value(std::move(out)));

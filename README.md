@@ -139,7 +139,16 @@ the default output and input -- and closes it again; the window starts with it
 off, so launching never makes a sound or opens a microphone. **Mute input**
 (`input.mute`) keeps the input out of the signal while the stream stays up.
 **Bypass** (`bypass`) keeps the plug-in processing but sends its main input to
-the output in place of what it made, crossfading over one block. Opening the
+the output in place of what it made, crossfading over one block. Under
+**Input file** is a small player: **Choose…** (`audio.input choose --loop`), a
+`.wav` dropped on the window, or one from **Recent files**
+(`audio.input.recent`) plays in place of the device input, with play/pause
+(`audio.input.play`), **Loop** (`audio.input.loop`), a position bar
+(`audio.input.seek`) and ✕ (`audio.input clear`) to go back to the device.
+Files played by a person -- at a prompt, or with the window open -- are
+remembered between runs; a script's are not. A file is played sample for
+sample, so one at another rate than the stream plays at the wrong speed, and
+the reply says so. Opening the
 window opens every MIDI input, because a window means a person; a command line
 gets nothing unless it asks. With no plug-in loaded a running stream passes its
 input straight through, and unloading leaves the stream running, so the next
@@ -199,7 +208,7 @@ file can be inspected. The shell is the graph.
 | --- | --- |
 | Plug-in | `load` `unload` `plugins` `info` `extensions` `status` |
 | Parameters | `params.list` `param.get` `param.set` `param.steps` `params.dump` `param.indication` |
-| Audio | `activate` `deactivate` `render` `process` `engine.start` `engine.stop` `audio.input` `playhead` `bypass` |
+| Audio | `activate` `deactivate` `render` `process` `engine.start` `engine.stop` `audio.input` `audio.input.play` `audio.input.loop` `audio.input.seek` `audio.input.recent` `playhead` `bypass` |
 | Notes and MIDI | `note.on` `note.off` `notes` `midi` `cc` `midi.load` `events` |
 | Transport | `tempo` `timesig` `transport` |
 | State and presets | `state.save` `state.load` `state.info` `presets.list` `preset.load` |

@@ -111,8 +111,8 @@ void ProcessBuffers::silence(uint32_t frames) {
 		buffer.constant_mask = 0;
 }
 
-void ProcessBuffers::fillMainInput(const AudioData &source, uint64_t sourceFrame, uint32_t frames) {
-	if (mainInputIndex_ >= inputPorts_.size() || source.channels.empty())
+void ProcessBuffers::fillMainInput(const AudioData &source, uint64_t sourceFrame, uint32_t frames, bool loop) {
+	if (mainInputIndex_ >= inputPorts_.size() || source.frameCount() == 0)
 		return;
 	Port &port = inputPorts_[mainInputIndex_];
 	const uint32_t available = source.frameCount();
@@ -123,7 +123,7 @@ void ProcessBuffers::fillMainInput(const AudioData &source, uint64_t sourceFrame
 		if (sourceChannel >= source.channels.size())
 			continue;
 		for (uint32_t frame = 0; frame < frames; ++frame) {
-			const uint64_t index = sourceFrame + frame;
+			const uint64_t index = loop ? (sourceFrame + frame) % available : sourceFrame + frame;
 			port.channels[channel][frame] = index < available ? source.channels[sourceChannel][index] : 0.0f;
 		}
 	}

@@ -40,37 +40,40 @@ const char *kPage = R"(<!doctype html>
 	}
 	#settings:hover { color: CanvasText; }
 
-	/* Aligned on the baseline of the meter's channel labels, so the lamp sits
-	   with the bars rather than floating against the meter's own heading. */
-	.activity { display: flex; align-items: flex-end; gap: 12px; margin-bottom: 18px; }
-	.lampRow { display: flex; align-items: center; gap: 6px; padding-bottom: 1.6em; }
+	/* The meter on the left; what feeds it and where it goes on the right. */
+	.audio { display: flex; align-items: flex-end; gap: 16px; }
+	.audio > .controls { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 	/* A custom element's own :host display beats the UA rule for [hidden], so
 	   hiding one takes saying so. */
 	compost-meter[hidden] { display: none; }
 	compost-meter {
-		--meter-length: 2.2em;
-		--meter-channel-width: 0.9em;
+		--meter-length: 8em;
+		--meter-channel-width: 1.1em;
 		--compost-accent: #35d07f;
 	}
+	.row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+	.row > .grow { flex: 1; min-width: 0; }
+	.device { color: GrayText; overflow-wrap: anywhere; }
+	button[aria-pressed="true"] { background: Highlight; color: HighlightText; border-color: Highlight; }
+	/* The player: a transport row under a row for choosing what it plays. */
+	.player { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+	#seek { flex: 1; min-width: 0; }
+	#time { font-variant-numeric: tabular-nums; color: GrayText; white-space: nowrap; }
+	#recent { flex: 1; min-width: 0; }
+	.player button { flex: none; }
 	.lamp {
 		flex: none; width: 6px; height: 6px; border-radius: 50%;
 		border: 1px solid GrayText; background: transparent;
 		transition: background-color 120ms linear;
 	}
 	.lamp.lit { background: #35d07f; border-color: #35d07f; }
-	.lampLabel { color: GrayText; }
-	/* The audio switches sit at the far end of the meter row: all of them are
-	   about what reaches the output, which is what the meter shows. */
-	.switches { display: flex; gap: 6px; margin-left: auto; }
-	.switches button[aria-pressed="true"] { background: Highlight; color: HighlightText; border-color: Highlight; }
-	.silent { color: GrayText; }
 	h2 { font-size: 13px; font-weight: 600; margin: 18px 0 8px; }
 	h3 { font-size: 12px; font-weight: 600; margin: 14px 0 6px; color: GrayText; }
 	/* One grid for every control, so knobs, switches and choices line up on the
 	   same rhythm and a wide control takes more columns rather than the window. */
 	.knobs { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 14px 10px; align-items: start; }
 	.cell { display: flex; flex-direction: column; gap: 3px; min-width: 0; align-items: center; text-align: center; }
-	.choiceCell { grid-column: span 2; align-items: stretch; text-align: left; }
+	.wideCell { grid-column: span 2; align-items: stretch; text-align: left; }
 	compost-select { width: 100%; }
 	/* Sized to its column like everything else, and its label kept inside it:
 	   a plug-in may call a switch anything, including one long word. */
@@ -114,19 +117,40 @@ const char *kPage = R"(<!doctype html>
 	<button id="settings" title="Audio and MIDI settings" aria-label="Audio and MIDI settings">⚙</button>
 </div>
 
-<div class="activity">
+<div class="audio">
 	<compost-meter id="meter" label="Output" min="-60" max="0" curve="log"></compost-meter>
-	<span class="silent" id="silent">Audio is off.</span>
-	<div class="switches">
-		<button id="inputMute" aria-pressed="false" title="Keep the audio input out of the signal">Mute input</button>
-		<button id="bypass" aria-pressed="false" title="Hear the input in place of the plug-in" hidden>Bypass</button>
-		<button id="power" aria-pressed="false" title="Turn the audio on or off">⏻ Power</button>
+	<div class="controls">
+		<div class="row">
+			<button id="power" aria-pressed="false" title="Turn the audio on or off">⏻ Power</button>
+			<button id="bypass" aria-pressed="false" title="Hear the input in place of the plug-in" hidden>Bypass</button>
+			<span class="device grow" id="output">Audio is off.</span>
+		</div>
+		<div class="row">
+			<button id="inputMute" aria-pressed="false" title="Keep the input out of the signal">Mute input</button>
+			<span class="device grow" id="input">&nbsp;</span>
+		</div>
 	</div>
 </div>
 
+<h2>Input file</h2>
+<div class="player">
+	<div class="row">
+		<button id="choose" title="Play a WAV file in place of the device input">Choose…</button>
+		<select id="recent" title="Play a file you played before"><option value="">Recent files</option></select>
+	</div>
+	<div class="row" id="transport" hidden>
+		<button id="play" aria-pressed="false" title="Play or pause">▶</button>
+		<button id="loop" aria-pressed="false" title="Loop the file">Loop</button>
+		<input type="range" id="seek" min="0" max="1" step="any" value="0" aria-label="Position">
+		<span id="time">0:00.0 / 0:00.0</span>
+		<button id="eject" title="Stop the file and go back to the device input">✕</button>
+	</div>
+	<p class="hint" id="fileHint">Or drop a <code>.wav</code> on this window.</p>
+</div>
+
 <div id="empty" hidden>
-	<p class="empty">Drop a <code>.clap</code> on this window, or choose one from
-	the File menu.</p>
+	<p class="empty">Drop a <code>.clap</code> on this window to load it, or choose
+	one from the File menu.</p>
 </div>
 
 <div id="loaded" hidden>
@@ -421,7 +445,6 @@ const char *kPage = R"(<!doctype html>
 	// except a reply, and a meter that misses a frame costs nothing.
 	const midiLamp = document.getElementById("midiLamp");
 	const meter = document.getElementById("meter");
-	const silent = document.getElementById("silent");
 	const channelNames = ["L", "R", "3", "4", "5", "6", "7", "8"];
 	let lastMidiCount = null;
 	let litUntil = 0;
@@ -453,6 +476,67 @@ const char *kPage = R"(<!doctype html>
 		});
 	}
 
+	const powerButton = document.getElementById("power");
+	const bypassButton = document.getElementById("bypass");
+	const inputMuteButton = document.getElementById("inputMute");
+	const outputLine = document.getElementById("output");
+	const inputLine = document.getElementById("input");
+	const transport = document.getElementById("transport");
+	const playButton = document.getElementById("play");
+	const loopButton = document.getElementById("loop");
+	const seek = document.getElementById("seek");
+	const time = document.getElementById("time");
+	const recent = document.getElementById("recent");
+	const fileHint = document.getElementById("fileHint");
+	// While a thumb is held, the poll leaves it where the hand put it.
+	let seeking = false;
+	// The list is read again whenever the file changes, whoever changed it: a
+	// .wav dropped on the window, or `audio.input` typed at the prompt.
+	let shownPath = null;
+
+	// Minutes, seconds and tenths: a one-shot loop is often under a second.
+	function clock(seconds) {
+		const tenths = Math.max(0, Math.floor((seconds || 0) * 10));
+		const whole = Math.floor(tenths / 10);
+		return Math.floor(whole / 60) + ":" + String(whole % 60).padStart(2, "0") + "." + (tenths % 10);
+	}
+
+	function showDevices(device, file) {
+		outputLine.textContent = device && device.running
+			? [device.device, Math.round(device.sampleRate / 100) / 10 + " kHz", device.blockSize + " frames"].join(" · ")
+			: "Audio is off.";
+		inputLine.textContent = file ? "Playing " + file.name + " in place of the input."
+			: device && device.running ? (device.inputDevice || "No input.") : " ";
+	}
+
+	function showFile(file) {
+		transport.hidden = !file;
+		fileHint.hidden = !!file;
+		if (!file) return;
+		playButton.setAttribute("aria-pressed", String(file.playing));
+		playButton.textContent = file.playing ? "❚❚" : "▶";
+		loopButton.setAttribute("aria-pressed", String(file.loop));
+		seek.max = String(file.seconds || 1);
+		if (!seeking) seek.value = String(file.position);
+		time.textContent = clock(file.position) + " / " + clock(file.seconds);
+	}
+
+	async function showRecent() {
+		let data;
+		try {
+			data = await run("audio.input.recent");
+		} catch {
+			return;
+		}
+		recent.replaceChildren(new Option("Recent files", ""));
+		for (const file of data.files || []) {
+			const option = new Option(file.name, file.path);
+			option.title = file.path;
+			recent.append(option);
+		}
+		recent.disabled = !(data.files || []).length;
+	}
+
 	async function pollActivity() {
 		let data;
 		try {
@@ -466,34 +550,60 @@ const char *kPage = R"(<!doctype html>
 		lastMidiCount = data.midiMessages;
 		midiLamp.classList.toggle("lit", now < litUntil);
 
-		// Read back every poll, so `power`, `input.mute` or `bypass` typed at the prompt
-		// shows here too.
+		// Everything here shows what `meters` says rather than what was last
+		// clicked, so a command typed at the prompt shows here too.
 		powerButton.setAttribute("aria-pressed", String(!!data.running));
 		inputMuteButton.setAttribute("aria-pressed", String(!!data.inputMuted));
 		bypassButton.setAttribute("aria-pressed", String(!!data.bypassed));
+		showDevices(data.device, data.inputFile);
+		showFile(data.inputFile);
+		const path = data.inputFile ? data.inputFile.path : "";
+		if (path !== shownPath) {
+			shownPath = path;
+			showRecent();
+		}
 
 		meter.hidden = !data.running;
-		silent.hidden = !!data.running;
 		if (data.running)
 			showLevels(data.peaks || []);
 	}
 
-
 	setInterval(pollActivity, 60);
 
-	const powerButton = document.getElementById("power");
-	const bypassButton = document.getElementById("bypass");
-	const inputMuteButton = document.getElementById("inputMute");
-	for (const [button, command] of [[powerButton, "power"], [bypassButton, "bypass"], [inputMuteButton, "input.mute"]]) {
-		button.addEventListener("click", async () => {
-			try {
-				const data = await run(command + " toggle");
-				button.setAttribute("aria-pressed", String(!!(data.power ?? data.bypassed ?? data.inputMuted)));
-			} catch (error) {
-				status.textContent = String(error);
-			}
-		});
+	// Each control is one command; the next poll shows where it landed.
+	async function command(line) {
+		try {
+			const data = await run(line);
+			status.textContent = data.warning || " ";
+			return data;
+		} catch (error) {
+			status.textContent = String(error);
+			return null;
+		} finally {
+			pollActivity();
+		}
 	}
+
+	powerButton.addEventListener("click", () => command("power toggle"));
+	bypassButton.addEventListener("click", () => command("bypass toggle"));
+	inputMuteButton.addEventListener("click", () => command("input.mute toggle"));
+	playButton.addEventListener("click", () => command("audio.input.play toggle"));
+	loopButton.addEventListener("click", () => command("audio.input.loop toggle"));
+	document.getElementById("eject").addEventListener("click", () => command("audio.input clear"));
+	document.getElementById("choose").addEventListener("click", () => command("audio.input choose --loop"));
+	recent.addEventListener("change", () => {
+		const path = recent.value;
+		recent.value = "";
+		if (path) command("audio.input " + quoted(path) + " --loop");
+	});
+	seek.addEventListener("input", () => {
+		seeking = true;
+		time.textContent = clock(Number(seek.value)) + " / " + clock(Number(seek.max));
+	});
+	seek.addEventListener("change", async () => {
+		await command("audio.input.seek " + Number(seek.value));
+		seeking = false;
+	});
 
 	document.getElementById("settings").addEventListener("click", async () => {
 		try {
@@ -581,8 +691,8 @@ bool PluginPanel::open(std::string &error) {
 	}
 	window_->attachChild(webview_.viewHandle());
 	window_->acceptDropsAboveChild();
-	// A window means a person, and a person expects sound.
-	session_.openDefaultDevices();
+	// A window means a person, and a person expects a keyboard to play it.
+	session_.openEveryMidiInput();
 	return true;
 }
 

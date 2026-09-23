@@ -35,9 +35,9 @@ public:
 	void silence(uint32_t frames);
 
 	// Copies `frames` from `source` (starting at `sourceFrame`) into the main
-	// input port, wrapping mono to every channel. Missing source frames are
-	// silence.
-	void fillMainInput(const AudioData &source, uint64_t sourceFrame, uint32_t frames);
+	// input port, wrapping mono to every channel. Past the end is silence, or
+	// the start again when `loop` is set.
+	void fillMainInput(const AudioData &source, uint64_t sourceFrame, uint32_t frames, bool loop = false);
 
 	// Appends `frames` of the main output port to `destination`.
 	void appendMainOutput(AudioData &destination, uint32_t frames) const;

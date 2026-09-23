@@ -3,27 +3,16 @@
 #include "commands-common.h"
 #include "session.h"
 #include "midi-file.h"
+#include "native-window.h"
 #include "wav.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
 
 namespace nch {
 namespace {
-
-// The shape a render or an input file is reported in.
-Value describeAudio(const AudioData &audio) {
-	const AudioStats stats = measure(audio);
-	Object out;
-	out["frames"] = Value(static_cast<uint64_t>(audio.frameCount()));
-	out["channels"] = Value(audio.channelCount());
-	out["sampleRate"] = Value(audio.sampleRate);
-	out["peak"] = Value(stats.peak);
-	out["rms"] = Value(stats.rms);
-	out["silent"] = Value(stats.silent);
-	return Value(std::move(out));
-}
 
 // A control change has no CLAP note form, so the reply says what happened
 // rather than reporting success for a message that went nowhere.
@@ -323,20 +312,85 @@ void Session::registerAudioCommands() {
 		               return Response::success(Value(std::move(out)));
 	               }});
 
-	commands_.add({"audio.input", "<file.wav|clear>", "Feed a WAV file into the plug-in's main input.",
+	commands_.add({"audio.input", "[file.wav|choose|clear] [--loop]",
+	               "Play a WAV file in place of the device input; alone, report what is loaded.",
 	               [](Session &session, const Request &request) -> Response {
-		               const std::string path = request.arg(0, "path").asString();
-		               if (path.empty() || path == "clear") {
-			               session.engine().clearInput();
+		               std::string path = request.arg(0, "path").asString();
+		               if (path.empty()) {
+			               Object out;
+			               out["file"] = session.inputFileReport();
+			               return Response::success(Value(std::move(out)));
+		               }
+		               if (path == "clear") {
+			               if (!session.engine().clearInput())
+				               return Response::failure("the audio thread did not yield; the file is still playing");
 			               return Response::success();
 		               }
-		               AudioData audio;
+		               if (path == "choose") {
+			               path = chooseFile("Choose a WAV file to play into the plug-in", {"wav", "wave"});
+			               // Changing your mind is not an error.
+			               if (path.empty()) {
+				               Object out;
+				               out["cancelled"] = Value(true);
+				               out["file"] = session.inputFileReport();
+				               return Response::success(Value(std::move(out)));
+			               }
+		               }
+		               Value report;
 		               std::string error;
-		               if (!readWav(path, audio, error))
+		               if (!session.playInputFile(path, request.arg("loop").asBool(false), report, error))
 			               return Response::failure(error);
-		               Value report = describeAudio(audio);
-		               session.engine().setInput(std::move(audio));
 		               return Response::success(std::move(report));
+	               }});
+
+	commands_.add({"audio.input.play", "[on|off|toggle]", "Play or pause the input file.",
+	               [](Session &session, const Request &request) -> Response {
+		               if (session.engine().inputPath().empty())
+			               return Response::failure("no input file loaded; audio.input <file.wav> first");
+		               bool playing = false;
+		               if (!switchArg(request, session.engine().isInputPlaying(), playing))
+			               return Response::failure("usage: audio.input.play [on|off|toggle]");
+		               session.engine().setInputPlaying(playing);
+		               return Response::success(session.inputFileReport());
+	               }});
+
+	commands_.add({"audio.input.loop", "[on|off|toggle]", "Loop the input file, or let it stop at its end.",
+	               [](Session &session, const Request &request) -> Response {
+		               if (session.engine().inputPath().empty())
+			               return Response::failure("no input file loaded; audio.input <file.wav> first");
+		               bool loop = false;
+		               if (!switchArg(request, session.engine().inputLoops(), loop))
+			               return Response::failure("usage: audio.input.loop [on|off|toggle]");
+		               session.engine().setInputLoop(loop);
+		               return Response::success(session.inputFileReport());
+	               }});
+
+	commands_.add({"audio.input.seek", "<seconds|Nf>", "Move the input file to a point in it.",
+	               [](Session &session, const Request &request) -> Response {
+		               if (session.engine().inputPath().empty())
+			               return Response::failure("no input file loaded; audio.input <file.wav> first");
+		               if (!request.hasArg(0, "to"))
+			               return Response::failure("usage: audio.input.seek <seconds|Nf>");
+		               // Seconds of the file, which is not the stream's rate when
+		               // the two disagree.
+		               const double rate = session.engine().inputSampleRate();
+		               if (!session.engine().seekInput(framesFromArgument(request.arg(0, "to"), rate, 0)))
+			               return Response::failure("the audio thread did not yield; the file did not move");
+		               return Response::success(session.inputFileReport());
+	               }});
+
+	commands_.add({"audio.input.recent", "", "List the input files played lately, newest first.",
+	               [](Session &session, const Request &) -> Response {
+		               Array files;
+		               for (const auto &path : session.recentInputFiles().list()) {
+			               Object row;
+			               row["path"] = Value(path);
+			               row["name"] = Value(std::filesystem::path(path).filename().string());
+			               files.push_back(Value(std::move(row)));
+		               }
+		               Object out;
+		               out["files"] = Value(std::move(files));
+		               return Response::success(Value(std::move(out)));
 	               }});
 
 	commands_.add({"render", "<seconds|Nf> [file.wav]", "Render audio offline and report its level.",

@@ -17,9 +17,11 @@ void requestQuit();
 void openSettings();
 void openPanel();
 void loadPlugin(const std::string &path);
-// The dragged .clap, or an empty string when the drag carries none. Shared by
-// the content view and the window delegate, which both offer to take a drop.
-NSString *clapPathFromDrag(id<NSDraggingInfo> sender);
+// The dragged .clap or .wav, or an empty string when the drag carries neither.
+// Shared by the content view and the drop target, which both take a drop.
+NSString *droppedPath(id<NSDraggingInfo> sender);
+// A .clap loads; a .wav plays into it.
+void openDropped(NSString *path);
 } // namespace nch
 
 // Takes the drop on behalf of a window whose content is a webview.
@@ -67,15 +69,15 @@ NSString *clapPathFromDrag(id<NSDraggingInfo> sender);
 
 - (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
 	[self setHighlighted:NO];
-	NSString *path = nch::clapPathFromDrag(sender);
+	NSString *path = nch::droppedPath(sender);
 	if (path.length == 0)
 		return NO;
-	nch::loadPlugin(std::string([path UTF8String]));
+	nch::openDropped(path);
 	return YES;
 }
 
 - (NSDragOperation)dragOperation:(id<NSDraggingInfo>)sender {
-	const BOOL wanted = nch::clapPathFromDrag(sender).length != 0;
+	const BOOL wanted = nch::droppedPath(sender).length != 0;
 	[self setHighlighted:wanted];
 	return wanted ? NSDragOperationCopy : NSDragOperationNone;
 }
@@ -87,7 +89,7 @@ NSString *clapPathFromDrag(id<NSDraggingInfo> sender);
 	[self setNeedsDisplay:YES];
 }
 
-// A border while a .clap is over the window, because the page underneath gives
+// A border while a .clap or .wav is over the window, because the page underneath gives
 // no sign on its own that the drop will land.
 - (void)drawRect:(NSRect)dirty {
 	(void)dirty;
@@ -115,20 +117,20 @@ NSString *clapPathFromDrag(id<NSDraggingInfo> sender);
 }
 
 - (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
-	return nch::clapPathFromDrag(sender).length != 0 ? NSDragOperationCopy : NSDragOperationNone;
+	return nch::droppedPath(sender).length != 0 ? NSDragOperationCopy : NSDragOperationNone;
 }
 
 // Without this AppKit asks again on every mouse move and takes the answer, so
 // the copy badge would go as soon as the pointer moved.
 - (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)sender {
-	return nch::clapPathFromDrag(sender).length != 0 ? NSDragOperationCopy : NSDragOperationNone;
+	return nch::droppedPath(sender).length != 0 ? NSDragOperationCopy : NSDragOperationNone;
 }
 
 - (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
-	NSString *path = nch::clapPathFromDrag(sender);
+	NSString *path = nch::droppedPath(sender);
 	if (path.length == 0)
 		return NO;
-	nch::loadPlugin(std::string([path UTF8String]));
+	nch::openDropped(path);
 	return YES;
 }
 @end
@@ -194,6 +196,11 @@ std::function<void()> &panelHandler() {
 }
 
 std::function<void(const std::string &)> &loadPluginHandler() {
+	static std::function<void(const std::string &)> handler;
+	return handler;
+}
+
+std::function<void(const std::string &)> &playAudioFileHandler() {
 	static std::function<void(const std::string &)> handler;
 	return handler;
 }
@@ -345,13 +352,22 @@ void ensureApplication() {
 
 namespace nch {
 
-NSString *clapPathFromDrag(id<NSDraggingInfo> sender) {
+NSString *droppedPath(id<NSDraggingInfo> sender) {
 	NSArray *urls = [[sender draggingPasteboard] readObjectsForClasses:@[ [NSURL class] ]
 	                                                           options:@{NSPasteboardURLReadingFileURLsOnlyKey : @YES}];
 	for (NSURL *url in urls)
-		if ([[url pathExtension] caseInsensitiveCompare:@"clap"] == NSOrderedSame)
-			return [url path];
+		for (NSString *extension in @[ @"clap", @"wav", @"wave" ])
+			if ([[url pathExtension] caseInsensitiveCompare:extension] == NSOrderedSame)
+				return [url path];
 	return @"";
+}
+
+void openDropped(NSString *path) {
+	const std::string text([path UTF8String]);
+	if ([[path pathExtension] caseInsensitiveCompare:@"clap"] == NSOrderedSame)
+		loadPlugin(text);
+	else if (playAudioFileHandler())
+		playAudioFileHandler()(text);
 }
 
 namespace {
@@ -586,6 +602,27 @@ void setPanelHandler(std::function<void()> handler) {
 
 void setLoadPluginHandler(std::function<void(const std::string &)> handler) {
 	loadPluginHandler() = std::move(handler);
+}
+
+void setPlayAudioFileHandler(std::function<void(const std::string &)> handler) {
+	playAudioFileHandler() = std::move(handler);
+}
+
+std::string chooseFile(const std::string &message, const std::vector<std::string> &extensions) {
+	prepareApplication();
+	NSOpenPanel *panel = [NSOpenPanel openPanel];
+	NSMutableArray *types = [NSMutableArray array];
+	for (const auto &extension : extensions)
+		[types addObject:[NSString stringWithUTF8String:extension.c_str()]];
+	[panel setAllowedFileTypes:types];
+	[panel setCanChooseFiles:YES];
+	[panel setCanChooseDirectories:NO];
+	[panel setAllowsMultipleSelection:NO];
+	[panel setMessage:[NSString stringWithUTF8String:message.c_str()]];
+	if ([panel runModal] != NSModalResponseOK)
+		return {};
+	NSURL *url = [[panel URLs] firstObject];
+	return url != nil ? std::string([[url path] UTF8String]) : std::string();
 }
 
 void loadPlugin(const std::string &path) {

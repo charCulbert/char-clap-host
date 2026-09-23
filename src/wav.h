@@ -4,6 +4,8 @@
 // and the reader accepts the formats a test fixture is likely to arrive in.
 #pragma once
 
+#include "json.h"
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -38,5 +40,9 @@ bool readWav(const std::string &path, AudioData &out, std::string &error);
 // Writes a RIFF/WAVE file. Float output is written as-is; PCM output clamps to
 // the representable range.
 bool writeWav(const std::string &path, const AudioData &data, SampleFormat format, std::string &error);
+
+// The shape a render or an input file is reported in: frames, channels,
+// rate, peak, rms and whether it is silent.
+Value describeAudio(const AudioData &audio);
 
 } // namespace nch

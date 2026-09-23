@@ -23,7 +23,8 @@ target_link_libraries(nch-tests PRIVATE nch-core)
 # The unit tests drive real fixture plug-ins rather than mocks, so they need
 # them built and need to know where they landed.
 add_dependencies(nch-tests fixtures)
-target_compile_definitions(nch-tests PRIVATE NCH_FIXTURE_DIR="${CMAKE_BINARY_DIR}/fixtures")
+target_compile_definitions(nch-tests PRIVATE NCH_FIXTURE_DIR="${CMAKE_BINARY_DIR}/fixtures"
+                                            NCH_TEST_OUTPUT_DIR="${CMAKE_CURRENT_BINARY_DIR}")
 add_test(NAME unit COMMAND nch-tests)
 
 find_package(Python3 COMPONENTS Interpreter)

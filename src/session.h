@@ -16,6 +16,7 @@
 #include "host.h"
 #include "plugin-instance.h"
 #include "plugin-panel.h"
+#include "recent-files.h"
 #include "validator.h"
 
 #include <atomic>
@@ -40,6 +41,12 @@ struct Options {
 	// This executable, so the validation suite can relaunch it to run a test
 	// in a child process.
 	std::string hostPath;
+	// Where the recently played input files are kept between runs. Empty
+	// keeps them for this run only. Every run reads the list, but only a file
+	// played by a person -- at a prompt, or with the window open -- is saved
+	// to it, so scripts and agents do not fill it with their scratch files.
+	std::string recentFilesPath;
+	bool interactive = false;
 	std::string pluginId;
 	uint32_t pluginIndex = 0;
 	double sampleRate = 48000.0;
@@ -93,11 +100,19 @@ public:
 	// processing, so the first callback has somewhere to write.
 	bool prepareForDevice(double sampleRate, uint32_t blockSize, std::string &error);
 
-	// Opens every MIDI input, and joins a loaded plug-in to a running stream,
-	// so a window the user just opened answers a keyboard without a trip
-	// through the settings. The audio stream itself waits for Power. Only a
-	// session with a window does this; a command line asks for what it wants.
-	void openDefaultDevices();
+	// Opens every MIDI input, now and again after each load, so a window the
+	// user just opened answers a keyboard without a trip through the settings.
+	// Only a session with a window does this; a command line asks for what it
+	// wants, and the audio stream waits for Power either way.
+	void openEveryMidiInput();
+
+	// Loads a WAV as the input and remembers it among the recent files. The
+	// report says what was loaded, and warns when it will play at the wrong
+	// speed; a file that cannot be read is dropped from the recent list.
+	bool playInputFile(const std::string &path, bool loop, Value &report, std::string &error);
+	RecentFiles &recentInputFiles() { return recentInputFiles_; }
+	// The input file as the window and `status` show it; null with none.
+	Value inputFileReport() const;
 
 	// Power is the audio stream itself. On, it opens whatever the user last
 	// chose, or else the default output with the default input; off, it
@@ -107,11 +122,6 @@ public:
 	void powerOff() { audioDevice_.stop(); }
 	bool isPowered() const { return audioDevice_.isRunning(); }
 
-	// Keeps the device input out of the signal while the stream stays up: the
-	// plug-in, or the pass-through, hears silence in its place. The way out of
-	// feedback from a microphone near speakers without losing the output.
-	void setInputMuted(bool muted) { inputMuted_.store(muted, std::memory_order_release); }
-	bool isInputMuted() const { return inputMuted_.load(std::memory_order_acquire); }
 
 	// Plays a sine out of every channel of the current output device, over the
 	// top of whatever the plug-in is producing, so the tone tests the device
@@ -258,7 +268,6 @@ private:
 	PluginPanel panel_;
 	std::atomic<uint64_t> audioCallbacks_{0};
 	std::atomic<uint64_t> audioUnderruns_{0};
-	std::atomic<bool> inputMuted_{false};
 	std::atomic<uint64_t> midiMessages_{0};
 	std::atomic<uint64_t> midiDropped_{0};
 	// Written by the audio thread, read by anyone. Each block decays what is
@@ -273,9 +282,10 @@ private:
 	uint64_t testToneLength_ = 0;
 	double testTonePhase_ = 0.0;
 
-	// Whether the host opened devices on the user's behalf, so a plug-in
-	// loaded later gets them back after the load closed them.
-	bool devicesOpenedByDefault_ = false;
+	// Whether the host opened the MIDI inputs on the user's behalf, so a
+	// plug-in loaded later gets them back after the load closed them.
+	bool openedEveryMidiInput_ = false;
+	RecentFiles recentInputFiles_;
 	bool stateDirty_ = false;
 	bool quit_ = false;
 	uint64_t commandFailures_ = 0;

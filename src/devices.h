@@ -53,7 +53,7 @@ public:
 	// Starts again with whatever was last asked of start() or apply(). False
 	// with no error if nothing has been asked for yet.
 	bool restart(std::string &error);
-	bool hasBeenStarted() const;
+	bool hasRequest() const;
 	void stop();
 	bool isRunning() const;
 
@@ -64,7 +64,8 @@ public:
 	std::vector<uint32_t> bufferSizes() const;
 	DeviceSettings currentSettings() const;
 
-	// Applies a whole settings change at once, restarting the stream. An empty
+	// Applies a whole settings change at once, restarting a running stream.
+	// A stopped one stays stopped and opens with these next time. An empty
 	// output id means the default device.
 	bool apply(const DeviceSettings &settings, std::string &error);
 

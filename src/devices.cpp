@@ -27,8 +27,8 @@ struct AudioDevice::Impl {
 	std::string inputDeviceId;
 	uint32_t requestedBufferSize = 0;
 	double requestedSampleRate = 0.0;
-	// What start() was last asked for, so a restart asks for it again.
-	bool started = false;
+	// What start() or apply() last asked for, so a restart asks for it again.
+	bool requested = false;
 	std::string requestedOutput;
 	uint32_t requestedInputChannels = 0;
 };
@@ -82,7 +82,7 @@ bool AudioDevice::isRunning() const {
 
 bool AudioDevice::start(const std::string &deviceName, uint32_t inputChannels, std::string &error) {
 	stop();
-	impl_->started = true;
+	impl_->requested = true;
 	impl_->requestedOutput = deviceName;
 	impl_->requestedInputChannels = inputChannels;
 	impl_->inputChannels = 0;
@@ -128,7 +128,7 @@ bool AudioDevice::start(const std::string &deviceName, uint32_t inputChannels, s
 
 	RtAudio::StreamParameters inputParameters;
 	bool useInput = false;
-	if (inputChannels != 0 && impl_->inputDeviceId != kNoAudioInput) {
+	if (inputChannels != 0) {
 		unsigned int inputId = impl_->audio.getDefaultInputDevice();
 		if (!impl_->inputDeviceId.empty()) {
 			for (const unsigned int id : ids) {
@@ -188,13 +188,13 @@ bool AudioDevice::start(const std::string &deviceName, uint32_t inputChannels, s
 }
 
 bool AudioDevice::restart(std::string &error) {
-	if (!impl_->started)
+	if (!impl_->requested)
 		return false;
 	return start(impl_->requestedOutput, impl_->requestedInputChannels, error);
 }
 
-bool AudioDevice::hasBeenStarted() const {
-	return impl_->started;
+bool AudioDevice::hasRequest() const {
+	return impl_->requested;
 }
 
 void AudioDevice::stop() {
@@ -262,7 +262,13 @@ bool AudioDevice::apply(const DeviceSettings &settings, std::string &error) {
 	// chosen, so the stream has to take it. Only "No input" means none; start()
 	// clamps the pair to what the device has.
 	const uint32_t inputChannels = settings.inputDeviceId == kNoAudioInput ? 0 : kLiveInputChannels;
-	return start(settings.outputDeviceId, inputChannels, error);
+	if (impl_->running)
+		return start(settings.outputDeviceId, inputChannels, error);
+	impl_->requested = true;
+	impl_->requestedOutput = settings.outputDeviceId;
+	impl_->requestedInputChannels = inputChannels;
+	impl_->outputDeviceId = settings.outputDeviceId;
+	return true;
 }
 
 Value AudioDevice::deviceReport() const {

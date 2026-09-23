@@ -1,6 +1,7 @@
 #include "session.h"
 
 #include "thread-role.h"
+#include "wav.h"
 
 #include <algorithm>
 #if !defined(_WIN32)
@@ -9,6 +10,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 
 namespace nch {
 namespace {
@@ -42,7 +44,7 @@ uint64_t nowMs() {
 } // namespace
 
 Session::Session(Options options)
-    : options_(std::move(options)), host_(*this, validator_), instance_(host_.clapHost(), validator_), engine_(*this), audioDevice_(*this), midiInput_(*this), gui_(instance_), settings_(*this), panel_(*this) {
+    : options_(std::move(options)), host_(*this, validator_), instance_(host_.clapHost(), validator_), engine_(*this), audioDevice_(*this), midiInput_(*this), gui_(instance_), settings_(*this), panel_(*this), recentInputFiles_(options_.recentFilesPath) {
 	instance_.setPreferredFormat(options_.sampleRate, options_.blockSize);
 	instance_.setPhaseObserver([this](PluginInstance::Phase phase) {
 		host_.setPluginState(phase == PluginInstance::Phase::Ready      ? Host::PluginState::Ready
@@ -74,17 +76,17 @@ bool Session::load(const std::string &path, const std::string &id, uint32_t inde
 	// Worked out here, on the main thread, so a MIDI message arriving on a
 	// device thread never has to ask the plug-in.
 	engine_.refreshNoteEncoding();
-	// unload() closed the MIDI ports; a plug-in the user just dropped on the
-	// window should still be playable without opening the settings. A stream
-	// already running -- passing its input through while nothing was loaded --
-	// takes the new plug-in either way.
-	if (devicesOpenedByDefault_) {
-		openDefaultDevices();
-	} else if (audioDevice_.isRunning()) {
+	// A stream already running -- passing its input through while nothing
+	// was loaded -- takes the new plug-in.
+	if (audioDevice_.isRunning()) {
 		std::string startError;
 		if (!engine_.start(startError))
 			std::fprintf(stderr, "error: %s\n", startError.c_str());
 	}
+	// unload() closed the MIDI ports; a plug-in dropped on the window should
+	// still answer a keyboard without a trip through the settings.
+	if (openedEveryMidiInput_)
+		openEveryMidiInput();
 	panel_.refresh();
 	return true;
 }
@@ -247,18 +249,9 @@ bool Session::prepareForDevice(double sampleRate, uint32_t blockSize, std::strin
 	return engine_.start(error);
 }
 
-void Session::openDefaultDevices() {
-	devicesOpenedByDefault_ = true;
+void Session::openEveryMidiInput() {
+	openedEveryMidiInput_ = true;
 	std::string error;
-	// The audio stream waits for Power: opening the window only gets MIDI
-	// ready. A stream that is already up takes a newly loaded plug-in.
-	if (audioDevice_.isRunning() && isLoaded() && !engine_.isRunning()) {
-		// The window opened its device before there was a plug-in to play
-		// through it, so the stream is live but nothing is processing. A
-		// plug-in dropped on that window has to be joined to it.
-		if (!engine_.start(error))
-			std::fprintf(stderr, "error: %s\n", error.c_str());
-	}
 	// Every MIDI input rather than one: which keyboard the user reaches for is
 	// not something the host can guess, and an unwanted port costs nothing
 	// until something is played on it.
@@ -277,8 +270,6 @@ void Session::onAudioCallback(const float *input, float *output, uint32_t frames
 	if (hadGlitch)
 		audioUnderruns_.fetch_add(1, std::memory_order_relaxed);
 	const uint32_t channels = engine_.deviceOutputChannels();
-	if (inputMuted_.load(std::memory_order_acquire))
-		input = nullptr;
 	engine_.processInterleaved(input, input != nullptr ? engine_.deviceInputChannels() : 0, output, channels,
 	                           frames);
 	renderTestTone(output, frames, channels);
@@ -314,7 +305,9 @@ Value Session::outputLevels() const {
 		peaks.push_back(Value(outputPeaks_[channel].load(std::memory_order_relaxed)));
 	Object out;
 	out["running"] = Value(audioDevice_.isRunning());
-	out["inputMuted"] = Value(isInputMuted());
+	out["device"] = audioDevice_.statusReport();
+	out["inputMuted"] = Value(engine_.isInputMuted());
+	out["inputFile"] = inputFileReport();
 	out["bypassed"] = Value(engine_.isBypassed());
 	out["sleeping"] = Value(engine_.isSleeping());
 	out["peaks"] = Value(std::move(peaks));
@@ -324,11 +317,50 @@ Value Session::outputLevels() const {
 	return Value(std::move(out));
 }
 
+bool Session::playInputFile(const std::string &path, bool loop, Value &report, std::string &error) {
+	std::error_code ignored;
+	const std::string absolute = std::filesystem::absolute(path, ignored).string();
+	AudioData audio;
+	if (!readWav(absolute, audio, error)) {
+		recentInputFiles_.remove(absolute);
+		return false;
+	}
+	report = describeAudio(audio);
+	// Played sample for sample: a file at another rate comes out at the wrong
+	// speed and pitch, which is worth saying rather than leaving to the ear.
+	if (audio.sampleRate != sampleRate())
+		report.set("warning", Value("the file is " + std::to_string(static_cast<int>(audio.sampleRate)) +
+		                            " Hz and the host runs at " + std::to_string(static_cast<int>(sampleRate())) +
+		                            " Hz; it plays at the wrong speed"));
+	if (!engine_.setInput(std::move(audio), loop, absolute)) {
+		error = "the audio thread did not yield; the file was not loaded";
+		return false;
+	}
+	recentInputFiles_.add(absolute, options_.interactive || panel_.isOpen());
+	report.set("file", inputFileReport());
+	return true;
+}
+
+Value Session::inputFileReport() const {
+	if (engine_.inputPath().empty())
+		return {};
+	const double rate = engine_.inputSampleRate() > 0.0 ? engine_.inputSampleRate() : sampleRate();
+	Object out;
+	out["path"] = Value(engine_.inputPath());
+	out["name"] = Value(std::filesystem::path(engine_.inputPath()).filename().string());
+	out["seconds"] = Value(static_cast<double>(engine_.inputFrames()) / rate);
+	out["position"] = Value(static_cast<double>(engine_.inputPosition()) / rate);
+	out["sampleRate"] = Value(engine_.inputSampleRate());
+	out["playing"] = Value(engine_.isInputPlaying());
+	out["loop"] = Value(engine_.inputLoops());
+	return Value(std::move(out));
+}
+
 bool Session::powerOn(std::string &error) {
 	if (audioDevice_.isRunning())
 		return true;
-	return audioDevice_.hasBeenStarted() ? audioDevice_.restart(error)
-	                                     : audioDevice_.start({}, kLiveInputChannels, error);
+	return audioDevice_.hasRequest() ? audioDevice_.restart(error)
+	                                 : audioDevice_.start({}, kLiveInputChannels, error);
 }
 
 bool Session::startTestTone(double seconds, double frequency, std::string &error) {
@@ -757,7 +789,8 @@ Value Session::statusReport() const {
 	out["sleeping"] = Value(engine_.isSleeping());
 	out["bypassed"] = Value(engine_.isBypassed());
 	out["power"] = Value(isPowered());
-	out["inputMuted"] = Value(isInputMuted());
+	out["inputMuted"] = Value(engine_.isInputMuted());
+	out["inputFile"] = inputFileReport();
 	out["lastProcessStatus"] = Value(engine_.lastStatus());
 	out["sleptBlocks"] = Value(engine_.sleptBlocks());
 	out["sampleRate"] = Value(instance_.sampleRate());

@@ -6,12 +6,15 @@
 #include "harness.h"
 #include "json.h"
 #include "session.h"
+#include "wav.h"
 
+#include <cstdio>
 #include <string>
 #include <vector>
 
 using nch::Options;
 using nch::Session;
+using nch::Array;
 using nch::Value;
 
 namespace {
@@ -207,4 +210,108 @@ TEST(a_muted_input_means_the_engine_hears_silence) {
 	host.session().onAudioCallback(input, output, 2, false);
 	CHECK_NEAR(output[0], 0.0f, 1e-6);
 	CHECK(!host.run("input.mute toggle")["data"]["inputMuted"].asBool());
+}
+
+namespace {
+
+// A short mono WAV on disk, for `audio.input` to read.
+std::string writeRamp(const std::string &name, const std::vector<float> &samples) {
+	nch::AudioData audio;
+	audio.sampleRate = 48000.0;
+	audio.channels.push_back(samples);
+	const std::string path = std::string(NCH_TEST_OUTPUT_DIR) + "/" + name + ".wav";
+	std::string error;
+	nch::writeWav(path, audio, nch::SampleFormat::Float32, error);
+	return path;
+}
+
+} // namespace
+
+TEST(a_file_plays_through_with_nothing_loaded_and_loops) {
+	TestSession host;
+	const std::string path = writeRamp("loop", {0.1f, 0.2f, 0.3f});
+	const Value reply = host.run("audio.input \"" + path + "\" --loop");
+	CHECK(reply["ok"].asBool());
+	CHECK_EQ(reply["data"]["file"]["name"].asString(), std::string("loop.wav"));
+
+	// The file stands in for the device input, and wraps round.
+	const float mic[4] = {0.9f, 0.9f, 0.9f, 0.9f};
+	float output[8] = {};
+	host.session().engine().processInterleaved(mic, 1, output, 2, 4);
+	CHECK_NEAR(output[0], 0.1f, 1e-6);
+	CHECK_NEAR(output[5], 0.3f, 1e-6);
+	CHECK_NEAR(output[7], 0.1f, 1e-6);
+
+	host.run("input.mute on");
+	host.session().engine().processInterleaved(mic, 1, output, 2, 4);
+	CHECK_NEAR(output[0], 0.0f, 1e-6);
+	host.run("input.mute off");
+
+	// Cleared, the device is the input again.
+	CHECK(host.run("audio.input clear")["ok"].asBool());
+	host.session().engine().processInterleaved(mic, 1, output, 2, 4);
+	CHECK_NEAR(output[0], 0.9f, 1e-6);
+}
+
+TEST(a_file_without_loop_runs_out_into_silence) {
+	TestSession host;
+	CHECK(host.run("audio.input \"" + writeRamp("once", {0.5f, 0.5f}) + "\"")["ok"].asBool());
+	float output[8] = {};
+	host.session().engine().processInterleaved(nullptr, 0, output, 2, 4);
+	CHECK_NEAR(output[2], 0.5f, 1e-6);
+	CHECK_NEAR(output[4], 0.0f, 1e-6);
+}
+
+TEST(the_input_file_pauses_seeks_and_stops_at_its_end) {
+	TestSession host;
+	CHECK(host.run("audio.input \"" + writeRamp("player", {0.1f, 0.2f, 0.3f, 0.4f}) + "\"")["ok"].asBool());
+	float output[4] = {};
+
+	// Paused, the input is silence and the file holds its place.
+	CHECK(!host.run("audio.input.play off")["data"]["playing"].asBool());
+	host.session().engine().processInterleaved(nullptr, 0, output, 2, 2);
+	CHECK_NEAR(output[0], 0.0f, 1e-6);
+	CHECK_EQ(host.session().engine().inputPosition(), uint64_t(0));
+
+	CHECK(host.run("audio.input.seek 2f")["ok"].asBool());
+	host.run("audio.input.play on");
+	host.session().engine().processInterleaved(nullptr, 0, output, 2, 2);
+	CHECK_NEAR(output[0], 0.3f, 1e-6);
+	CHECK_NEAR(output[2], 0.4f, 1e-6);
+
+	// Without loop, the end pauses it and rewinds, ready to play again.
+	const Value after = host.run("audio.input");
+	CHECK(!after["data"]["file"]["playing"].asBool());
+	CHECK_NEAR(after["data"]["file"]["position"].asNumber(), 0.0, 1e-9);
+	CHECK(host.run("audio.input.loop")["data"]["loop"].asBool());
+}
+
+TEST(played_files_are_remembered_newest_first) {
+	TestSession host;
+	const std::string first = writeRamp("first", {0.1f});
+	const std::string second = writeRamp("second", {0.1f});
+	host.run("audio.input \"" + first + "\"");
+	host.run("audio.input \"" + second + "\"");
+	host.run("audio.input \"" + first + "\"");
+	const Value recent = host.run("audio.input.recent");
+	const Array &files = recent["data"]["files"].array();
+	CHECK_EQ(files.size(), size_t(2));
+	CHECK_EQ(files[0]["name"].asString(), std::string("first.wav"));
+	// A file that has gone is dropped when it fails to load.
+	CHECK(!host.run("audio.input \"/nowhere/gone.wav\"")["ok"].asBool());
+	CHECK_EQ(host.run("audio.input.recent")["data"]["files"].array().size(), size_t(2));
+}
+
+TEST(the_recent_list_survives_a_restart) {
+	const std::string store = std::string(NCH_TEST_OUTPUT_DIR) + "/recent-test.json";
+	std::remove(store.c_str());
+	{
+		nch::RecentFiles files(store, 2);
+		files.add("/a.wav");
+		files.add("/b.wav");
+		files.add("/c.wav");
+	}
+	nch::RecentFiles again(store, 2);
+	CHECK_EQ(again.list().size(), size_t(2));
+	CHECK_EQ(again.list()[0], std::string("/c.wav"));
 }

@@ -65,6 +65,7 @@ add_library(nch-core STATIC
     src/plugin-panel.cpp
     src/presets.cpp
     src/random.cpp
+    src/recent-files.cpp
     src/validation.cpp
     src/validation-tests.cpp
     src/state-stream.cpp
