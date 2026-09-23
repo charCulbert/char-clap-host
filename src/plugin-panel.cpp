@@ -32,6 +32,7 @@ const char *kPage = R"(<!doctype html>
 	p.hint { margin: 2px 0 0; color: GrayText; }
 	.header { display: flex; align-items: center; gap: 18px; margin-bottom: 16px; }
 	.header > div { flex: 1; min-width: 0; }
+	#recentPlugins { flex: 0 1 12em; min-width: 0; }
 	/* A plain glyph: the cog is a corner affordance, not one of the page's
 	   controls, and a bezel around it reads as one. */
 	#settings {
@@ -115,6 +116,7 @@ const char *kPage = R"(<!doctype html>
 		<p class="hint" id="vendor">&nbsp;</p>
 	</div>
 	<span class="lamp" id="midiLamp" title="MIDI in"></span>
+	<select id="recentPlugins" title="Load a plug-in you loaded before"><option value="">Recent plug-ins</option></select>
 	<button id="settings" title="Audio and MIDI settings" aria-label="Audio and MIDI settings">⚙</button>
 </div>
 
@@ -255,8 +257,36 @@ const char *kPage = R"(<!doctype html>
 			info === null ? "No plug-in loaded" : (info.name || "Unnamed plug-in");
 		document.getElementById("vendor").textContent =
 			info === null ? " " : ([info.vendor, info.version].filter(Boolean).join(" · ") || " ");
+		showRecentPlugins();
 		return info !== null;
 	}
+
+	// Read again whenever the window refreshes, which a load always causes.
+	const recentPlugins = document.getElementById("recentPlugins");
+	async function showRecentPlugins() {
+		let data;
+		try {
+			data = await run("plugins.recent");
+		} catch {
+			return;
+		}
+		recentPlugins.replaceChildren(new Option("Recent plug-ins", ""));
+		for (const file of data.files || []) {
+			const option = new Option(file.name.replace(/\.clap$/i, ""), file.path);
+			option.title = file.path;
+			recentPlugins.append(option);
+		}
+		recentPlugins.disabled = !(data.files || []).length;
+	}
+	// Loaded the way the File menu loads one: the plug-in's own interface
+	// opens too, if it has one.
+	recentPlugins.addEventListener("change", async () => {
+		const path = recentPlugins.value;
+		recentPlugins.value = "";
+		if (!path) return;
+		if (await command("load " + quoted(path)))
+			run("gui.open").catch(() => {});
+	});
 
 	// CLAP says only whether a parameter is stepped and what it spans. That is
 	// enough to pick the control a person expects: two steps is a switch, a

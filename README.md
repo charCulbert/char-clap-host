@@ -158,8 +158,8 @@ notes it started whenever it pauses, seeks or loops, and sets the transport to
 the file's tempo. Unlike `midi.load`, which puts a whole file on the timeline
 for a reproducible render, it can be paused, looped and moved. Files and
 plug-ins opened by a person -- at a prompt, or with the window open -- are
-remembered between runs (`plugins.recent` lists the plug-ins); a script's are
-not. A file is played sample for
+remembered between runs; a script's are not. **Recent plug-ins** in the header
+(`plugins.recent`) loads one again the way the File menu does. A file is played sample for
 sample, so one at another rate than the stream plays at the wrong speed, and
 the reply says so. Opening the
 window opens every MIDI input, because a window means a person; a command line
