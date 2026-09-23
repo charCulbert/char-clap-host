@@ -41,6 +41,11 @@ void RecentFiles::remove(const std::string &path) {
 	save();
 }
 
+void RecentFiles::clear() {
+	paths_.clear();
+	save();
+}
+
 void RecentFiles::forgetIfMissing(const std::string &path) {
 	std::error_code ignored;
 	if (!std::filesystem::exists(path, ignored))

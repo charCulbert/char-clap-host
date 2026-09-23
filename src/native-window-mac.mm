@@ -17,6 +17,8 @@ void requestQuit();
 void openSettings();
 void openPanel();
 void loadPlugin(const std::string &path);
+std::vector<std::string> recentPlugins();
+void clearRecentPlugins();
 // The dragged .clap, .wav or .mid, or an empty string when the drag carries
 // none of them.
 // Shared by the content view and the drop target, which both take a drop.
@@ -139,7 +141,7 @@ void openDropped(NSString *path);
 // Cmd-Q would otherwise call -terminate: and kill the process where it stands,
 // leaving the plug-in undestroyed. Cancelling the termination and asking the
 // host to quit takes the ordinary shutdown path instead.
-@interface NchAppDelegate : NSObject <NSApplicationDelegate>
+@interface NchAppDelegate : NSObject <NSApplicationDelegate, NSMenuDelegate>
 @end
 
 @implementation NchAppDelegate
@@ -157,6 +159,36 @@ void openDropped(NSString *path);
 - (void)showPluginPanel:(id)sender {
 	(void)sender;
 	nch::openPanel();
+}
+
+// File > Open Recent is filled in as it opens, so it always matches the
+// list `plugins.recent` reads, whoever changed it last.
+- (void)menuNeedsUpdate:(NSMenu *)menu {
+	[menu removeAllItems];
+	const std::vector<std::string> paths = nch::recentPlugins();
+	for (const auto &path : paths) {
+		NSString *full = [NSString stringWithUTF8String:path.c_str()];
+		NSMenuItem *item = [menu addItemWithTitle:[[full lastPathComponent] stringByDeletingPathExtension]
+		                                   action:@selector(openRecentPlugin:)
+		                            keyEquivalent:@""];
+		[item setTarget:self];
+		[item setRepresentedObject:full];
+		[item setToolTip:full];
+	}
+	if (!paths.empty())
+		[menu addItem:[NSMenuItem separatorItem]];
+	NSMenuItem *clear = [menu addItemWithTitle:@"Clear Menu" action:@selector(clearRecentPlugins:) keyEquivalent:@""];
+	[clear setTarget:self];
+	[clear setEnabled:!paths.empty()];
+}
+
+- (void)openRecentPlugin:(NSMenuItem *)sender {
+	nch::loadPlugin(std::string([[sender representedObject] UTF8String]));
+}
+
+- (void)clearRecentPlugins:(id)sender {
+	(void)sender;
+	nch::clearRecentPlugins();
 }
 
 - (void)loadPlugin:(id)sender {
@@ -206,6 +238,16 @@ std::function<void(const std::string &)> &playFileHandler() {
 	return handler;
 }
 
+std::function<std::vector<std::string>()> &recentPluginsList() {
+	static std::function<std::vector<std::string>()> handler;
+	return handler;
+}
+
+std::function<void()> &recentPluginsClear() {
+	static std::function<void()> handler;
+	return handler;
+}
+
 NchAppDelegate *applicationDelegate() {
 	static NchAppDelegate *delegate = [[NchAppDelegate alloc] init];
 	return delegate;
@@ -246,6 +288,10 @@ void installMainMenu() {
 	                                           action:@selector(loadPlugin:)
 	                                    keyEquivalent:@"o"];
 	[loadItem setTarget:applicationDelegate()];
+	NSMenuItem *recentItem = [fileMenu addItemWithTitle:@"Open Recent" action:nil keyEquivalent:@""];
+	NSMenu *recentMenu = [[NSMenu alloc] initWithTitle:@"Open Recent"];
+	[recentMenu setDelegate:applicationDelegate()];
+	[recentItem setSubmenu:recentMenu];
 	[fileItem setSubmenu:fileMenu];
 
 	NSMenuItem *settingsItem = [[NSMenuItem alloc] init];
@@ -624,6 +670,20 @@ std::string chooseFile(const std::string &message, const std::vector<std::string
 		return {};
 	NSURL *url = [[panel URLs] firstObject];
 	return url != nil ? std::string([[url path] UTF8String]) : std::string();
+}
+
+void setRecentPluginsHandlers(std::function<std::vector<std::string>()> list, std::function<void()> clear) {
+	recentPluginsList() = std::move(list);
+	recentPluginsClear() = std::move(clear);
+}
+
+std::vector<std::string> recentPlugins() {
+	return recentPluginsList() ? recentPluginsList()() : std::vector<std::string>();
+}
+
+void clearRecentPlugins() {
+	if (recentPluginsClear())
+		recentPluginsClear()();
 }
 
 void loadPlugin(const std::string &path) {

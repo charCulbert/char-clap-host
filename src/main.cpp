@@ -223,6 +223,11 @@ int main(int argc, char **argv) {
 		session.postLine(std::string(midi ? "midi.file" : "audio.input") + " \"" + path + "\" --loop");
 	});
 
+	// File > Open Recent reads the same list `plugins.recent` does, and its
+	// Clear Menu is that command.
+	nch::setRecentPluginsHandlers([&session] { return session.recentPlugins().list(); },
+	                              [&session] { session.postLine("plugins.recent clear"); });
+
 	nch::setSettingsHandler([&session] {
 		std::string settingsError;
 		if (!session.settings().open(settingsError))

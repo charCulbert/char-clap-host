@@ -168,9 +168,9 @@ void registerFilePlayer(CommandTable &commands, const FilePlayer &player) {
 		              return Response::success(player.report(session));
 	              }});
 
-	commands.add({name + ".recent", "", "List the files played lately, newest first.",
-	              [player](Session &session, const Request &) -> Response {
-		              return Response::success(describeRecent(player.recent(session)));
+	commands.add({name + ".recent", "[clear]", "List the files played lately, newest first, or forget them.",
+	              [player](Session &session, const Request &request) -> Response {
+		              return recentCommand(player.recent(session), request);
 	              }});
 }
 

@@ -137,7 +137,7 @@ arrives and a `<compost-meter>` shows the output level, both polled through the
 beside it shows what the host feeds the plug-in -- the device, a file, or
 silence when muted -- and the output line carries the audio load (the share of
 each block's time the host took to make it) and the dropouts counted since
-launch. **Gain** (`output.gain <dB>`) trims everything the device plays, from
+launch. **Master** (`output.gain <dB>`), the master output level, trims everything the device plays, from
 -60 dB, which is off, to +12; double-click it to return to 0. Beside the
 meter, **Power** (`power`) opens the audio stream -- the last devices chosen, or
 the default output and input -- and closes it again; the window starts with it
@@ -158,8 +158,9 @@ notes it started whenever it pauses, seeks or loops, and sets the transport to
 the file's tempo. Unlike `midi.load`, which puts a whole file on the timeline
 for a reproducible render, it can be paused, looped and moved. Files and
 plug-ins opened by a person -- at a prompt, or with the window open -- are
-remembered between runs; a script's are not. **Recent plug-ins** in the header
-(`plugins.recent`) loads one again the way the File menu does. A file is played sample for
+remembered between runs; a script's are not. **File → Open Recent**
+(`plugins.recent`) loads a plug-in again, and every recent list empties with
+`clear` (`plugins.recent clear`, `audio.input.recent clear`). A file is played sample for
 sample, so one at another rate than the stream plays at the wrong speed, and
 the reply says so. Opening the
 window opens every MIDI input, because a window means a person; a command line

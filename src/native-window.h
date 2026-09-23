@@ -79,6 +79,11 @@ void setLoadPluginHandler(std::function<void(const std::string &)> handler);
 // with its path: a file to play into the plug-in.
 void setPlayFileHandler(std::function<void(const std::string &)> handler);
 
+// What File > Open Recent lists, asked each time the menu opens, and what its
+// Clear Menu item does. Both run on the main thread; choosing an entry goes
+// through the load-plug-in handler, the same as the File menu's dialog.
+void setRecentPluginsHandlers(std::function<std::vector<std::string>()> list, std::function<void()> clear);
+
 // Asks the user for one file with one of `extensions`, in the platform's own
 // open dialog. Blocks until it closes; empty if cancelled, or where this
 // platform has no dialog.

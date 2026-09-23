@@ -281,6 +281,10 @@ void setPlayFileHandler(std::function<void(const std::string &)>) {
 	// No .wav or .mid drops here yet; `audio.input` and `midi.file` do the same.
 }
 
+void setRecentPluginsHandlers(std::function<std::vector<std::string>()>, std::function<void()>) {
+	// No Open Recent menu here yet; `plugins.recent` lists them.
+}
+
 std::string chooseFile(const std::string &, const std::vector<std::string> &) {
 	// No open dialog on this window layer yet; `audio.input` takes a path.
 	return {};

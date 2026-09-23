@@ -47,8 +47,14 @@ inline bool switchArg(const Request &request, bool current, bool &result) {
 }
 
 // A recent-file list as the window's menus read it: newest first, each with
-// the name to show and the path to open.
-inline Value describeRecent(const RecentFiles &recent) {
+// the name to show and the path to open. `clear` empties it first, which is
+// what a menu's Clear Menu runs.
+inline Response recentCommand(RecentFiles &recent, const Request &request) {
+	const std::string action = request.arg(0, "action").asString();
+	if (action == "clear")
+		recent.clear();
+	else if (!action.empty())
+		return Response::failure("usage: " + request.name + " [clear]");
 	Array files;
 	for (const auto &path : recent.list()) {
 		Object row;
@@ -58,7 +64,7 @@ inline Value describeRecent(const RecentFiles &recent) {
 	}
 	Object out;
 	out["files"] = Value(std::move(files));
-	return Value(std::move(out));
+	return Response::success(Value(std::move(out)));
 }
 
 inline std::string textOrEmpty(const char *text) {

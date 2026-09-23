@@ -21,6 +21,7 @@ public:
 	// saves unless told not to -- then it is on the list for this run only.
 	void add(const std::string &path, bool save = true);
 	void remove(const std::string &path);
+	void clear();
 	// Drops `path` if it no longer exists: a file that failed to open for
 	// some other reason may open next time, and stays on the list.
 	void forgetIfMissing(const std::string &path);

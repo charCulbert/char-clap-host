@@ -291,9 +291,9 @@ void Session::registerCommands() {
 		               return Response::success();
 	               }});
 
-	commands_.add({"plugins.recent", "", "List the plug-ins loaded lately, newest first.",
-	               [](Session &session, const Request &) -> Response {
-		               return Response::success(describeRecent(session.recentPlugins()));
+	commands_.add({"plugins.recent", "[clear]", "List the plug-ins loaded lately, newest first, or forget them.",
+	               [](Session &session, const Request &request) -> Response {
+		               return recentCommand(session.recentPlugins(), request);
 	               }});
 
 	commands_.add({"plugins", "", "List every plug-in the loaded bundle offers.",
