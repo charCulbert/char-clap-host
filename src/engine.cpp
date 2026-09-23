@@ -338,7 +338,35 @@ NoteEncoding Engine::noteEncoding(int16_t port) const {
 }
 
 void Engine::refreshNoteEncoding() {
-	cachedDialect_.store(noteEncoding(0).dialect, std::memory_order_release);
+	const NoteEncoding encoding = noteEncoding(0);
+	cachedDialect_.store(encoding.dialect, std::memory_order_release);
+	// The MIDI file follows the plug-in: a new one may want the other dialect.
+	if (midiPlayer_.isLoaded() && acquireAudioExclusion()) {
+		midiPlayer_.reencode(encoding);
+		releaseAudioExclusion();
+	}
+}
+
+bool Engine::setMidiFile(MidiFile file, bool loop, std::string path) {
+	const NoteEncoding encoding = noteEncoding(0);
+	if (!acquireAudioExclusion())
+		return false;
+	midiPlayer_.load(std::move(file), encoding, loop);
+	releaseAudioExclusion();
+	midiFilePath_ = midiPlayer_.isLoaded() ? std::move(path) : std::string();
+	return true;
+}
+
+bool Engine::clearMidiFile() {
+	return setMidiFile({}, false, {});
+}
+
+bool Engine::seekMidiFile(double seconds) {
+	if (!acquireAudioExclusion())
+		return false;
+	midiPlayer_.seek(seconds);
+	releaseAudioExclusion();
+	return true;
 }
 
 NoteTranslation Engine::scheduleMidi(const uint8_t *bytes, uint32_t size, int16_t port, uint32_t flags,
@@ -443,11 +471,13 @@ void Engine::retireNote(int16_t port, int16_t channel, int16_t key) {
 
 void Engine::collectBlockEvents(uint32_t frames) {
 	inEvents_.clear();
+	midiPlayer_.emit(inEvents_, frames, session_.sampleRate(), cachedDialect_.load(std::memory_order_acquire));
 	// Taking this lock is the one place the audio thread could be made to
 	// wait for the main thread, so it tries rather than blocks.
 	std::unique_lock<std::mutex> lock(scheduleMutex_, std::try_to_lock);
 	if (!lock.owns_lock()) {
 		missedCollections_.fetch_add(1, std::memory_order_relaxed);
+		inEvents_.sortByTime();
 		return;
 	}
 	const uint64_t blockEnd = playhead_ + frames;

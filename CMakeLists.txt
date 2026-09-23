@@ -60,6 +60,7 @@ add_library(nch-core STATIC
     src/commands-state.cpp
     src/engine.cpp
     src/midi-file.cpp
+    src/midi-player.cpp
     src/note-encoding.cpp
     src/plugin-instance.cpp
     src/plugin-panel.cpp

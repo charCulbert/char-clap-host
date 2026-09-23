@@ -277,8 +277,8 @@ void setPanelHandler(std::function<void()> handler) {
 	panelHandler() = std::move(handler);
 }
 
-void setPlayAudioFileHandler(std::function<void(const std::string &)>) {
-	// No .wav drops here yet; `audio.input <file.wav>` does the same thing.
+void setPlayFileHandler(std::function<void(const std::string &)>) {
+	// No .wav or .mid drops here yet; `audio.input` and `midi.file` do the same.
 }
 
 std::string chooseFile(const std::string &, const std::vector<std::string> &) {

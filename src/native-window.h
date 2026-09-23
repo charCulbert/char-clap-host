@@ -75,9 +75,9 @@ const char *nativeWindowApi();
 // Called on the main thread with the path to a .clap.
 void setLoadPluginHandler(std::function<void(const std::string &)> handler);
 
-// Runs when a .wav is dropped on a host window, on the main thread, with its
-// path: a file to play into the plug-in in place of the device input.
-void setPlayAudioFileHandler(std::function<void(const std::string &)> handler);
+// Runs when a .wav or .mid is dropped on a host window, on the main thread,
+// with its path: a file to play into the plug-in.
+void setPlayFileHandler(std::function<void(const std::string &)> handler);
 
 // Asks the user for one file with one of `extensions`, in the platform's own
 // open dialog. Blocks until it closes; empty if cancelled, or where this

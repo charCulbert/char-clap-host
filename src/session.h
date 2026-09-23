@@ -41,11 +41,11 @@ struct Options {
 	// This executable, so the validation suite can relaunch it to run a test
 	// in a child process.
 	std::string hostPath;
-	// Where the recently played input files are kept between runs. Empty
-	// keeps them for this run only. Every run reads the list, but only a file
-	// played by a person -- at a prompt, or with the window open -- is saved
-	// to it, so scripts and agents do not fill it with their scratch files.
-	std::string recentFilesPath;
+	// Whether the recent-file lists live on disk, where this user's settings
+	// are kept, or last this run only. Every run on disk reads them, but only
+	// a file a person opened -- at a prompt, or with the window open -- is
+	// saved, so scripts and agents do not fill them with scratch files.
+	bool recentFilesOnDisk = false;
 	bool interactive = false;
 	std::string pluginId;
 	uint32_t pluginIndex = 0;
@@ -110,9 +110,15 @@ public:
 	// report says what was loaded, and warns when it will play at the wrong
 	// speed; a file that cannot be read is dropped from the recent list.
 	bool playInputFile(const std::string &path, bool loop, Value &report, std::string &error);
+	// The same for a MIDI file played into the plug-in. The transport takes
+	// the file's tempo, so what the plug-in is told agrees with what it hears.
+	bool playMidiFile(const std::string &path, bool loop, Value &report, std::string &error);
 	RecentFiles &recentInputFiles() { return recentInputFiles_; }
-	// The input file as the window and `status` show it; null with none.
+	RecentFiles &recentMidiFiles() { return recentMidiFiles_; }
+	RecentFiles &recentPlugins() { return recentPlugins_; }
+	// The files as the window and `status` show them; null with none.
 	Value inputFileReport() const;
+	Value midiFileReport() const;
 
 	// Power is the audio stream itself. On, it opens whatever the user last
 	// chose, or else the default output with the default input; off, it
@@ -290,6 +296,10 @@ private:
 	// plug-in loaded later gets them back after the load closed them.
 	bool openedEveryMidiInput_ = false;
 	RecentFiles recentInputFiles_;
+	RecentFiles recentMidiFiles_;
+	RecentFiles recentPlugins_;
+	// Whether something a person just opened goes on a list for next time.
+	bool rememberOpened() const { return options_.interactive || panel_.isOpen(); }
 	bool stateDirty_ = false;
 	bool quit_ = false;
 	uint64_t commandFailures_ = 0;

@@ -9,6 +9,7 @@
 #include "command.h"
 #include "session.h"
 
+#include <filesystem>
 #include <string>
 
 namespace nch {
@@ -43,6 +44,21 @@ inline bool switchArg(const Request &request, bool current, bool &result) {
 	else
 		return false;
 	return true;
+}
+
+// A recent-file list as the window's menus read it: newest first, each with
+// the name to show and the path to open.
+inline Value describeRecent(const RecentFiles &recent) {
+	Array files;
+	for (const auto &path : recent.list()) {
+		Object row;
+		row["path"] = Value(path);
+		row["name"] = Value(std::filesystem::path(path).filename().string());
+		files.push_back(Value(std::move(row)));
+	}
+	Object out;
+	out["files"] = Value(std::move(files));
+	return Value(std::move(out));
 }
 
 inline std::string textOrEmpty(const char *text) {

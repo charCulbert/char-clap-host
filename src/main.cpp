@@ -3,7 +3,10 @@
 #include "session.h"
 #include "thread-role.h"
 
+#include <algorithm>
+#include <cctype>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -116,7 +119,7 @@ int main(int argc, char **argv) {
 	options.openWindowWhenIdle =
 	    !interactive && options.pluginPath.empty() && scriptPath.empty() && immediateCommands.empty();
 
-	options.recentFilesPath = nch::RecentFiles::defaultStorePath();
+	options.recentFilesOnDisk = true;
 	options.interactive = interactive && scriptPath.empty();
 
 	Session session(options);
@@ -210,10 +213,14 @@ int main(int argc, char **argv) {
 		session.postLine("gui.open");
 	});
 
-	// A .wav dropped on a window plays into the plug-in, round and round,
-	// which is what auditioning an effect on a loop wants.
-	nch::setPlayAudioFileHandler([&session](const std::string &path) {
-		session.postLine("audio.input \"" + path + "\" --loop");
+	// A .wav or .mid dropped on a window plays into the plug-in, round and
+	// round, which is what auditioning on a loop wants.
+	nch::setPlayFileHandler([&session](const std::string &path) {
+		std::string extension = std::filesystem::path(path).extension().string();
+		std::transform(extension.begin(), extension.end(), extension.begin(),
+		               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+		const bool midi = extension == ".mid" || extension == ".midi";
+		session.postLine(std::string(midi ? "midi.file" : "audio.input") + " \"" + path + "\" --loop");
 	});
 
 	nch::setSettingsHandler([&session] {

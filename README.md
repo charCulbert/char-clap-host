@@ -145,8 +145,15 @@ the output in place of what it made, crossfading over one block. Under
 (`audio.input.recent`) plays in place of the device input, with play/pause
 (`audio.input.play`), **Loop** (`audio.input.loop`), a position bar
 (`audio.input.seek`) and ✕ (`audio.input clear`) to go back to the device.
-Files played by a person -- at a prompt, or with the window open -- are
-remembered between runs; a script's are not. A file is played sample for
+**MIDI file** is the same player for a `.mid` (`midi.file`,
+`midi.file.play`, `midi.file.loop`, `midi.file.seek`, `midi.file.recent`): it
+plays the file into the plug-in's first note port in its own dialect, ends the
+notes it started whenever it pauses, seeks or loops, and sets the transport to
+the file's tempo. Unlike `midi.load`, which puts a whole file on the timeline
+for a reproducible render, it can be paused, looped and moved. Files and
+plug-ins opened by a person -- at a prompt, or with the window open -- are
+remembered between runs (`plugins.recent` lists the plug-ins); a script's are
+not. A file is played sample for
 sample, so one at another rate than the stream plays at the wrong speed, and
 the reply says so. Opening the
 window opens every MIDI input, because a window means a person; a command line
@@ -206,10 +213,10 @@ file can be inspected. The shell is the graph.
 
 | Area | Commands |
 | --- | --- |
-| Plug-in | `load` `unload` `plugins` `info` `extensions` `status` |
+| Plug-in | `load` `unload` `plugins` `plugins.recent` `info` `extensions` `status` |
 | Parameters | `params.list` `param.get` `param.set` `param.steps` `params.dump` `param.indication` |
 | Audio | `activate` `deactivate` `render` `process` `engine.start` `engine.stop` `audio.input` `audio.input.play` `audio.input.loop` `audio.input.seek` `audio.input.recent` `playhead` `bypass` |
-| Notes and MIDI | `note.on` `note.off` `notes` `midi` `cc` `midi.load` `events` |
+| Notes and MIDI | `note.on` `note.off` `notes` `midi` `cc` `midi.load` `midi.file` `midi.file.play` `midi.file.loop` `midi.file.seek` `midi.file.recent` `events` |
 | Transport | `tempo` `timesig` `transport` |
 | State and presets | `state.save` `state.load` `state.info` `presets.list` `preset.load` |
 | Ports | `ports` `ports.configs` `ports.select` `ports.activate` `surround` `ambisonic` |

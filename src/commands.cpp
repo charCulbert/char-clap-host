@@ -291,6 +291,11 @@ void Session::registerCommands() {
 		               return Response::success();
 	               }});
 
+	commands_.add({"plugins.recent", "", "List the plug-ins loaded lately, newest first.",
+	               [](Session &session, const Request &) -> Response {
+		               return Response::success(describeRecent(session.recentPlugins()));
+	               }});
+
 	commands_.add({"plugins", "", "List every plug-in the loaded bundle offers.",
 	               [](Session &session, const Request &) -> Response {
 		               if (!session.bundle().isOpen())

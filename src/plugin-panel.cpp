@@ -57,9 +57,8 @@ const char *kPage = R"(<!doctype html>
 	button[aria-pressed="true"] { background: Highlight; color: HighlightText; border-color: Highlight; }
 	/* The player: a transport row under a row for choosing what it plays. */
 	.player { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
-	#seek { flex: 1; min-width: 0; }
-	#time { font-variant-numeric: tabular-nums; color: GrayText; white-space: nowrap; }
-	#recent { flex: 1; min-width: 0; }
+	[data-part="seek"], [data-part="recent"] { flex: 1; min-width: 0; }
+	[data-part="time"] { font-variant-numeric: tabular-nums; color: GrayText; white-space: nowrap; }
 	.player button { flex: none; }
 	.lamp {
 		flex: none; width: 6px; height: 6px; border-radius: 50%;
@@ -133,19 +132,35 @@ const char *kPage = R"(<!doctype html>
 </div>
 
 <h2>Input file</h2>
-<div class="player">
+<div class="player" data-command="audio.input" data-report="inputFile">
 	<div class="row">
-		<button id="choose" title="Play a WAV file in place of the device input">Choose…</button>
-		<select id="recent" title="Play a file you played before"><option value="">Recent files</option></select>
+		<button data-part="choose" title="Play a WAV file in place of the device input">Choose…</button>
+		<select data-part="recent" title="Play a file you played before"><option value="">Recent files</option></select>
 	</div>
-	<div class="row" id="transport" hidden>
-		<button id="play" aria-pressed="false" title="Play or pause">▶</button>
-		<button id="loop" aria-pressed="false" title="Loop the file">Loop</button>
-		<input type="range" id="seek" min="0" max="1" step="any" value="0" aria-label="Position">
-		<span id="time">0:00.0 / 0:00.0</span>
-		<button id="eject" title="Stop the file and go back to the device input">✕</button>
+	<div class="row" data-part="transport" hidden>
+		<button data-part="play" aria-pressed="false" title="Play or pause">▶</button>
+		<button data-part="loop" aria-pressed="false" title="Loop the file">Loop</button>
+		<input type="range" data-part="seek" min="0" max="1" step="any" value="0" aria-label="Position">
+		<span data-part="time">0:00.0 / 0:00.0</span>
+		<button data-part="eject" title="Unload the file">✕</button>
 	</div>
-	<p class="hint" id="fileHint">Or drop a <code>.wav</code> on this window.</p>
+	<p class="hint" data-part="hint">Or drop a <code>.wav</code> on this window.</p>
+</div>
+
+<h2>MIDI file</h2>
+<div class="player" data-command="midi.file" data-report="midiFile">
+	<div class="row">
+		<button data-part="choose" title="Play a MIDI file into the plug-in">Choose…</button>
+		<select data-part="recent" title="Play a file you played before"><option value="">Recent files</option></select>
+	</div>
+	<div class="row" data-part="transport" hidden>
+		<button data-part="play" aria-pressed="false" title="Play or pause">▶</button>
+		<button data-part="loop" aria-pressed="false" title="Loop the file">Loop</button>
+		<input type="range" data-part="seek" min="0" max="1" step="any" value="0" aria-label="Position">
+		<span data-part="time">0:00.0 / 0:00.0</span>
+		<button data-part="eject" title="Unload the file">✕</button>
+	</div>
+	<p class="hint" data-part="hint">Or drop a <code>.mid</code> on this window.</p>
 </div>
 
 <div id="empty" hidden>
@@ -481,18 +496,6 @@ const char *kPage = R"(<!doctype html>
 	const inputMuteButton = document.getElementById("inputMute");
 	const outputLine = document.getElementById("output");
 	const inputLine = document.getElementById("input");
-	const transport = document.getElementById("transport");
-	const playButton = document.getElementById("play");
-	const loopButton = document.getElementById("loop");
-	const seek = document.getElementById("seek");
-	const time = document.getElementById("time");
-	const recent = document.getElementById("recent");
-	const fileHint = document.getElementById("fileHint");
-	// While a thumb is held, the poll leaves it where the hand put it.
-	let seeking = false;
-	// The list is read again whenever the file changes, whoever changed it: a
-	// .wav dropped on the window, or `audio.input` typed at the prompt.
-	let shownPath = null;
 
 	// Minutes, seconds and tenths: a one-shot loop is often under a second.
 	function clock(seconds) {
@@ -509,33 +512,77 @@ const char *kPage = R"(<!doctype html>
 			: device && device.running ? (device.inputDevice || "No input.") : " ";
 	}
 
-	function showFile(file) {
-		transport.hidden = !file;
-		fileHint.hidden = !!file;
-		if (!file) return;
-		playButton.setAttribute("aria-pressed", String(file.playing));
-		playButton.textContent = file.playing ? "❚❚" : "▶";
-		loopButton.setAttribute("aria-pressed", String(file.loop));
-		seek.max = String(file.seconds || 1);
-		if (!seeking) seek.value = String(file.position);
-		time.textContent = clock(file.position) + " / " + clock(file.seconds);
+	// One file player: the WAV that stands in for the input, or the MIDI file
+	// played into the plug-in. Both answer to the same words under their own
+	// command -- `audio.input.play`, `midi.file.play` -- and `meters` reports
+	// each under its own key.
+	function filePlayer(element) {
+		const name = element.dataset.command;
+		const part = key => element.querySelector('[data-part="' + key + '"]');
+		const [transport, play, loop, seek, time, recent, hint] =
+			["transport", "play", "loop", "seek", "time", "recent", "hint"].map(part);
+		// While a thumb is held, the poll leaves it where the hand put it.
+		let seeking = false;
+		// The list is read again whenever the file changes, whoever changed it:
+		// a drop on the window, or a command typed at the prompt.
+		let shownPath = null;
+
+		async function showRecent() {
+			let data;
+			try {
+				data = await run(name + ".recent");
+			} catch {
+				return;
+			}
+			recent.replaceChildren(new Option("Recent files", ""));
+			for (const file of data.files || []) {
+				const option = new Option(file.name, file.path);
+				option.title = file.path;
+				recent.append(option);
+			}
+			recent.disabled = !(data.files || []).length;
+		}
+
+		part("choose").addEventListener("click", () => command(name + " choose --loop"));
+		part("eject").addEventListener("click", () => command(name + " clear"));
+		play.addEventListener("click", () => command(name + ".play toggle"));
+		loop.addEventListener("click", () => command(name + ".loop toggle"));
+		recent.addEventListener("change", () => {
+			const path = recent.value;
+			recent.value = "";
+			if (path) command(name + " " + quoted(path) + " --loop");
+		});
+		seek.addEventListener("input", () => {
+			seeking = true;
+			time.textContent = clock(Number(seek.value)) + " / " + clock(Number(seek.max));
+		});
+		seek.addEventListener("change", async () => {
+			await command(name + ".seek " + Number(seek.value));
+			seeking = false;
+		});
+
+		return {
+			report: element.dataset.report,
+			show(file) {
+				transport.hidden = !file;
+				hint.hidden = !!file;
+				const path = file ? file.path : "";
+				if (path !== shownPath) {
+					shownPath = path;
+					showRecent();
+				}
+				if (!file) return;
+				play.setAttribute("aria-pressed", String(file.playing));
+				play.textContent = file.playing ? "❚❚" : "▶";
+				loop.setAttribute("aria-pressed", String(file.loop));
+				seek.max = String(file.seconds || 1);
+				if (!seeking) seek.value = String(file.position);
+				time.textContent = clock(file.position) + " / " + clock(file.seconds);
+			},
+		};
 	}
 
-	async function showRecent() {
-		let data;
-		try {
-			data = await run("audio.input.recent");
-		} catch {
-			return;
-		}
-		recent.replaceChildren(new Option("Recent files", ""));
-		for (const file of data.files || []) {
-			const option = new Option(file.name, file.path);
-			option.title = file.path;
-			recent.append(option);
-		}
-		recent.disabled = !(data.files || []).length;
-	}
+	const players = [...document.querySelectorAll(".player")].map(filePlayer);
 
 	async function pollActivity() {
 		let data;
@@ -556,12 +603,8 @@ const char *kPage = R"(<!doctype html>
 		inputMuteButton.setAttribute("aria-pressed", String(!!data.inputMuted));
 		bypassButton.setAttribute("aria-pressed", String(!!data.bypassed));
 		showDevices(data.device, data.inputFile);
-		showFile(data.inputFile);
-		const path = data.inputFile ? data.inputFile.path : "";
-		if (path !== shownPath) {
-			shownPath = path;
-			showRecent();
-		}
+		for (const player of players)
+			player.show(data[player.report]);
 
 		meter.hidden = !data.running;
 		if (data.running)
@@ -587,24 +630,6 @@ const char *kPage = R"(<!doctype html>
 	powerButton.addEventListener("click", () => command("power toggle"));
 	bypassButton.addEventListener("click", () => command("bypass toggle"));
 	inputMuteButton.addEventListener("click", () => command("input.mute toggle"));
-	playButton.addEventListener("click", () => command("audio.input.play toggle"));
-	loopButton.addEventListener("click", () => command("audio.input.loop toggle"));
-	document.getElementById("eject").addEventListener("click", () => command("audio.input clear"));
-	document.getElementById("choose").addEventListener("click", () => command("audio.input choose --loop"));
-	recent.addEventListener("change", () => {
-		const path = recent.value;
-		recent.value = "";
-		if (path) command("audio.input " + quoted(path) + " --loop");
-	});
-	seek.addEventListener("input", () => {
-		seeking = true;
-		time.textContent = clock(Number(seek.value)) + " / " + clock(Number(seek.max));
-	});
-	seek.addEventListener("change", async () => {
-		await command("audio.input.seek " + Number(seek.value));
-		seeking = false;
-	});
-
 	document.getElementById("settings").addEventListener("click", async () => {
 		try {
 			await run("settings");

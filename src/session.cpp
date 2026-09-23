@@ -1,6 +1,7 @@
 #include "session.h"
 
 #include "thread-role.h"
+#include "midi-file.h"
 #include "wav.h"
 
 #include <algorithm>
@@ -41,10 +42,16 @@ uint64_t nowMs() {
 	return static_cast<uint64_t>(duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());
 }
 
+// A recent-file list, on disk if the options say so.
+std::string recentStore(const Options &options, const char *name) {
+	return options.recentFilesOnDisk ? RecentFiles::defaultStorePath(name) : std::string();
+}
+
 } // namespace
 
 Session::Session(Options options)
-    : options_(std::move(options)), host_(*this, validator_), instance_(host_.clapHost(), validator_), engine_(*this), audioDevice_(*this), midiInput_(*this), gui_(instance_), settings_(*this), panel_(*this), recentInputFiles_(options_.recentFilesPath) {
+    : options_(std::move(options)), host_(*this, validator_), instance_(host_.clapHost(), validator_), engine_(*this), audioDevice_(*this), midiInput_(*this), gui_(instance_), settings_(*this), panel_(*this), recentInputFiles_(recentStore(options_, "recent-input-files")),
+      recentMidiFiles_(recentStore(options_, "recent-midi-files")), recentPlugins_(recentStore(options_, "recent-plugins")) {
 	instance_.setPreferredFormat(options_.sampleRate, options_.blockSize);
 	instance_.setPhaseObserver([this](PluginInstance::Phase phase) {
 		host_.setPluginState(phase == PluginInstance::Phase::Ready      ? Host::PluginState::Ready
@@ -71,8 +78,13 @@ Session::~Session() {
 
 bool Session::load(const std::string &path, const std::string &id, uint32_t index, std::string &error) {
 	unload();
-	if (!instance_.load(path, id, index, error))
+	std::error_code ignored;
+	const std::string absolute = std::filesystem::absolute(path, ignored).string();
+	if (!instance_.load(path, id, index, error)) {
+		recentPlugins_.forgetIfMissing(absolute);
 		return false;
+	}
+	recentPlugins_.add(absolute, rememberOpened());
 	// Worked out here, on the main thread, so a MIDI message arriving on a
 	// device thread never has to ask the plug-in.
 	engine_.refreshNoteEncoding();
@@ -311,6 +323,8 @@ Value Session::outputLevels() const {
 	out["device"] = audioDevice_.statusReport();
 	out["inputMuted"] = Value(engine_.isInputMuted());
 	out["inputFile"] = inputFileReport();
+	out["midiFile"] = midiFileReport();
+	out["midiFile"] = midiFileReport();
 	out["bypassed"] = Value(engine_.isBypassed());
 	out["sleeping"] = Value(engine_.isSleeping());
 	out["peaks"] = Value(std::move(peaks));
@@ -325,7 +339,7 @@ bool Session::playInputFile(const std::string &path, bool loop, Value &report, s
 	const std::string absolute = std::filesystem::absolute(path, ignored).string();
 	AudioData audio;
 	if (!readWav(absolute, audio, error)) {
-		recentInputFiles_.remove(absolute);
+		recentInputFiles_.forgetIfMissing(absolute);
 		return false;
 	}
 	report = describeAudio(audio);
@@ -339,9 +353,49 @@ bool Session::playInputFile(const std::string &path, bool loop, Value &report, s
 		error = "the audio thread did not yield; the file was not loaded";
 		return false;
 	}
-	recentInputFiles_.add(absolute, options_.interactive || panel_.isOpen());
+	recentInputFiles_.add(absolute, rememberOpened());
 	report.set("file", inputFileReport());
 	return true;
+}
+
+bool Session::playMidiFile(const std::string &path, bool loop, Value &report, std::string &error) {
+	std::error_code ignored;
+	const std::string absolute = std::filesystem::absolute(path, ignored).string();
+	MidiFile file;
+	if (!readMidiFile(absolute, file, error)) {
+		recentMidiFiles_.forgetIfMissing(absolute);
+		return false;
+	}
+	if (file.events.empty()) {
+		error = "the file has no events to play";
+		return false;
+	}
+	const double tempo = file.initialTempo;
+	if (!engine_.setMidiFile(std::move(file), loop, absolute)) {
+		error = "the audio thread did not yield; the file was not loaded";
+		return false;
+	}
+	engine_.transport().tempo = tempo;
+	recentMidiFiles_.add(absolute, rememberOpened());
+	Object out;
+	out["file"] = midiFileReport();
+	report = Value(std::move(out));
+	return true;
+}
+
+Value Session::midiFileReport() const {
+	const MidiPlayer &player = engine_.midiPlayer();
+	if (engine_.midiFilePath().empty())
+		return {};
+	Object out;
+	out["path"] = Value(engine_.midiFilePath());
+	out["name"] = Value(std::filesystem::path(engine_.midiFilePath()).filename().string());
+	out["seconds"] = Value(player.duration());
+	out["position"] = Value(player.position());
+	out["tempo"] = Value(player.tempo());
+	out["playing"] = Value(player.isPlaying());
+	out["loop"] = Value(player.loops());
+	return Value(std::move(out));
 }
 
 Value Session::inputFileReport() const {

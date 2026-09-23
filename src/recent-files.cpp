@@ -41,6 +41,12 @@ void RecentFiles::remove(const std::string &path) {
 	save();
 }
 
+void RecentFiles::forgetIfMissing(const std::string &path) {
+	std::error_code ignored;
+	if (!std::filesystem::exists(path, ignored))
+		remove(path);
+}
+
 void RecentFiles::save() const {
 	if (storePath_.empty())
 		return;
@@ -52,18 +58,18 @@ void RecentFiles::save() const {
 	std::ofstream(storePath_) << Value(std::move(out)).toJson() << "\n";
 }
 
-std::string RecentFiles::defaultStorePath() {
-	const auto under = [](const char *variable, const char *rest) -> std::string {
+std::string RecentFiles::defaultStorePath(const std::string &name) {
+	const auto under = [&name](const char *variable, const char *folder) -> std::string {
 		const char *base = std::getenv(variable);
-		return base != nullptr && *base != '\0' ? std::string(base) + rest : std::string();
+		return base != nullptr && *base != '\0' ? std::string(base) + folder + name + ".json" : std::string();
 	};
 #if defined(_WIN32)
-	return under("APPDATA", "\\clap-host\\recent-input-files.json");
+	return under("APPDATA", "\\clap-host\\");
 #elif defined(__APPLE__)
-	return under("HOME", "/Library/Application Support/clap-host/recent-input-files.json");
+	return under("HOME", "/Library/Application Support/clap-host/");
 #else
-	const std::string xdg = under("XDG_CONFIG_HOME", "/clap-host/recent-input-files.json");
-	return !xdg.empty() ? xdg : under("HOME", "/.config/clap-host/recent-input-files.json");
+	const std::string xdg = under("XDG_CONFIG_HOME", "/clap-host/");
+	return !xdg.empty() ? xdg : under("HOME", "/.config/clap-host/");
 #endif
 }
 

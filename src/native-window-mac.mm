@@ -17,10 +17,11 @@ void requestQuit();
 void openSettings();
 void openPanel();
 void loadPlugin(const std::string &path);
-// The dragged .clap or .wav, or an empty string when the drag carries neither.
+// The dragged .clap, .wav or .mid, or an empty string when the drag carries
+// none of them.
 // Shared by the content view and the drop target, which both take a drop.
 NSString *droppedPath(id<NSDraggingInfo> sender);
-// A .clap loads; a .wav plays into it.
+// A .clap loads; a .wav or .mid plays into it.
 void openDropped(NSString *path);
 } // namespace nch
 
@@ -89,7 +90,7 @@ void openDropped(NSString *path);
 	[self setNeedsDisplay:YES];
 }
 
-// A border while a .clap or .wav is over the window, because the page underneath gives
+// A border while a file the host can open is over the window, because the page underneath gives
 // no sign on its own that the drop will land.
 - (void)drawRect:(NSRect)dirty {
 	(void)dirty;
@@ -200,7 +201,7 @@ std::function<void(const std::string &)> &loadPluginHandler() {
 	return handler;
 }
 
-std::function<void(const std::string &)> &playAudioFileHandler() {
+std::function<void(const std::string &)> &playFileHandler() {
 	static std::function<void(const std::string &)> handler;
 	return handler;
 }
@@ -356,7 +357,7 @@ NSString *droppedPath(id<NSDraggingInfo> sender) {
 	NSArray *urls = [[sender draggingPasteboard] readObjectsForClasses:@[ [NSURL class] ]
 	                                                           options:@{NSPasteboardURLReadingFileURLsOnlyKey : @YES}];
 	for (NSURL *url in urls)
-		for (NSString *extension in @[ @"clap", @"wav", @"wave" ])
+		for (NSString *extension in @[ @"clap", @"wav", @"wave", @"mid", @"midi" ])
 			if ([[url pathExtension] caseInsensitiveCompare:extension] == NSOrderedSame)
 				return [url path];
 	return @"";
@@ -366,8 +367,8 @@ void openDropped(NSString *path) {
 	const std::string text([path UTF8String]);
 	if ([[path pathExtension] caseInsensitiveCompare:@"clap"] == NSOrderedSame)
 		loadPlugin(text);
-	else if (playAudioFileHandler())
-		playAudioFileHandler()(text);
+	else if (playFileHandler())
+		playFileHandler()(text);
 }
 
 namespace {
@@ -604,8 +605,8 @@ void setLoadPluginHandler(std::function<void(const std::string &)> handler) {
 	loadPluginHandler() = std::move(handler);
 }
 
-void setPlayAudioFileHandler(std::function<void(const std::string &)> handler) {
-	playAudioFileHandler() = std::move(handler);
+void setPlayFileHandler(std::function<void(const std::string &)> handler) {
+	playFileHandler() = std::move(handler);
 }
 
 std::string chooseFile(const std::string &message, const std::vector<std::string> &extensions) {

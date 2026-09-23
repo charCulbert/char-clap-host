@@ -6,6 +6,7 @@
 #pragma once
 
 #include "event-list.h"
+#include "midi-player.h"
 #include "note-encoding.h"
 #include "process-check.h"
 #include "process-buffers.h"
@@ -123,6 +124,19 @@ public:
 	bool seekInput(uint64_t frame);
 	// Where the file is, as of the last block.
 	uint64_t inputPosition() const { return inputPositionShown_.load(std::memory_order_relaxed); }
+
+	// --- the MIDI file player ----------------------------------------------
+	// Plays a MIDI file into the plug-in's first note port while it is
+	// processing, encoded for its dialect. Loading, clearing and seeking wait
+	// for a block to finish; false if one would not yield. Play, pause and
+	// loop go through midiPlayer() directly.
+	bool setMidiFile(MidiFile file, bool loop, std::string path);
+	bool clearMidiFile();
+	bool seekMidiFile(double seconds);
+	MidiPlayer &midiPlayer() { return midiPlayer_; }
+	const MidiPlayer &midiPlayer() const { return midiPlayer_; }
+	// Main thread only: what was loaded, empty with nothing.
+	const std::string &midiFilePath() const { return midiFilePath_; }
 
 	// Keeps the input -- the device's or the file's -- out of the signal
 	// while the stream stays up.
@@ -265,6 +279,8 @@ private:
 	std::atomic<bool> inputPlaying_{false};
 	std::atomic<bool> inputLoop_{false};
 	std::string inputPath_;
+	MidiPlayer midiPlayer_;
+	std::string midiFilePath_;
 	uint64_t inputFrames_ = 0;
 	double inputSampleRate_ = 0.0;
 	std::atomic<bool> inputMuted_{false};
