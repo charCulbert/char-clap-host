@@ -6,6 +6,7 @@
 #pragma once
 
 #include "event-list.h"
+#include "level-meter.h"
 #include "midi-player.h"
 #include "note-encoding.h"
 #include "process-check.h"
@@ -124,6 +125,11 @@ public:
 	bool seekInput(uint64_t frame);
 	// Where the file is, as of the last block.
 	uint64_t inputPosition() const { return inputPositionShown_.load(std::memory_order_relaxed); }
+
+	// What the host feeds the input -- the device, the file, or silence when
+	// muted -- as the plug-in's main input or the pass-through receives it.
+	const LevelMeter &inputMeter() const { return inputMeter_; }
+	uint32_t inputMeterChannels() const { return inputMeterChannels_.load(std::memory_order_relaxed); }
 
 	// --- the MIDI file player ----------------------------------------------
 	// Plays a MIDI file into the plug-in's first note port while it is
@@ -280,6 +286,8 @@ private:
 	std::atomic<bool> inputLoop_{false};
 	std::string inputPath_;
 	MidiPlayer midiPlayer_;
+	LevelMeter inputMeter_;
+	std::atomic<uint32_t> inputMeterChannels_{0};
 	std::string midiFilePath_;
 	uint64_t inputFrames_ = 0;
 	double inputSampleRate_ = 0.0;

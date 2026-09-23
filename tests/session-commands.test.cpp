@@ -315,3 +315,15 @@ TEST(the_recent_list_survives_a_restart) {
 	CHECK_EQ(again.list().size(), size_t(2));
 	CHECK_EQ(again.list()[0], std::string("/c.wav"));
 }
+
+TEST(meters_report_the_input_and_the_load) {
+	TestSession host;
+	const float input[4] = {0.5f, 0.5f, 0.5f, 0.5f};
+	float output[8] = {};
+	host.session().engine().processInterleaved(input, 1, output, 2, 4);
+	const Value meters = host.run("meters");
+	CHECK_EQ(meters["data"]["inputPeaks"].array().size(), size_t(2));
+	CHECK_NEAR(meters["data"]["inputPeaks"].array()[0].asNumber(), 0.5, 1e-6);
+	CHECK(meters["data"].has("audioLoad"));
+	CHECK(meters["data"].has("underruns"));
+}

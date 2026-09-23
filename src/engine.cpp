@@ -615,6 +615,10 @@ int32_t Engine::processBlock(uint32_t frames, const BlockIo &io) {
 			});
 		else
 			passThrough(io, frames, fromFile ? nullptr : deviceInput);
+		// Straight through, the output is the input.
+		inputMeter_.takeInterleaved(io.interleavedOutput, frames, io.interleavedOutputChannels);
+		inputMeterChannels_.store(io.interleavedOutput != nullptr ? io.interleavedOutputChannels : 0,
+		                          std::memory_order_relaxed);
 		advanceInput(frames);
 		insideProcess_.store(false, std::memory_order_release);
 		return CLAP_PROCESS_ERROR;
@@ -634,6 +638,10 @@ int32_t Engine::processBlock(uint32_t frames, const BlockIo &io) {
 		buffers_.fillMainInput(input_, inputPosition_, blockFrames, loop);
 	else if (!fromFile && deviceInput != nullptr)
 		buffers_.writeMainInput(deviceInput, blockFrames, io.interleavedInputChannels);
+	const uint32_t inputChannels = std::min(buffers_.mainInputChannels(), LevelMeter::kMaxChannels);
+	for (uint32_t channel = 0; channel < inputChannels; ++channel)
+		inputMeter_.take(channel, buffers_.mainInputPeak(channel, blockFrames));
+	inputMeterChannels_.store(inputChannels, std::memory_order_relaxed);
 	advanceInput(blockFrames);
 	collectBlockEvents(blockFrames);
 	outEvents_.clear();

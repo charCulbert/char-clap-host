@@ -133,7 +133,11 @@ implementation — the page sends `params.list`, `param.set`, `presets.list` and
 its own is still playable, and anything the command set gains appears there
 without new code. A lamp beside the settings button lights when a MIDI message
 arrives and a `<compost-meter>` shows the output level, both polled through the
-`meters` command, so an agent reads exactly what a person sees. Beside the
+`meters` command, so an agent reads exactly what a person sees. An Input meter
+beside it shows what the host feeds the plug-in -- the device, a file, or
+silence when muted -- and the output line carries the audio load (the share of
+each block's time the host took to make it) and the dropouts counted since
+launch. Beside the
 meter, **Power** (`power`) opens the audio stream -- the last devices chosen, or
 the default output and input -- and closes it again; the window starts with it
 off, so launching never makes a sound or opens a microphone. **Mute input**

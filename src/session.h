@@ -14,6 +14,7 @@
 #include "settings-window.h"
 #include "host-services.h"
 #include "host.h"
+#include "level-meter.h"
 #include "plugin-instance.h"
 #include "plugin-panel.h"
 #include "recent-files.h"
@@ -249,8 +250,6 @@ public:
 private:
 	// Mixes the test tone into a device block, if one is playing.
 	void renderTestTone(float *output, uint32_t frames, uint32_t channels);
-	// Records what the block actually sent to the speakers.
-	void measureOutput(const float *output, uint32_t frames, uint32_t channels);
 
 	void registerCommands();
 	void registerAudioCommands();
@@ -280,12 +279,11 @@ private:
 	// Queued messages carry this generation so a late callback from an unloaded
 	// instance cannot reach a replacement plug-in's webview.
 	std::atomic<uint64_t> webviewGeneration_{0};
-	// Written by the audio thread, read by anyone. Each block decays what is
-	// there and keeps the louder of that and itself, so a reader slower than
-	// the device still sees a transient, and one faster sees it fall away
-	// rather than flickering to nothing between blocks.
-	static constexpr uint32_t kMaxMeterChannels = 8;
-	std::atomic<float> outputPeaks_[kMaxMeterChannels] = {};
+	// What the block sent to the speakers, written by the audio thread.
+	LevelMeter outputMeter_;
+	// How much of each block's time the callback took, held like a peak, as a
+	// fraction: over 1 and the device is waiting on the host.
+	std::atomic<float> audioLoad_{0.0f};
 	// Written by the main thread, consumed by the audio thread.
 	std::atomic<uint64_t> testToneRemaining_{0};
 	std::atomic<double> testToneFrequency_{440.0};

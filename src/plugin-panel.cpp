@@ -43,9 +43,9 @@ const char *kPage = R"(<!doctype html>
 	/* The meter on the left; what feeds it and where it goes on the right. */
 	.audio { display: flex; align-items: flex-end; gap: 16px; }
 	.audio > .controls { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
-	/* A custom element's own :host display beats the UA rule for [hidden], so
-	   hiding one takes saying so. */
-	compost-meter[hidden] { display: none; }
+	/* A class's display, or a custom element's own :host display, beats the
+	   UA rule for [hidden], so hiding takes saying so. */
+	[hidden] { display: none !important; }
 	compost-meter {
 		--meter-length: 8em;
 		--meter-channel-width: 1.1em;
@@ -54,6 +54,7 @@ const char *kPage = R"(<!doctype html>
 	.row { display: flex; align-items: center; gap: 6px; min-width: 0; }
 	.row > .grow { flex: 1; min-width: 0; }
 	.device { color: GrayText; overflow-wrap: anywhere; }
+	.warn { color: #d9534f; }
 	button[aria-pressed="true"] { background: Highlight; color: HighlightText; border-color: Highlight; }
 	/* The player: a transport row under a row for choosing what it plays. */
 	.player { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
@@ -117,7 +118,8 @@ const char *kPage = R"(<!doctype html>
 </div>
 
 <div class="audio">
-	<compost-meter id="meter" label="Output" min="-60" max="0" curve="log"></compost-meter>
+	<compost-meter id="inputMeter" label="Input" min="-60" max="0" curve="log" hidden></compost-meter>
+	<compost-meter id="meter" label="Output" min="-60" max="0" curve="log" hidden></compost-meter>
 	<div class="controls">
 		<div class="row">
 			<button id="power" aria-pressed="false" title="Turn the audio on or off">⏻ Power</button>
@@ -459,19 +461,31 @@ const char *kPage = R"(<!doctype html>
 	// poll rather than a push: the host has no way to call into the page
 	// except a reply, and a meter that misses a frame costs nothing.
 	const midiLamp = document.getElementById("midiLamp");
-	const meter = document.getElementById("meter");
 	const channelNames = ["L", "R", "3", "4", "5", "6", "7", "8"];
 	let lastMidiCount = null;
 	let litUntil = 0;
-	let holds = [];
 
 	function decibels(peak) {
 		return peak > 0 ? 20 * Math.log10(peak) : -Infinity;
 	}
 
-	function showLevels(peaks) {
-		if (holds.length !== peaks.length)
-			holds = peaks.map(() => -Infinity);
+	// One compost-meter and the holds it shows. Hidden while it has nothing
+	// to measure: audio off, or a plug-in with no input to feed.
+	function levelMeter(id) {
+		const element = document.getElementById(id);
+		let holds = [];
+		return peaks => {
+			element.hidden = !peaks || peaks.length === 0;
+			if (element.hidden) return;
+			if (holds.length !== peaks.length)
+				holds = peaks.map(() => -Infinity);
+			showLevels(element, holds, peaks);
+		};
+	}
+	const showOutput = levelMeter("meter");
+	const showInput = levelMeter("inputMeter");
+
+	function showLevels(meter, holds, peaks) {
 		meter.setState({
 			primaryLabel: "Peak",
 			holdLabel: "Hold",
@@ -504,10 +518,15 @@ const char *kPage = R"(<!doctype html>
 		return Math.floor(whole / 60) + ":" + String(whole % 60).padStart(2, "0") + "." + (tenths % 10);
 	}
 
-	function showDevices(device, file) {
+	// Load is the share of each block's time the host took to make it; near
+	// 100% and the device starts waiting, which is a dropout.
+	function showDevices(device, file, load, underruns) {
 		outputLine.textContent = device && device.running
-			? [device.device, Math.round(device.sampleRate / 100) / 10 + " kHz", device.blockSize + " frames"].join(" · ")
+			? [device.device, Math.round(device.sampleRate / 100) / 10 + " kHz", device.blockSize + " frames",
+			   "load " + Math.round((load || 0) * 100) + "%",
+			   (underruns || 0) + (underruns === 1 ? " dropout" : " dropouts")].join(" · ")
 			: "Audio is off.";
+		outputLine.classList.toggle("warn", (load || 0) > 0.8);
 		inputLine.textContent = file ? "Playing " + file.name + " in place of the input."
 			: device && device.running ? (device.inputDevice || "No input.") : " ";
 	}
@@ -602,13 +621,12 @@ const char *kPage = R"(<!doctype html>
 		powerButton.setAttribute("aria-pressed", String(!!data.running));
 		inputMuteButton.setAttribute("aria-pressed", String(!!data.inputMuted));
 		bypassButton.setAttribute("aria-pressed", String(!!data.bypassed));
-		showDevices(data.device, data.inputFile);
+		showDevices(data.device, data.inputFile, data.audioLoad, data.underruns);
 		for (const player of players)
 			player.show(data[player.report]);
 
-		meter.hidden = !data.running;
-		if (data.running)
-			showLevels(data.peaks || []);
+		showOutput(data.running ? data.peaks : null);
+		showInput(data.running ? data.inputPeaks : null);
 	}
 
 	setInterval(pollActivity, 60);

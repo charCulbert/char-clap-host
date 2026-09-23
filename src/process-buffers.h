@@ -26,6 +26,9 @@ public:
 	clap_audio_buffer_t *inputs() { return inputs_.empty() ? nullptr : inputs_.data(); }
 	clap_audio_buffer_t *outputs() { return outputs_.empty() ? nullptr : outputs_.data(); }
 	uint32_t mainOutputChannels() const;
+	uint32_t mainInputChannels() const;
+	// The loudest sample of one main-input channel over `frames`.
+	float mainInputPeak(uint32_t channel, uint32_t frames) const;
 	// Whether every channel of every input, or of every output, is quiet
 	// over `frames`. What the process status codes mean by "quiet".
 	bool inputsQuiet(uint32_t frames) const;

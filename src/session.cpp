@@ -281,6 +281,7 @@ void Session::openEveryMidiInput() {
 }
 
 void Session::onAudioCallback(const float *input, float *output, uint32_t frames, bool hadGlitch) {
+	const auto started = std::chrono::steady_clock::now();
 	audioCallbacks_.fetch_add(1, std::memory_order_relaxed);
 	if (hadGlitch)
 		audioUnderruns_.fetch_add(1, std::memory_order_relaxed);
@@ -288,36 +289,18 @@ void Session::onAudioCallback(const float *input, float *output, uint32_t frames
 	engine_.processInterleaved(input, input != nullptr ? engine_.deviceInputChannels() : 0, output, channels,
 	                           frames);
 	renderTestTone(output, frames, channels);
-	measureOutput(output, frames, channels);
-}
+	outputMeter_.takeInterleaved(output, frames, channels);
 
-void Session::measureOutput(const float *output, uint32_t frames, uint32_t channels) {
-	if (output == nullptr)
-		return;
-	const uint32_t metered = std::min(channels, kMaxMeterChannels);
-	for (uint32_t channel = 0; channel < metered; ++channel) {
-		float peak = 0.0f;
-		for (uint32_t frame = 0; frame < frames; ++frame) {
-			const float sample = std::fabs(output[frame * channels + channel]);
-			// NaN compares false either way, so it never becomes the peak.
-			if (sample > peak)
-				peak = sample;
-		}
-		// A held peak that falls about 90% over 150ms: slow enough that any
-		// reader sees the transient, fast enough to look live.
-		constexpr float kDecayPerBlock = 0.85f;
-		float seen = outputPeaks_[channel].load(std::memory_order_relaxed);
-		float held = std::max(peak, seen * kDecayPerBlock);
-		while (!outputPeaks_[channel].compare_exchange_weak(seen, held, std::memory_order_relaxed))
-			held = std::max(peak, seen * kDecayPerBlock);
+	// The share of the block's own duration the host spent producing it. Held
+	// and let fall like a meter, so a spike stays readable.
+	const double spent = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+	const auto load = static_cast<float>(spent * sampleRate() / std::max<uint32_t>(frames, 1));
+	float seen = audioLoad_.load(std::memory_order_relaxed);
+	while (!audioLoad_.compare_exchange_weak(seen, std::max(load, seen * 0.95f), std::memory_order_relaxed)) {
 	}
 }
 
 Value Session::outputLevels() const {
-	const uint32_t channels = std::min(engine_.deviceOutputChannels(), kMaxMeterChannels);
-	Array peaks;
-	for (uint32_t channel = 0; channel < channels; ++channel)
-		peaks.push_back(Value(outputPeaks_[channel].load(std::memory_order_relaxed)));
 	Object out;
 	out["running"] = Value(audioDevice_.isRunning());
 	out["device"] = audioDevice_.statusReport();
@@ -327,7 +310,10 @@ Value Session::outputLevels() const {
 	out["midiFile"] = midiFileReport();
 	out["bypassed"] = Value(engine_.isBypassed());
 	out["sleeping"] = Value(engine_.isSleeping());
-	out["peaks"] = Value(std::move(peaks));
+	out["peaks"] = outputMeter_.read(engine_.deviceOutputChannels());
+	out["inputPeaks"] = engine_.inputMeter().read(engine_.inputMeterChannels());
+	out["audioLoad"] = Value(audioLoad_.load(std::memory_order_relaxed));
+	out["underruns"] = Value(audioUnderrunCount());
 	out["midiMessages"] = Value(static_cast<double>(midiMessageCount()));
 	out["midiDropped"] = Value(static_cast<double>(midiDroppedCount()));
 	out["audioCallbacks"] = Value(static_cast<double>(audioCallbackCount()));

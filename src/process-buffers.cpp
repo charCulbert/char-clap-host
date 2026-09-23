@@ -5,6 +5,7 @@
 
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace nch {
@@ -70,6 +71,20 @@ void ProcessBuffers::allocate(std::vector<Port> &ports, std::vector<clap_audio_b
 		buffer.latency = 0;
 		buffer.constant_mask = 0;
 	}
+}
+
+uint32_t ProcessBuffers::mainInputChannels() const {
+	return mainInputIndex_ < inputPorts_.size() ? inputPorts_[mainInputIndex_].channelCount : 0;
+}
+
+float ProcessBuffers::mainInputPeak(uint32_t channel, uint32_t frames) const {
+	if (channel >= mainInputChannels())
+		return 0.0f;
+	const auto &samples = inputPorts_[mainInputIndex_].channels[channel];
+	float peak = 0.0f;
+	for (uint32_t frame = 0; frame < std::min(frames, maxFrames_); ++frame)
+		peak = std::max(peak, std::fabs(samples[frame]));
+	return peak;
 }
 
 uint32_t ProcessBuffers::mainOutputChannels() const {
