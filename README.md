@@ -137,7 +137,8 @@ arrives and a `<compost-meter>` shows the output level, both polled through the
 beside it shows what the host feeds the plug-in -- the device, a file, or
 silence when muted -- and the output line carries the audio load (the share of
 each block's time the host took to make it) and the dropouts counted since
-launch. Beside the
+launch. **Gain** (`output.gain <dB>`) trims everything the device plays, from
+-60 dB, which is off, to +12; double-click it to return to 0. Beside the
 meter, **Power** (`power`) opens the audio stream -- the last devices chosen, or
 the default output and input -- and closes it again; the window starts with it
 off, so launching never makes a sound or opens a microphone. **Mute input**
@@ -225,7 +226,7 @@ file can be inspected. The shell is the graph.
 | State and presets | `state.save` `state.load` `state.info` `presets.list` `preset.load` |
 | Ports | `ports` `ports.configs` `ports.select` `ports.activate` `surround` `ambisonic` |
 | Reported by the plug-in | `latency` `tail` `voices` `note.names` `remote.pages` `triggers` `render.mode` |
-| Devices | `audio.devices` `audio.start` `audio.settings` `audio.stop` `audio.status` `audio.test` `power` `input.mute` `meters` `midi.ports` `midi.open` `midi.close` `midi.outputs` `midi.out` |
+| Devices | `audio.devices` `audio.start` `audio.settings` `audio.stop` `audio.status` `audio.test` `power` `output.gain` `input.mute` `meters` `midi.ports` `midi.open` `midi.close` `midi.outputs` `midi.out` |
 | Interface | `gui.open` `gui.close` `gui.resize` `gui` `gui.contents` `gui.snapshot` `panel` `panel.snapshot` `panel.close` `settings` `settings.close` |
 | Modulation | `param.mod` |
 | Validation | `validate` `validate.clear` `validate.run` `validate.tests` |

@@ -55,6 +55,7 @@ const char *kPage = R"(<!doctype html>
 	.row > .grow { flex: 1; min-width: 0; }
 	.device { color: GrayText; overflow-wrap: anywhere; }
 	.warn { color: #d9534f; }
+	#gainReading { min-width: 4.5em; text-align: right; font-variant-numeric: tabular-nums; }
 	button[aria-pressed="true"] { background: Highlight; color: HighlightText; border-color: Highlight; }
 	/* The player: a transport row under a row for choosing what it plays. */
 	.player { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
@@ -125,6 +126,12 @@ const char *kPage = R"(<!doctype html>
 			<button id="power" aria-pressed="false" title="Turn the audio on or off">⏻ Power</button>
 			<button id="bypass" aria-pressed="false" title="Hear the input in place of the plug-in" hidden>Bypass</button>
 			<span class="device grow" id="output">Audio is off.</span>
+		</div>
+		<div class="row">
+			<label for="gain" class="device">Gain</label>
+			<input type="range" id="gain" class="grow" min="-60" max="12" step="0.5" value="0"
+			       title="Double-click to return to 0 dB">
+			<span id="gainReading" class="device">0.0 dB</span>
 		</div>
 		<div class="row">
 			<button id="inputMute" aria-pressed="false" title="Keep the input out of the signal">Mute input</button>
@@ -622,6 +629,7 @@ const char *kPage = R"(<!doctype html>
 		inputMuteButton.setAttribute("aria-pressed", String(!!data.inputMuted));
 		bypassButton.setAttribute("aria-pressed", String(!!data.bypassed));
 		showDevices(data.device, data.inputFile, data.audioLoad, data.underruns);
+		showGain(data.gainDb ?? 0);
 		for (const player of players)
 			player.show(data[player.report]);
 
@@ -644,6 +652,22 @@ const char *kPage = R"(<!doctype html>
 			pollActivity();
 		}
 	}
+
+	const gain = document.getElementById("gain");
+	const gainReading = document.getElementById("gainReading");
+	// While the thumb is held, the poll leaves it where the hand put it.
+	let adjustingGain = false;
+	function showGain(db) {
+		if (!adjustingGain) gain.value = String(db);
+		gainReading.textContent = Number(gain.value) <= -60 ? "off" : Number(gain.value).toFixed(1) + " dB";
+	}
+	gain.addEventListener("input", () => {
+		adjustingGain = true;
+		showGain(Number(gain.value));
+		run("output.gain " + gain.value).catch(() => {});
+	});
+	gain.addEventListener("change", () => { adjustingGain = false; });
+	gain.addEventListener("dblclick", () => command("output.gain 0"));
 
 	powerButton.addEventListener("click", () => command("power toggle"));
 	bypassButton.addEventListener("click", () => command("bypass toggle"));

@@ -121,6 +121,14 @@ public:
 	Value inputFileReport() const;
 	Value midiFileReport() const;
 
+	// A trim on everything the device plays, in dB, from kMinGainDb (silence)
+	// to kMaxGainDb. It ramps over a block rather than jumping, so moving it
+	// does not click. The test tone is left alone: it is a check of the device.
+	static constexpr double kMinGainDb = -60.0;
+	static constexpr double kMaxGainDb = 12.0;
+	void setOutputGainDb(double db);
+	double outputGainDb() const { return outputGainDb_.load(std::memory_order_relaxed); }
+
 	// Power is the audio stream itself. On, it opens whatever the user last
 	// chose, or else the default output with the default input; off, it
 	// closes the stream, microphone included. A window starts with it off, so
@@ -284,6 +292,10 @@ private:
 	// How much of each block's time the callback took, held like a peak, as a
 	// fraction: over 1 and the device is waiting on the host.
 	std::atomic<float> audioLoad_{0.0f};
+	std::atomic<double> outputGainDb_{0.0};
+	std::atomic<float> outputGainTarget_{1.0f};
+	// The linear gain the last block ended on; audio thread only.
+	float outputGain_ = 1.0f;
 	// Written by the main thread, consumed by the audio thread.
 	std::atomic<uint64_t> testToneRemaining_{0};
 	std::atomic<double> testToneFrequency_{440.0};

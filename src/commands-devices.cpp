@@ -64,6 +64,20 @@ void Session::registerDeviceCommands() {
 		               return Response::success(Value(std::move(out)));
 	               }});
 
+	commands_.add({"output.gain", "[dB]", "Trim everything the device plays, from -60 (off) to +12 dB; alone, report.",
+	               [](Session &session, const Request &request) -> Response {
+		               if (request.hasArg(0, "db")) {
+			               const Value &db = request.arg(0, "db");
+			               // A word that is not a number is a mistake, not zero.
+			               if (!db.isNumber() && db.asString().find_first_not_of("+-.0123456789") != std::string::npos)
+				               return Response::failure("usage: output.gain [dB]");
+			               session.setOutputGainDb(db.asNumber());
+		               }
+		               Object out;
+		               out["gainDb"] = Value(session.outputGainDb());
+		               return Response::success(Value(std::move(out)));
+	               }});
+
 	commands_.add({"input.mute", "[on|off|toggle]", "Keep the device input out of the signal.",
 	               [](Session &session, const Request &request) -> Response {
 		               bool muted = false;

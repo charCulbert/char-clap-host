@@ -8,6 +8,7 @@
 #include "session.h"
 #include "wav.h"
 
+#include <cmath>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -326,4 +327,24 @@ TEST(meters_report_the_input_and_the_load) {
 	CHECK_NEAR(meters["data"]["inputPeaks"].array()[0].asNumber(), 0.5, 1e-6);
 	CHECK(meters["data"].has("audioLoad"));
 	CHECK(meters["data"].has("underruns"));
+}
+
+TEST(output_gain_trims_what_the_device_plays) {
+	TestSession host;
+	CHECK_NEAR(host.run("output.gain -6")["data"]["gainDb"].asNumber(), -6.0, 1e-9);
+	CHECK(!host.run("output.gain loud")["ok"].asBool());
+	CHECK_NEAR(host.run("output.gain 99")["data"]["gainDb"].asNumber(), 12.0, 1e-9);
+	host.session().engine().setDeviceInputChannels(1);
+	const float input[2] = {0.5f, 0.5f};
+	float output[4] = {};
+	// One block ramps to the new gain; the next is all of it.
+	host.run("output.gain -6");
+	host.session().onAudioCallback(input, output, 2, false);
+	host.session().onAudioCallback(input, output, 2, false);
+	CHECK_NEAR(output[0], 0.5f * std::pow(10.0f, -6.0f / 20.0f), 1e-5);
+	// The bottom of the range is off.
+	host.run("output.gain -60");
+	host.session().onAudioCallback(input, output, 2, false);
+	host.session().onAudioCallback(input, output, 2, false);
+	CHECK_NEAR(output[0], 0.0f, 1e-6);
 }

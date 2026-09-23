@@ -288,6 +288,15 @@ void Session::onAudioCallback(const float *input, float *output, uint32_t frames
 	const uint32_t channels = engine_.deviceOutputChannels();
 	engine_.processInterleaved(input, input != nullptr ? engine_.deviceInputChannels() : 0, output, channels,
 	                           frames);
+	const float target = outputGainTarget_.load(std::memory_order_relaxed);
+	if ((target != 1.0f || outputGain_ != 1.0f) && output != nullptr) {
+		for (uint32_t frame = 0; frame < frames; ++frame) {
+			const float gain = outputGain_ + (target - outputGain_) * static_cast<float>(frame + 1) / frames;
+			for (uint32_t channel = 0; channel < channels; ++channel)
+				output[frame * channels + channel] *= gain;
+		}
+		outputGain_ = target;
+	}
 	renderTestTone(output, frames, channels);
 	outputMeter_.takeInterleaved(output, frames, channels);
 
@@ -313,6 +322,7 @@ Value Session::outputLevels() const {
 	out["peaks"] = outputMeter_.read(engine_.deviceOutputChannels());
 	out["inputPeaks"] = engine_.inputMeter().read(engine_.inputMeterChannels());
 	out["audioLoad"] = Value(audioLoad_.load(std::memory_order_relaxed));
+	out["gainDb"] = Value(outputGainDb());
 	out["underruns"] = Value(audioUnderrunCount());
 	out["midiMessages"] = Value(static_cast<double>(midiMessageCount()));
 	out["midiDropped"] = Value(static_cast<double>(midiDroppedCount()));
@@ -397,6 +407,14 @@ Value Session::inputFileReport() const {
 	out["playing"] = Value(engine_.isInputPlaying());
 	out["loop"] = Value(engine_.inputLoops());
 	return Value(std::move(out));
+}
+
+void Session::setOutputGainDb(double db) {
+	db = std::clamp(db, kMinGainDb, kMaxGainDb);
+	outputGainDb_.store(db, std::memory_order_relaxed);
+	// The bottom of the range is off rather than merely quiet.
+	outputGainTarget_.store(db <= kMinGainDb ? 0.0f : static_cast<float>(std::pow(10.0, db / 20.0)),
+	                        std::memory_order_relaxed);
 }
 
 bool Session::powerOn(std::string &error) {
