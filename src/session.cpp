@@ -74,10 +74,17 @@ bool Session::load(const std::string &path, const std::string &id, uint32_t inde
 	// Worked out here, on the main thread, so a MIDI message arriving on a
 	// device thread never has to ask the plug-in.
 	engine_.refreshNoteEncoding();
-	// unload() closed whatever was open; a plug-in the user just dropped on the
-	// window should still be playable without opening the settings.
-	if (devicesOpenedByDefault_)
+	// unload() closed the MIDI ports; a plug-in the user just dropped on the
+	// window should still be playable without opening the settings. A stream
+	// already running -- passing its input through while nothing was loaded --
+	// takes the new plug-in either way.
+	if (devicesOpenedByDefault_) {
 		openDefaultDevices();
+	} else if (audioDevice_.isRunning()) {
+		std::string startError;
+		if (!engine_.start(startError))
+			std::fprintf(stderr, "error: %s\n", startError.c_str());
+	}
 	panel_.refresh();
 	return true;
 }
@@ -86,10 +93,13 @@ void Session::unload() {
 	if (instance_.isLoaded()) {
 		// The host's own things go first: an interface outliving the instance
 		// it belongs to, or a device thread still calling process(), are both
-		// worse than any ordering inside the instance itself.
+		// worse than any ordering inside the instance itself. The stream
+		// itself stays up: once the engine has stopped, the device thread no
+		// longer reaches the plug-in and passes its input straight through.
 		gui_.close();
-		audioDevice_.stop();
 		midiInput_.close();
+		// Bypass belongs to the plug-in; the next one starts audible.
+		engine_.setBypassed(false);
 		midiOutput_.close();
 		engine_.stop();
 	}
@@ -228,10 +238,10 @@ bool Session::prepareForDevice(double sampleRate, uint32_t blockSize, std::strin
 	options_.blockSize = blockSize;
 	deactivate();
 	instance_.setPreferredFormat(sampleRate, blockSize);
-	// A device is worth opening on its own: the settings window's test tone and
-	// the level meters are about the hardware, not about a plug-in. One only
-	// joins the stream if it is loaded, and the engine writes silence until it
-	// is.
+	// A device is worth opening on its own: the settings window's test tone,
+	// the level meters and hearing the input are about the hardware, not about
+	// a plug-in. One only joins the stream if it is loaded, and until then the
+	// input passes straight through.
 	if (!isLoaded())
 		return true;
 	return engine_.start(error);
@@ -240,10 +250,9 @@ bool Session::prepareForDevice(double sampleRate, uint32_t blockSize, std::strin
 void Session::openDefaultDevices() {
 	devicesOpenedByDefault_ = true;
 	std::string error;
-	if (!audioDevice_.isRunning()) {
-		if (!audioDevice_.start({}, 0, error))
-			std::fprintf(stderr, "error: %s\n", error.c_str());
-	} else if (isLoaded() && !engine_.isRunning()) {
+	// The audio stream waits for Power: opening the window only gets MIDI
+	// ready. A stream that is already up takes a newly loaded plug-in.
+	if (audioDevice_.isRunning() && isLoaded() && !engine_.isRunning()) {
 		// The window opened its device before there was a plug-in to play
 		// through it, so the stream is live but nothing is processing. A
 		// plug-in dropped on that window has to be joined to it.
@@ -268,6 +277,8 @@ void Session::onAudioCallback(const float *input, float *output, uint32_t frames
 	if (hadGlitch)
 		audioUnderruns_.fetch_add(1, std::memory_order_relaxed);
 	const uint32_t channels = engine_.deviceOutputChannels();
+	if (inputMuted_.load(std::memory_order_acquire))
+		input = nullptr;
 	engine_.processInterleaved(input, input != nullptr ? engine_.deviceInputChannels() : 0, output, channels,
 	                           frames);
 	renderTestTone(output, frames, channels);
@@ -303,6 +314,8 @@ Value Session::outputLevels() const {
 		peaks.push_back(Value(outputPeaks_[channel].load(std::memory_order_relaxed)));
 	Object out;
 	out["running"] = Value(audioDevice_.isRunning());
+	out["inputMuted"] = Value(isInputMuted());
+	out["bypassed"] = Value(engine_.isBypassed());
 	out["sleeping"] = Value(engine_.isSleeping());
 	out["peaks"] = Value(std::move(peaks));
 	out["midiMessages"] = Value(static_cast<double>(midiMessageCount()));
@@ -311,8 +324,15 @@ Value Session::outputLevels() const {
 	return Value(std::move(out));
 }
 
+bool Session::powerOn(std::string &error) {
+	if (audioDevice_.isRunning())
+		return true;
+	return audioDevice_.hasBeenStarted() ? audioDevice_.restart(error)
+	                                     : audioDevice_.start({}, kLiveInputChannels, error);
+}
+
 bool Session::startTestTone(double seconds, double frequency, std::string &error) {
-	if (!audioDevice_.isRunning() && !audioDevice_.start({}, 0, error))
+	if (!powerOn(error))
 		return false;
 	if (seconds <= 0.0 || frequency <= 0.0) {
 		error = "a test tone needs a positive length and frequency";
@@ -735,6 +755,9 @@ Value Session::statusReport() const {
 	out["active"] = Value(instance_.isActive());
 	out["processing"] = Value(instance_.isProcessing());
 	out["sleeping"] = Value(engine_.isSleeping());
+	out["bypassed"] = Value(engine_.isBypassed());
+	out["power"] = Value(isPowered());
+	out["inputMuted"] = Value(isInputMuted());
 	out["lastProcessStatus"] = Value(engine_.lastStatus());
 	out["sleptBlocks"] = Value(engine_.sleptBlocks());
 	out["sampleRate"] = Value(instance_.sampleRate());

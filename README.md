@@ -133,10 +133,18 @@ implementation — the page sends `params.list`, `param.set`, `presets.list` and
 its own is still playable, and anything the command set gains appears there
 without new code. A lamp beside the settings button lights when a MIDI message
 arrives and a `<compost-meter>` shows the output level, both polled through the
-`meters` command, so an agent reads exactly what a person sees. Opening the
-window also opens the default output and every MIDI input, because a window
-means a person and a person expects sound; a command line gets neither unless
-it asks.
+`meters` command, so an agent reads exactly what a person sees. Beside the
+meter, **Power** (`power`) opens the audio stream -- the last devices chosen, or
+the default output and input -- and closes it again; the window starts with it
+off, so launching never makes a sound or opens a microphone. **Mute input**
+(`input.mute`) keeps the input out of the signal while the stream stays up.
+**Bypass** (`bypass`) keeps the plug-in processing but sends its main input to
+the output in place of what it made, crossfading over one block. Opening the
+window opens every MIDI input, because a window means a person; a command line
+gets nothing unless it asks. With no plug-in loaded a running stream passes its
+input straight through, and unloading leaves the stream running, so the next
+plug-in drops into it. Pick **No input** in the settings
+(`audio.settings --input=__none__`) to keep the microphone closed altogether.
 `panel.snapshot <file.png>` photographs it.
 
 `gui.open` opens the plug-in's own interface, and dragging its window's corner
@@ -191,13 +199,13 @@ file can be inspected. The shell is the graph.
 | --- | --- |
 | Plug-in | `load` `unload` `plugins` `info` `extensions` `status` |
 | Parameters | `params.list` `param.get` `param.set` `param.steps` `params.dump` `param.indication` |
-| Audio | `activate` `deactivate` `render` `process` `engine.start` `engine.stop` `audio.input` `playhead` |
+| Audio | `activate` `deactivate` `render` `process` `engine.start` `engine.stop` `audio.input` `playhead` `bypass` |
 | Notes and MIDI | `note.on` `note.off` `notes` `midi` `cc` `midi.load` `events` |
 | Transport | `tempo` `timesig` `transport` |
 | State and presets | `state.save` `state.load` `state.info` `presets.list` `preset.load` |
 | Ports | `ports` `ports.configs` `ports.select` `ports.activate` `surround` `ambisonic` |
 | Reported by the plug-in | `latency` `tail` `voices` `note.names` `remote.pages` `triggers` `render.mode` |
-| Devices | `audio.devices` `audio.start` `audio.stop` `audio.status` `audio.test` `meters` `midi.ports` `midi.open` `midi.close` `midi.outputs` `midi.out` |
+| Devices | `audio.devices` `audio.start` `audio.settings` `audio.stop` `audio.status` `audio.test` `power` `input.mute` `meters` `midi.ports` `midi.open` `midi.close` `midi.outputs` `midi.out` |
 | Interface | `gui.open` `gui.close` `gui.resize` `gui` `gui.contents` `gui.snapshot` `panel` `panel.snapshot` `panel.close` `settings` `settings.close` |
 | Modulation | `param.mod` |
 | Validation | `validate` `validate.clear` `validate.run` `validate.tests` |

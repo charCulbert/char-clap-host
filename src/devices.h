@@ -16,6 +16,14 @@ namespace nch {
 
 class Session;
 
+// The input id that means "take no audio input". A choice, not a device; an
+// empty id means the system default input.
+extern const char *const kNoAudioInput;
+
+// How many input channels a window's stream takes from the chosen input: a
+// stereo pair, or fewer if the device has fewer.
+constexpr uint32_t kLiveInputChannels = 2;
+
 // One device as the settings interface sees it.
 struct DeviceChoice {
 	std::string id;
@@ -42,6 +50,10 @@ public:
 	// Opens the named device (or the default when `deviceName` is empty) and
 	// starts the stream. The plug-in is activated at the stream's rate.
 	bool start(const std::string &deviceName, uint32_t inputChannels, std::string &error);
+	// Starts again with whatever was last asked of start() or apply(). False
+	// with no error if nothing has been asked for yet.
+	bool restart(std::string &error);
+	bool hasBeenStarted() const;
 	void stop();
 	bool isRunning() const;
 

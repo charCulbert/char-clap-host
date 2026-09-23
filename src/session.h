@@ -93,12 +93,25 @@ public:
 	// processing, so the first callback has somewhere to write.
 	bool prepareForDevice(double sampleRate, uint32_t blockSize, std::string &error);
 
-	// Opens the machine's default output and every MIDI input, so a window the
-	// user just opened makes sound and answers a keyboard without a trip
-	// through the settings. Their own choices win: this only ever runs on a
-	// device that is not already open, and only for a session that has a
-	// window. A command line asks for what it wants.
+	// Opens every MIDI input, and joins a loaded plug-in to a running stream,
+	// so a window the user just opened answers a keyboard without a trip
+	// through the settings. The audio stream itself waits for Power. Only a
+	// session with a window does this; a command line asks for what it wants.
 	void openDefaultDevices();
+
+	// Power is the audio stream itself. On, it opens whatever the user last
+	// chose, or else the default output with the default input; off, it
+	// closes the stream, microphone included. A window starts with it off, so
+	// launching the app never makes a sound or opens a microphone unasked.
+	bool powerOn(std::string &error);
+	void powerOff() { audioDevice_.stop(); }
+	bool isPowered() const { return audioDevice_.isRunning(); }
+
+	// Keeps the device input out of the signal while the stream stays up: the
+	// plug-in, or the pass-through, hears silence in its place. The way out of
+	// feedback from a microphone near speakers without losing the output.
+	void setInputMuted(bool muted) { inputMuted_.store(muted, std::memory_order_release); }
+	bool isInputMuted() const { return inputMuted_.load(std::memory_order_acquire); }
 
 	// Plays a sine out of every channel of the current output device, over the
 	// top of whatever the plug-in is producing, so the tone tests the device
@@ -245,6 +258,7 @@ private:
 	PluginPanel panel_;
 	std::atomic<uint64_t> audioCallbacks_{0};
 	std::atomic<uint64_t> audioUnderruns_{0};
+	std::atomic<bool> inputMuted_{false};
 	std::atomic<uint64_t> midiMessages_{0};
 	std::atomic<uint64_t> midiDropped_{0};
 	// Written by the audio thread, read by anyone. Each block decays what is

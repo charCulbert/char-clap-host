@@ -11,9 +11,8 @@
 #include <cstring>
 
 namespace nch {
-namespace {
 
-} // namespace
+const char *const kNoAudioInput = "__none__";
 
 struct AudioDevice::Impl {
 	RtAudio audio;
@@ -23,10 +22,15 @@ struct AudioDevice::Impl {
 	uint32_t blockSize = 512;
 	double sampleRate = 48000.0;
 	std::string deviceName;
+	std::string inputDeviceName;
 	std::string outputDeviceId;
 	std::string inputDeviceId;
 	uint32_t requestedBufferSize = 0;
 	double requestedSampleRate = 0.0;
+	// What start() was last asked for, so a restart asks for it again.
+	bool started = false;
+	std::string requestedOutput;
+	uint32_t requestedInputChannels = 0;
 };
 
 namespace {
@@ -78,6 +82,11 @@ bool AudioDevice::isRunning() const {
 
 bool AudioDevice::start(const std::string &deviceName, uint32_t inputChannels, std::string &error) {
 	stop();
+	impl_->started = true;
+	impl_->requestedOutput = deviceName;
+	impl_->requestedInputChannels = inputChannels;
+	impl_->inputChannels = 0;
+	impl_->inputDeviceName.clear();
 
 	const std::vector<unsigned int> ids = impl_->audio.getDeviceIds();
 	if (ids.empty()) {
@@ -119,7 +128,7 @@ bool AudioDevice::start(const std::string &deviceName, uint32_t inputChannels, s
 
 	RtAudio::StreamParameters inputParameters;
 	bool useInput = false;
-	if (inputChannels != 0) {
+	if (inputChannels != 0 && impl_->inputDeviceId != kNoAudioInput) {
 		unsigned int inputId = impl_->audio.getDefaultInputDevice();
 		if (!impl_->inputDeviceId.empty()) {
 			for (const unsigned int id : ids) {
@@ -135,6 +144,7 @@ bool AudioDevice::start(const std::string &deviceName, uint32_t inputChannels, s
 			inputParameters.deviceId = inputId;
 			inputParameters.nChannels = std::min<unsigned int>(inputInfo.inputChannels, inputChannels);
 			impl_->inputChannels = inputParameters.nChannels;
+			impl_->inputDeviceName = inputInfo.name;
 			useInput = true;
 		}
 	}
@@ -175,6 +185,16 @@ bool AudioDevice::start(const std::string &deviceName, uint32_t inputChannels, s
 	}
 	impl_->running = true;
 	return true;
+}
+
+bool AudioDevice::restart(std::string &error) {
+	if (!impl_->started)
+		return false;
+	return start(impl_->requestedOutput, impl_->requestedInputChannels, error);
+}
+
+bool AudioDevice::hasBeenStarted() const {
+	return impl_->started;
 }
 
 void AudioDevice::stop() {
@@ -238,14 +258,10 @@ bool AudioDevice::apply(const DeviceSettings &settings, std::string &error) {
 	impl_->inputDeviceId = settings.inputDeviceId;
 	impl_->requestedSampleRate = settings.sampleRate;
 	impl_->requestedBufferSize = settings.bufferSize;
-	// An input device with no channels selected still means "take input", so
-	// the channel count comes from the device rather than the caller.
-	uint32_t inputChannels = 0;
-	if (!settings.inputDeviceId.empty()) {
-		for (const auto &device : inputDevices())
-			if (device.id == settings.inputDeviceId)
-				inputChannels = std::min<uint32_t>(device.channels, 2);
-	}
+	// "System default" is an input like any other: the interface shows it as
+	// chosen, so the stream has to take it. Only "No input" means none; start()
+	// clamps the pair to what the device has.
+	const uint32_t inputChannels = settings.inputDeviceId == kNoAudioInput ? 0 : kLiveInputChannels;
 	return start(settings.outputDeviceId, inputChannels, error);
 }
 
@@ -273,6 +289,7 @@ Value AudioDevice::statusReport() const {
 	out["sampleRate"] = Value(impl_->sampleRate);
 	out["blockSize"] = Value(impl_->blockSize);
 	out["outputChannels"] = Value(impl_->outputChannels);
+	out["inputDevice"] = Value(impl_->inputDeviceName);
 	out["inputChannels"] = Value(impl_->inputChannels);
 	out["callbacks"] = Value(session_.audioCallbackCount());
 	out["underruns"] = Value(session_.audioUnderrunCount());

@@ -178,3 +178,25 @@ TEST(collected_output_grows_by_the_frames_appended) {
 	CHECK_EQ(collected.frameCount(), 8u);
 	CHECK_NEAR(collected.channels[0][5], 0.25f, 1e-6);
 }
+
+TEST(bypass_ramps_from_the_output_to_the_input) {
+	Validator validator;
+	clap_host_t host = bareHost();
+	PluginInstance instance(&host, validator);
+	std::string error;
+	CHECK(instance.load(fixture("effect"), {}, 0, error));
+
+	ProcessBuffers buffers;
+	buffers.build(instance, 4);
+	buffers.silence(4);
+	const float incoming[4] = {0.5f, 0.5f, 0.5f, 0.5f};
+	buffers.writeMainInput(incoming, 4, 1);
+	for (uint32_t frame = 0; frame < 4; ++frame)
+		buffers.outputs()[0].data32[0][frame] = 1.0f;
+
+	// Halfway through the ramp the output is half of each; by the end, all input.
+	buffers.mixMainInputIntoOutput(4, 0.0f, 1.0f);
+	CHECK_NEAR(buffers.outputs()[0].data32[0][1], 0.75f, 1e-6);
+	CHECK_NEAR(buffers.outputs()[0].data32[0][3], 0.5f, 1e-6);
+	CHECK_NEAR(buffers.outputs()[0].data32[1][3], 0.5f, 1e-6);
+}

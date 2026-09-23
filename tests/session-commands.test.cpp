@@ -8,6 +8,7 @@
 #include "session.h"
 
 #include <string>
+#include <vector>
 
 using nch::Options;
 using nch::Session;
@@ -144,4 +145,66 @@ TEST(a_clean_run_reports_no_violations) {
 	const Value report = host.run("validate");
 	CHECK(report["ok"].asBool());
 	CHECK_EQ(report["data"]["count"].asNumber(), 0.0);
+}
+
+TEST(with_nothing_loaded_the_input_passes_through) {
+	TestSession host;
+	const float input[3] = {0.25f, -0.5f, 0.75f};
+	float output[6] = {1, 1, 1, 1, 1, 1};
+	host.session().engine().processInterleaved(input, 1, output, 2, 3);
+	// Mono in feeds both sides.
+	CHECK_NEAR(output[0], 0.25f, 1e-6);
+	CHECK_NEAR(output[1], 0.25f, 1e-6);
+	CHECK_NEAR(output[5], 0.75f, 1e-6);
+
+	float silent[4] = {1, 1, 1, 1};
+	host.session().engine().processInterleaved(nullptr, 0, silent, 2, 2);
+	CHECK_NEAR(silent[3], 0.0f, 1e-6);
+}
+
+TEST(mute_and_bypass_switch_and_report) {
+	TestSession host;
+	CHECK(host.run("input.mute")["data"]["inputMuted"].asBool());
+	CHECK(!host.run("input.mute toggle")["data"]["inputMuted"].asBool());
+	CHECK(!host.run("input.mute sideways")["ok"].asBool());
+	// Bypass belongs to a plug-in, so there has to be one.
+	CHECK(!host.run("bypass")["ok"].asBool());
+
+	CHECK(host.run("load \"" + fixture("effect") + "\"")["ok"].asBool());
+	CHECK(host.run("bypass on")["data"]["bypassed"].asBool());
+	CHECK(host.run("status")["data"]["bypassed"].asBool());
+	host.run("unload");
+	CHECK(!host.session().engine().isBypassed());
+}
+
+TEST(a_bypassed_plugin_passes_its_input_unchanged) {
+	TestSession host;
+	CHECK(host.run("load \"" + fixture("effect") + "\"")["ok"].asBool());
+	std::string error;
+	CHECK(host.session().engine().start(error));
+
+	const uint32_t frames = 64;
+	std::vector<float> input(frames * 2, 1.0f);
+	std::vector<float> output(frames * 2, 0.0f);
+	// The effect is a low-pass, so a step comes out slower than it went in.
+	host.session().engine().processInterleaved(input.data(), 2, output.data(), 2, frames);
+	CHECK(output[0] < 0.9f);
+
+	host.session().engine().setBypassed(true);
+	// One block to fade across, then the input exactly.
+	host.session().engine().processInterleaved(input.data(), 2, output.data(), 2, frames);
+	host.session().engine().processInterleaved(input.data(), 2, output.data(), 2, frames);
+	CHECK_NEAR(output[0], 1.0f, 1e-6);
+	CHECK_NEAR(output[frames * 2 - 1], 1.0f, 1e-6);
+	host.session().engine().stop();
+}
+
+TEST(a_muted_input_means_the_engine_hears_silence) {
+	TestSession host;
+	CHECK(host.run("input.mute on")["data"]["inputMuted"].asBool());
+	const float input[2] = {0.5f, 0.5f};
+	float output[4] = {1, 1, 1, 1};
+	host.session().onAudioCallback(input, output, 2, false);
+	CHECK_NEAR(output[0], 0.0f, 1e-6);
+	CHECK(!host.run("input.mute toggle")["data"]["inputMuted"].asBool());
 }

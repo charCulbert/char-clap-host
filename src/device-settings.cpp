@@ -104,7 +104,11 @@ Value describeDeviceState(const DeviceState &state) {
 	audio["outputDeviceId"] = Value(state.settings.outputDeviceId);
 	audio["inputDeviceId"] = Value(state.settings.inputDeviceId);
 	audio["outputDevices"] = Value(deviceArray(state.audioOutputs));
-	audio["inputDevices"] = Value(deviceArray(state.audioInputs));
+	// "No input" sits alongside the real devices, so choosing not to take the
+	// microphone is as easy as choosing which one.
+	std::vector<DeviceChoice> offeredAudioInputs{{kNoAudioInput, "No input", 0}};
+	offeredAudioInputs.insert(offeredAudioInputs.end(), state.audioInputs.begin(), state.audioInputs.end());
+	audio["inputDevices"] = Value(deviceArray(offeredAudioInputs));
 	audio["sampleRate"] = Value(static_cast<uint64_t>(state.settings.sampleRate));
 	audio["bufferSize"] = Value(state.settings.bufferSize);
 	audio["sampleRates"] = Value(numberArray(state.sampleRates));

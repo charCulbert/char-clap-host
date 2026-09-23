@@ -59,6 +59,10 @@ const char *kPage = R"(<!doctype html>
 	}
 	.lamp.lit { background: #35d07f; border-color: #35d07f; }
 	.lampLabel { color: GrayText; }
+	/* The audio switches sit at the far end of the meter row: all of them are
+	   about what reaches the output, which is what the meter shows. */
+	.switches { display: flex; gap: 6px; margin-left: auto; }
+	.switches button[aria-pressed="true"] { background: Highlight; color: HighlightText; border-color: Highlight; }
 	.silent { color: GrayText; }
 	h2 { font-size: 13px; font-weight: 600; margin: 18px 0 8px; }
 	h3 { font-size: 12px; font-weight: 600; margin: 14px 0 6px; color: GrayText; }
@@ -112,7 +116,12 @@ const char *kPage = R"(<!doctype html>
 
 <div class="activity">
 	<compost-meter id="meter" label="Output" min="-60" max="0" curve="log"></compost-meter>
-	<span class="silent" id="silent">No audio device open.</span>
+	<span class="silent" id="silent">Audio is off.</span>
+	<div class="switches">
+		<button id="inputMute" aria-pressed="false" title="Keep the audio input out of the signal">Mute input</button>
+		<button id="bypass" aria-pressed="false" title="Hear the input in place of the plug-in" hidden>Bypass</button>
+		<button id="power" aria-pressed="false" title="Turn the audio on or off">⏻ Power</button>
+	</div>
 </div>
 
 <div id="empty" hidden>
@@ -190,6 +199,7 @@ const char *kPage = R"(<!doctype html>
 			// window is the host's home, not a view that needs one.
 		}
 		document.getElementById("empty").hidden = info !== null;
+		document.getElementById("bypass").hidden = info === null;
 		document.getElementById("loaded").hidden = info === null;
 		document.getElementById("name").textContent =
 			info === null ? "No plug-in loaded" : (info.name || "Unnamed plug-in");
@@ -456,6 +466,12 @@ const char *kPage = R"(<!doctype html>
 		lastMidiCount = data.midiMessages;
 		midiLamp.classList.toggle("lit", now < litUntil);
 
+		// Read back every poll, so `power`, `input.mute` or `bypass` typed at the prompt
+		// shows here too.
+		powerButton.setAttribute("aria-pressed", String(!!data.running));
+		inputMuteButton.setAttribute("aria-pressed", String(!!data.inputMuted));
+		bypassButton.setAttribute("aria-pressed", String(!!data.bypassed));
+
 		meter.hidden = !data.running;
 		silent.hidden = !!data.running;
 		if (data.running)
@@ -464,6 +480,20 @@ const char *kPage = R"(<!doctype html>
 
 
 	setInterval(pollActivity, 60);
+
+	const powerButton = document.getElementById("power");
+	const bypassButton = document.getElementById("bypass");
+	const inputMuteButton = document.getElementById("inputMute");
+	for (const [button, command] of [[powerButton, "power"], [bypassButton, "bypass"], [inputMuteButton, "input.mute"]]) {
+		button.addEventListener("click", async () => {
+			try {
+				const data = await run(command + " toggle");
+				button.setAttribute("aria-pressed", String(!!(data.power ?? data.bypassed ?? data.inputMuted)));
+			} catch (error) {
+				status.textContent = String(error);
+			}
+		});
+	}
 
 	document.getElementById("settings").addEventListener("click", async () => {
 		try {

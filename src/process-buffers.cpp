@@ -162,6 +162,28 @@ void ProcessBuffers::readMainOutput(float *interleaved, uint32_t frames, uint32_
 	}
 }
 
+void ProcessBuffers::mixMainInputIntoOutput(uint32_t frames, float fromDry, float toDry) {
+	if (mainOutputIndex_ >= outputPorts_.size())
+		return;
+	Port &output = outputPorts_[mainOutputIndex_];
+	const Port *input = mainInputIndex_ < inputPorts_.size() ? &inputPorts_[mainInputIndex_] : nullptr;
+	const uint32_t count = std::min(frames, maxFrames_);
+	for (uint32_t channel = 0; channel < output.channelCount; ++channel) {
+		const float *dry = nullptr;
+		if (input != nullptr && input->channelCount != 0) {
+			const uint32_t sourceChannel = input->channelCount == 1 ? 0 : channel;
+			if (sourceChannel < input->channelCount)
+				dry = input->channels[sourceChannel].data();
+		}
+		float *wet = output.channels[channel].data();
+		for (uint32_t frame = 0; frame < count; ++frame) {
+			const float mix = fromDry + (toDry - fromDry) * static_cast<float>(frame + 1) / static_cast<float>(count);
+			wet[frame] = wet[frame] * (1.0f - mix) + (dry != nullptr ? dry[frame] * mix : 0.0f);
+		}
+	}
+	outputs_[mainOutputIndex_].constant_mask = 0;
+}
+
 void ProcessBuffers::appendMainOutput(AudioData &destination, uint32_t frames) const {
 	if (mainOutputIndex_ >= outputPorts_.size())
 		return;

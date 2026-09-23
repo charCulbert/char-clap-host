@@ -66,6 +66,11 @@ public:
 	bool isSleeping() const { return sleeping_.load(std::memory_order_acquire); }
 	// The plug-in asked to be processed again (clap_host.request_process).
 	void wake() { wakeRequested_.store(true, std::memory_order_release); }
+	// Bypass keeps the plug-in processing -- events, parameters and state go
+	// on as before -- but what leaves the main output is its main input. The
+	// switch crossfades over one block rather than clicking.
+	void setBypassed(bool bypassed) { bypassed_.store(bypassed, std::memory_order_release); }
+	bool isBypassed() const { return bypassed_.load(std::memory_order_acquire); }
 	// The status process() last returned.
 	int32_t lastStatus() const { return lastStatus_.load(std::memory_order_relaxed); }
 	// How many blocks were skipped because the plug-in was asleep.
@@ -245,6 +250,10 @@ private:
 	std::atomic<bool> wakeRequested_{false};
 	std::atomic<int32_t> lastStatus_{CLAP_PROCESS_CONTINUE};
 	std::atomic<uint64_t> sleptBlocks_{0};
+	std::atomic<bool> bypassed_{false};
+	// How much of the dry input the last block ended on; only the audio
+	// thread touches it.
+	float bypassMix_ = 0.0f;
 	// Frames of tail still owed after a TAIL status; only the audio thread
 	// touches it.
 	uint64_t tailRemaining_ = 0;

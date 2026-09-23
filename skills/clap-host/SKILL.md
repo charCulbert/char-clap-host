@@ -68,10 +68,10 @@ clap-host --json --quiet plugin.clap -- help render
 
 Areas: plug-in (`info` `extensions` `status`), parameters (`params.list`
 `param.get` `param.set` `param.mod`), audio (`activate` `render` `process`
-`audio.input`), notes (`note.on` `note.off` `midi` `cc` `midi.load`), transport
+`audio.input` `bypass`), notes (`note.on` `note.off` `midi` `cc` `midi.load`), transport
 (`tempo` `timesig` `transport`), state (`state.save` `state.load`
 `presets.list` `preset.load`), ports, devices (`audio.devices` `audio.start`
-`meters` `midi.ports`), interface (`gui.open` `gui.snapshot` `panel`
+`audio.settings` `power` `input.mute` `meters` `midi.ports`), interface (`gui.open` `gui.snapshot` `panel`
 `panel.snapshot`), validation (`validate` `validate.run` `validate.tests`),
 host behaviour (`callbacks` `events` `undo` `threadpool`).
 

@@ -46,6 +46,12 @@ public:
 	void writeMainInput(const float *interleaved, uint32_t frames, uint32_t sourceChannels);
 	void readMainOutput(float *interleaved, uint32_t frames, uint32_t destinationChannels) const;
 
+	// Blends the main input into the main output, the way a bypass sounds:
+	// the dry share ramps linearly from `fromDry` to `toDry` across the block,
+	// so switching bypass does not click. Mono input feeds every channel; an
+	// output channel with no input to take is silence at full dry.
+	void mixMainInputIntoOutput(uint32_t frames, float fromDry, float toDry);
+
 	struct Port {
 		uint32_t channelCount = 0;
 		std::vector<std::vector<float>> channels;

@@ -21,6 +21,22 @@ clap_sectime toSecTime(double seconds) {
 	return static_cast<clap_sectime>(seconds * CLAP_SECTIME_FACTOR);
 }
 
+// With no plug-in processing, the device hears its own input: a host with
+// nothing loaded is a wire, not a mute. A mono input feeds every output.
+void passThrough(const Engine::BlockIo &io, uint32_t frames) {
+	if (io.interleavedOutput == nullptr)
+		return;
+	const uint32_t outputs = io.interleavedOutputChannels;
+	const uint32_t inputs = io.interleavedInput != nullptr ? io.interleavedInputChannels : 0;
+	for (uint32_t frame = 0; frame < frames; ++frame) {
+		for (uint32_t channel = 0; channel < outputs; ++channel) {
+			const uint32_t source = inputs == 1 ? 0 : channel;
+			io.interleavedOutput[frame * outputs + channel] =
+			    source < inputs ? io.interleavedInput[frame * inputs + source] : 0.0f;
+		}
+	}
+}
+
 } // namespace
 
 Engine::Engine(Session &session) : session_(session) {}
@@ -47,6 +63,7 @@ bool Engine::start(std::string &error) {
 		return false;
 	sleeping_.store(false, std::memory_order_release);
 	tailRemaining_ = 0;
+	bypassMix_ = isBypassed() ? 1.0f : 0.0f;
 	running_.store(true, std::memory_order_release);
 	return true;
 }
@@ -475,10 +492,7 @@ int32_t Engine::processBlock(uint32_t frames, AudioData *output) {
 
 int32_t Engine::processBlock(uint32_t frames, const BlockIo &io) {
 	if (!isRunning() || !session_.isLoaded()) {
-		if (io.interleavedOutput != nullptr)
-			std::memset(io.interleavedOutput,
-			            0,
-			            static_cast<size_t>(frames) * io.interleavedOutputChannels * sizeof(float));
+		passThrough(io, frames);
 		return CLAP_PROCESS_ERROR;
 	}
 
@@ -487,12 +501,19 @@ int32_t Engine::processBlock(uint32_t frames, const BlockIo &io) {
 	// device stream is live would be exactly that.
 	bool expected = false;
 	if (!insideProcess_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
-		session_.validator().error("clap_plugin.process",
-		                           "two threads tried to process the same plug-in at once");
-		if (io.interleavedOutput != nullptr)
-			std::memset(io.interleavedOutput,
-			            0,
-			            static_cast<size_t>(frames) * io.interleavedOutputChannels * sizeof(float));
+		// stop() holds the guard while it winds the plug-in down; a device
+		// block arriving then is not a second audio thread, just early.
+		if (isRunning())
+			session_.validator().error("clap_plugin.process",
+			                           "two threads tried to process the same plug-in at once");
+		passThrough(io, frames);
+		return CLAP_PROCESS_ERROR;
+	}
+	// Checked again under the guard: stop() may have landed between the
+	// check above and taking it, and then the plug-in must not be called.
+	if (!isRunning() || !session_.isLoaded()) {
+		insideProcess_.store(false, std::memory_order_release);
+		passThrough(io, frames);
 		return CLAP_PROCESS_ERROR;
 	}
 
@@ -580,6 +601,11 @@ int32_t Engine::processBlock(uint32_t frames, const BlockIo &io) {
 	session_.absorbOutputEvents(outEvents_, playhead_);
 	if (status != CLAP_PROCESS_ERROR)
 		applyProcessStatus(status, blockFrames, hadInput);
+	const float bypassTarget = bypassed_.load(std::memory_order_acquire) ? 1.0f : 0.0f;
+	if (bypassMix_ != 0.0f || bypassTarget != 0.0f) {
+		buffers_.mixMainInputIntoOutput(blockFrames, bypassMix_, bypassTarget);
+		bypassMix_ = bypassTarget;
+	}
 	if (io.collected != nullptr)
 		buffers_.appendMainOutput(*io.collected, blockFrames);
 	if (io.interleavedOutput != nullptr) {

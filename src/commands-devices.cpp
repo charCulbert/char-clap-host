@@ -11,17 +11,68 @@ void Session::registerDeviceCommands() {
 		               return Response::success(session.audioDevice().deviceReport());
 	               }});
 
-	commands_.add({"audio.start", "[device-name]", "Play the plug-in live through an audio device.",
+	commands_.add({"audio.start", "[device-name] [--input=channels]",
+	               "Open an audio device; its input passes through until a plug-in is loaded.",
 	               [](Session &session, const Request &request) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               const std::string name = request.arg(0, "device").asString();
 		               const auto inputChannels = static_cast<uint32_t>(request.arg("input").asNumber(0));
 		               std::string error;
 		               if (!session.audioDevice().start(name, inputChannels, error))
 			               return Response::failure(error);
 		               return Response::success(session.audioDevice().statusReport());
+	               }});
+
+	commands_.add({"audio.settings", "[--output=id] [--input=id|__none__] [--rate=hz] [--buffer=frames]",
+	               "Choose devices the way the settings window does; with nothing given, report the choices.",
+	               [](Session &session, const Request &request) -> Response {
+		               // Built into the same request the window sends, so both
+		               // reach one decision. Ids are the names `audio.settings`
+		               // lists; an empty one means the system default.
+		               Object audio;
+		               if (request.named.count("output") != 0)
+			               audio["outputDeviceId"] = Value(request.arg("output").asString());
+		               if (request.named.count("input") != 0)
+			               audio["inputDeviceId"] = Value(request.arg("input").asString());
+		               if (request.named.count("rate") != 0)
+			               audio["sampleRate"] = Value(request.arg("rate").asNumber());
+		               if (request.named.count("buffer") != 0)
+			               audio["bufferSize"] = Value(request.arg("buffer").asNumber());
+		               if (audio.empty())
+			               return Response::success(session.settings().snapshot());
+		               Object body;
+		               body["audio"] = Value(std::move(audio));
+		               std::string error;
+		               Value snapshot = session.settings().apply(Value(std::move(body)), error);
+		               if (!error.empty())
+			               return Response::failure(error);
+		               return Response::success(std::move(snapshot));
+	               }});
+
+	commands_.add({"power", "[on|off|toggle]",
+	               "Open or close the audio stream the way the window's Power button does.",
+	               [](Session &session, const Request &request) -> Response {
+		               bool on = false;
+		               if (!switchArg(request, session.isPowered(), on))
+			               return Response::failure("usage: power [on|off|toggle]");
+		               std::string error;
+		               if (on && !session.powerOn(error))
+			               return Response::failure(error);
+		               if (!on)
+			               session.powerOff();
+		               Object out;
+		               out["power"] = Value(session.isPowered());
+		               return Response::success(Value(std::move(out)));
+	               }});
+
+	commands_.add({"input.mute", "[on|off|toggle]", "Keep the device input out of the signal.",
+	               [](Session &session, const Request &request) -> Response {
+		               bool muted = false;
+		               if (!switchArg(request, session.isInputMuted(), muted))
+			               return Response::failure("usage: input.mute [on|off|toggle]");
+		               session.setInputMuted(muted);
+		               Object out;
+		               out["inputMuted"] = Value(muted);
+		               return Response::success(Value(std::move(out)));
 	               }});
 
 	commands_.add({"audio.stop", "", "Stop the audio stream.",

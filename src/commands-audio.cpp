@@ -84,6 +84,21 @@ void Session::registerAudioCommands() {
 		               return Response::success();
 	               }});
 
+	commands_.add({"bypass", "[on|off|toggle]",
+	               "Hear the plug-in's input in place of its output; it keeps processing.",
+	               [](Session &session, const Request &request) -> Response {
+		               Response ready = needPlugin(session);
+		               if (!ready.ok)
+			               return ready;
+		               bool bypassed = false;
+		               if (!switchArg(request, session.engine().isBypassed(), bypassed))
+			               return Response::failure("usage: bypass [on|off|toggle]");
+		               session.engine().setBypassed(bypassed);
+		               Object out;
+		               out["bypassed"] = Value(bypassed);
+		               return Response::success(Value(std::move(out)));
+	               }});
+
 	commands_.add({"transport", "play|stop|rewind|record|loop|send|info", "Control or report the transport.",
 	               [](Session &session, const Request &request) -> Response {
 		               Transport &transport = session.engine().transport();

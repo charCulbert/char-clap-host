@@ -29,6 +29,22 @@ inline Response needActive(Session &session, const char *what) {
 	return Response::success();
 }
 
+// Reads an on|off|toggle switch, where no word at all means on: `bypass` on its
+// own bypasses. False for any other word, so a typo is reported rather than read
+// as off.
+inline bool switchArg(const Request &request, bool current, bool &result) {
+	const std::string word = request.arg(0, "state").asString("on");
+	if (word == "toggle")
+		result = !current;
+	else if (word == "on" || word == "true" || word == "1" || word == "yes")
+		result = true;
+	else if (word == "off" || word == "false" || word == "0" || word == "no")
+		result = false;
+	else
+		return false;
+	return true;
+}
+
 inline std::string textOrEmpty(const char *text) {
 	return text != nullptr ? text : "";
 }
