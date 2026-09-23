@@ -270,6 +270,10 @@ private:
 	std::atomic<uint64_t> audioUnderruns_{0};
 	std::atomic<uint64_t> midiMessages_{0};
 	std::atomic<uint64_t> midiDropped_{0};
+	// Invalid plug-ins sometimes send webview messages off the main thread.
+	// Queued messages carry this generation so a late callback from an unloaded
+	// instance cannot reach a replacement plug-in's webview.
+	std::atomic<uint64_t> webviewGeneration_{0};
 	// Written by the audio thread, read by anyone. Each block decays what is
 	// there and keeps the louder of that and itself, so a reader slower than
 	// the device still sees a transient, and one faster sees it fall away
@@ -295,7 +299,7 @@ private:
 	// HostServices, so `status`, `validate` and `callbacks` cannot disagree.
 	// Only the things the host has to act on are remembered here.
 	bool notePortsChanged_ = false;
-	uint64_t webviewMessagesSent_ = 0;
+	std::atomic<uint64_t> webviewMessagesSent_{0};
 	std::atomic<bool> flushRequested_{false};
 
 	// A bounded log of what the plug-in emitted, so a test can see exactly

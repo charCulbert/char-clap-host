@@ -92,6 +92,9 @@ bool Session::load(const std::string &path, const std::string &id, uint32_t inde
 }
 
 void Session::unload() {
+	// Invalidate messages queued by the old plug-in before tearing its GUI and
+	// instance down. A webview callback can arrive just after close().
+	webviewGeneration_.fetch_add(1, std::memory_order_acq_rel);
 	if (instance_.isLoaded()) {
 		// The host's own things go first: an interface outliving the instance
 		// it belongs to, or a device thread still calling process(), are both
@@ -767,8 +770,28 @@ bool Session::onGuiRequestHide() {
 }
 
 bool Session::onWebviewMessage(const void *buffer, uint32_t size) {
+	if (buffer == nullptr || size == 0)
+		return false;
 	++webviewMessagesSent_;
-	return gui_.sendWebviewMessage(buffer, size);
+
+	if (currentThreadRole() == ThreadRole::Main) {
+		if (!gui_.isOpen())
+			return false;
+		return gui_.sendWebviewMessage(buffer, size);
+	}
+
+	// clap_host_webview.send is main-thread-only. Keep the host permissive for
+	// a plug-in that gets this wrong, but never call WebKit from its worker or
+	// audio thread: that can tear down the whole host while loading a GUI.
+	const uint64_t generation = webviewGeneration_.load(std::memory_order_acquire);
+	std::vector<uint8_t> message(static_cast<const uint8_t *>(buffer),
+	                             static_cast<const uint8_t *>(buffer) + size);
+	postToMainThread([this, generation, message = std::move(message)] {
+		if (webviewGeneration_.load(std::memory_order_acquire) != generation || !gui_.isOpen())
+			return;
+		gui_.sendWebviewMessage(message.data(), static_cast<uint32_t>(message.size()));
+	});
+	return true;
 }
 
 void Session::onGuiClosed(bool wasDestroyed) {
@@ -801,7 +824,7 @@ Value Session::statusReport() const {
 	out["processRequests"] = Value(services_.callCount("clap_host.request_process"));
 	out["callbackRequests"] = Value(services_.callCount("clap_host.request_callback"));
 	out["violations"] = Value(static_cast<uint64_t>(validator_.violationCount()));
-	out["webviewMessages"] = Value(webviewMessagesSent_);
+	out["webviewMessages"] = Value(webviewMessagesSent_.load(std::memory_order_relaxed));
 	out["midiMessages"] = Value(midiMessageCount());
 	out["midiDropped"] = Value(midiDroppedCount());
 	return Value(std::move(out));
