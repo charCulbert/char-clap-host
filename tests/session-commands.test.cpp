@@ -254,6 +254,13 @@ TEST(a_file_plays_through_with_nothing_loaded_and_loops) {
 	CHECK_NEAR(output[0], 0.9f, 1e-6);
 }
 
+TEST(playing_without_an_input_file_fails_immediately) {
+	TestSession host;
+	const Value reply = host.run("audio.input.play on");
+	CHECK(!reply["ok"].asBool());
+	CHECK_EQ(reply["error"].asString(), "nothing loaded; audio.input <file> first");
+}
+
 TEST(a_file_without_loop_runs_out_into_silence) {
 	TestSession host;
 	CHECK(host.run("audio.input \"" + writeRamp("once", {0.5f, 0.5f}) + "\"")["ok"].asBool());

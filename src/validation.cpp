@@ -107,7 +107,7 @@ TestResult runIsolated(const std::string &hostPath, const std::string &pluginPat
 
 	const std::string command = shellQuote(hostPath) + " --quiet --json " + shellQuote(pluginPath) +
 	                            " -- validate.run " + shellQuote(testId) +
-	                            " --seed=" + formatSeed(options.seed) + " 2>/dev/null";
+	                            " --seed=" + formatSeed(options.seed) + " </dev/null 2>/dev/null";
 	std::FILE *child = popen(command.c_str(), "r");
 	if (child == nullptr) {
 		result.status = TestStatus::Crashed;

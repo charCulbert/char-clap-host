@@ -416,7 +416,7 @@ activation policy and quit handling live there.
 - Linux and Windows have never been built on those platforms.
 - The choc window path has no menu bar, so no ⌘Q equivalent off macOS.
 - One plug-in per process, by design. There is no graph and no routing.
-- `gui.snapshot` cannot capture a webview: WebKit renders out of process.
+- `gui.snapshot` is implemented on macOS, where it captures the composited view (including WebViews and GPU-drawn content); other window backends do not support snapshots.
 
 ## For agents
 

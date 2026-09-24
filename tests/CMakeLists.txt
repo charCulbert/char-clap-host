@@ -48,6 +48,15 @@ foreach(script IN LISTS script_tests)
     set_tests_properties("script.${script_name}" PROPERTIES TIMEOUT 120)
 endforeach()
 
+# Exercise the one-shot contract with an actual terminal on stdin; ordinary
+# CTest pipes would miss the interactive-mode regression.
+if(UNIX)
+    add_test(NAME cli.one-shot-tty
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/one-shot-tty.py"
+                "$<TARGET_FILE:clap-host>" "${CMAKE_BINARY_DIR}/fixtures/instrument.clap")
+    set_tests_properties(cli.one-shot-tty PROPERTIES TIMEOUT 45)
+endif()
+
 # Golden audio: render a known performance and compare it sample by sample.
 add_test(NAME "audio.instrument"
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/render-and-compare.py"

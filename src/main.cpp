@@ -153,11 +153,10 @@ int main(int argc, char **argv) {
 		if (!session.runLine(command))
 			return 0;
 
-	// With commands given on the argv line and no terminal attached, the run
-	// is a one-shot: do not wait on stdin.
-	// A run that was given its commands up front and has no terminal is a
-	// script or a CI job: its exit status is the verdict.
-	if (!immediateCommands.empty() && !interactive)
+	// A command after `--` is a one-shot invocation, regardless of whether
+	// stdin happens to be a terminal. In particular, validation children must
+	// not become interactive just because their parent was launched from one.
+	if (!immediateCommands.empty())
 		return exitStatus(session, options);
 
 	if (interactive && !options.quiet)
