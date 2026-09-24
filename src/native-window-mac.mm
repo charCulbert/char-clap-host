@@ -3,6 +3,7 @@
 #include <clap/clap.h>
 
 #include <cstdio>
+#include <dlfcn.h>
 #include <functional>
 #include <string>
 
@@ -594,23 +595,25 @@ public:
 
 	bool writeSnapshot(const std::string &path, std::string &error) override {
 		@autoreleasepool {
-			// CGWindowListCreateImage needs screen-recording rights; asking the
-			// window for its own contents does not.
-			const CGSize size = [window_ frame].size;
-			const NSRect content = [window_ contentRectForFrameRect:[window_ frame]];
-			(void)size;
-			NSBitmapImageRep *bitmap = [view_ bitmapImageRepForCachingDisplayInRect:[view_ bounds]];
+			// What is on screen, cropped to the plug-in's view: the only way to
+			// see GPU-drawn views (CAMetalLayer, e.g. Dawn or Visage), which
+			// AppKit's cacheDisplayInRect: leaves blank. A process may capture
+			// its own windows without screen-recording rights. Without a
+			// visible window, fall back to asking the view to draw itself.
+			NSBitmapImageRep *bitmap = screenBitmap();
 			if (bitmap == nil) {
-				error = "the window has no drawable contents";
-				return false;
+				bitmap = [view_ bitmapImageRepForCachingDisplayInRect:[view_ bounds]];
+				if (bitmap == nil) {
+					error = "the window has no drawable contents";
+					return false;
+				}
+				[view_ cacheDisplayInRect:[view_ bounds] toBitmapImageRep:bitmap];
 			}
-			[view_ cacheDisplayInRect:[view_ bounds] toBitmapImageRep:bitmap];
 			NSData *png = [bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
 			if (png == nil) {
 				error = "could not encode the window contents";
 				return false;
 			}
-			(void)content;
 			NSString *file = [NSString stringWithUTF8String:path.c_str()];
 			if (![png writeToFile:file atomically:YES]) {
 				error = "could not write " + path;
@@ -621,6 +624,36 @@ public:
 	}
 
 private:
+	// The window as composited on screen, cropped to view_, at the screen's
+	// pixel density; nil if it is not on screen. CGWindowListCreateImage is
+	// looked up at run time: newer SDKs mark it obsolete in favour of
+	// ScreenCaptureKit, which needs screen-recording rights even for our own
+	// windows.
+	NSBitmapImageRep *screenBitmap() {
+		if (![window_ isVisible] || [window_ windowNumber] <= 0) return nil;
+		using CreateImage = CGImageRef (*)(CGRect, uint32_t, uint32_t, uint32_t);
+		static const auto createImage = reinterpret_cast<CreateImage>(dlsym(RTLD_DEFAULT, "CGWindowListCreateImage"));
+		if (!createImage) return nil;
+		[view_ displayIfNeeded];
+		[CATransaction flush];
+		const uint32_t includingWindow = 1 << 3, boundsIgnoreFraming = 1 << 0, bestResolution = 1 << 3;
+		CGImageRef whole = createImage(CGRectNull, includingWindow, uint32_t([window_ windowNumber]),
+		                               boundsIgnoreFraming | bestResolution);
+		if (!whole) return nil;
+		// The view's rectangle in the image: window points, y down, scaled.
+		const NSRect inWindow = [view_ convertRect:[view_ bounds] toView:nil];
+		const CGFloat scale = CGFloat(CGImageGetWidth(whole)) / [window_ frame].size.width;
+		const CGRect crop = CGRectMake(inWindow.origin.x * scale,
+		                               ([window_ frame].size.height - NSMaxY(inWindow)) * scale,
+		                               inWindow.size.width * scale, inWindow.size.height * scale);
+		CGImageRef view = CGImageCreateWithImageInRect(whole, crop);
+		CGImageRelease(whole);
+		if (!view) return nil;
+		NSBitmapImageRep *bitmap = [[[NSBitmapImageRep alloc] initWithCGImage:view] autorelease];
+		CGImageRelease(view);
+		return bitmap;
+	}
+
 	NSWindow *window_ = nil;
 	NSView *view_ = nil;
 	NchWindowDelegate *delegate_ = nil;
