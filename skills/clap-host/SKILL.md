@@ -142,6 +142,24 @@ read the PNG. `panel snapshot` photographs the host's parameter window.
 **What did the plug-in call back into the host?** `callbacks` counts every
 host callback; `events` lists what the plug-in sent back.
 
+## AudioUnits: use auhost, not clap-host
+
+clap-host loads CLAP only. To check an AUv2's GUI the way DAWs open it (view
+created before it is in a window), use the small separate utility
+`~/Development/AuHost` (local repo, not on GitHub):
+
+```sh
+cd ~/Development/AuHost && cmake -B build && cmake --build build   # once
+build/auhost.app/Contents/MacOS/auhost <type> <subtype> <manufacturer> shot.png [seconds]
+build/auhost.app/Contents/MacOS/auhost aufx GpAn ChCu shot.png 3
+```
+
+The AU must be installed (`~/Library/Audio/Plug-Ins/Components/`, then
+`killall -9 AudioComponentRegistrar`); codes as `auval -a` lists them. It
+prints the plugin's stderr and the view tree, and saves a PNG of the window.
+Read the PNG. For the AU spec itself use `auval -v <type> <subtype> <manufacturer>`
+(auval never opens the GUI). auhost has no audio, parameters or state yet.
+
 ## When something is missing
 
 If a CLAP feature or extension you need is not covered by any command, or a
