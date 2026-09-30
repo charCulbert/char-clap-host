@@ -144,7 +144,9 @@ the default output and input -- and closes it again; the window starts with it
 off, so launching never makes a sound or opens a microphone. **Mute input**
 (`input.mute`) keeps the input out of the signal while the stream stays up.
 **Bypass** (`bypass`) keeps the plug-in processing but sends its main input to
-the output in place of what it made, crossfading over one block. Under
+the output in place of what it made, crossfading over one block. **Interface**
+(`gui.open`, `gui.close`), shown when the plug-in has one, opens and closes its own
+interface, and stays lit while it is open, however it was opened. Under
 **Input file** is a small player: **Choose…** (`audio.input choose --loop`), a
 `.wav` dropped on the window, or one from **Recent files**
 (`audio.input.recent`) plays in place of the device input, with play/pause

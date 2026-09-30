@@ -125,6 +125,7 @@ const char *kPage = R"(<!doctype html>
 		<div class="row">
 			<button id="power" aria-pressed="false" title="Turn the audio on or off">⏻ Power</button>
 			<button id="bypass" aria-pressed="false" title="Hear the input in place of the plug-in" hidden>Bypass</button>
+			<button id="interface" aria-pressed="false" title="Show or hide the plug-in's own interface" hidden>Interface</button>
 			<span class="device grow" id="output">Audio is off.</span>
 		</div>
 		<div class="row">
@@ -240,6 +241,8 @@ const char *kPage = R"(<!doctype html>
 		return '"' + String(text).replace(/"/g, '\\"') + '"';
 	}
 
+	let hasGui = false;
+
 	async function showPlugin() {
 		let info = null;
 		try {
@@ -250,6 +253,8 @@ const char *kPage = R"(<!doctype html>
 		}
 		document.getElementById("empty").hidden = info !== null;
 		document.getElementById("bypass").hidden = info === null;
+		hasGui = info !== null && (info.extensions || []).includes("gui");
+		document.getElementById("interface").hidden = !hasGui;
 		document.getElementById("loaded").hidden = info === null;
 		document.getElementById("name").textContent =
 			info === null ? "No plug-in loaded" : (info.name || "Unnamed plug-in");
@@ -516,6 +521,7 @@ const char *kPage = R"(<!doctype html>
 
 	const powerButton = document.getElementById("power");
 	const bypassButton = document.getElementById("bypass");
+	const interfaceButton = document.getElementById("interface");
 	const inputMuteButton = document.getElementById("inputMute");
 	const outputLine = document.getElementById("output");
 	const inputLine = document.getElementById("input");
@@ -647,6 +653,11 @@ const char *kPage = R"(<!doctype html>
 		powerButton.setAttribute("aria-pressed", String(!!data.running));
 		inputMuteButton.setAttribute("aria-pressed", String(!!data.inputMuted));
 		bypassButton.setAttribute("aria-pressed", String(!!data.bypassed));
+		if (hasGui) {
+			// Closing the interface's own window closes it too, so ask rather than remember.
+			const gui = await run("gui").catch(() => null);
+			interfaceButton.setAttribute("aria-pressed", String(!!(gui && gui.open)));
+		}
 		showDevices(data.device, data.inputFile, data.audioLoad, data.underruns);
 		showGain(data.gainDb ?? 0);
 		for (const player of players)
@@ -705,6 +716,8 @@ const char *kPage = R"(<!doctype html>
 
 	powerButton.addEventListener("click", () => command("power toggle"));
 	bypassButton.addEventListener("click", () => command("bypass toggle"));
+	interfaceButton.addEventListener("click", () =>
+		command(interfaceButton.getAttribute("aria-pressed") === "true" ? "gui.close" : "gui.open"));
 	inputMuteButton.addEventListener("click", () => command("input.mute toggle"));
 	document.getElementById("settings").addEventListener("click", async () => {
 		try {
