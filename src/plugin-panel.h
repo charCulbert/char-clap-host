@@ -15,6 +15,8 @@
 
 #include "webview.h"
 
+#include <clap/clap.h>
+
 #include <memory>
 #include <string>
 
@@ -36,6 +38,9 @@ public:
 	bool wantsClose() const;
 	// Tells an open panel the plug-in changed, so it reloads what it shows.
 	void refresh();
+	// Tells an open panel the plug-in moved one parameter itself, from its own
+	// interface, so that control follows.
+	void paramChanged(clap_id id);
 	// Writes a PNG of the window, so an agent can see what a person sees.
 	bool writeSnapshot(const std::string &path, std::string &error);
 

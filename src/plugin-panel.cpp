@@ -282,6 +282,21 @@ const char *kPage = R"(<!doctype html>
 	// to the page, or two runs interleave and every section appears twice.
 	let paramGeneration = 0;
 
+	// How to show a new value on each parameter's control, by id, for when the
+	// plug-in moves one from its own interface.
+	let paramViews = new Map();
+	let builtViews = new Map();
+
+	window.nchParamChanged = async id => {
+		const view = paramViews.get(id);
+		if (!view) return;
+		try {
+			view(await run("param.get " + id));
+		} catch {
+			// Gone between the event and the question: the next refresh redraws it.
+		}
+	};
+
 	async function showParams() {
 		const generation = ++paramGeneration;
 		const container = document.getElementById("params");
@@ -298,6 +313,7 @@ const char *kPage = R"(<!doctype html>
 			return;
 		}
 		const built = document.createDocumentFragment();
+		builtViews = new Map();
 		let section = null;
 		let grid = null;
 		for (const param of params) {
@@ -320,6 +336,7 @@ const char *kPage = R"(<!doctype html>
 			return;
 		container.textContent = "";
 		container.append(built);
+		paramViews = builtViews;
 	}
 
 	async function buildParam(param) {
@@ -387,6 +404,14 @@ const char *kPage = R"(<!doctype html>
 				control.setAttribute("step", 1);
 			control.addEventListener("parameter-edit", event => apply(event.detail.value));
 		}
+
+		builtViews.set(param.id, update => {
+			if (kind === "switch")
+				control.toggleAttribute("pressed", update.value > param.min);
+			else
+				control.setAttribute("value", String(update.value));
+			reading.textContent = update.text || String(update.value);
+		});
 
 		if (readonly)
 			control.setAttribute("disabled", "");
@@ -774,6 +799,11 @@ std::string PluginPanel::windowTitle() const {
 	if (session_.descriptor() != nullptr && session_.descriptor()->name != nullptr)
 		return std::string(session_.descriptor()->name) + " — parameters";
 	return "clap-host";
+}
+
+void PluginPanel::paramChanged(clap_id id) {
+	if (isOpen())
+		webview_.evaluate("window.nchParamChanged && window.nchParamChanged(" + std::to_string(id) + ");");
 }
 
 void PluginPanel::refresh() {

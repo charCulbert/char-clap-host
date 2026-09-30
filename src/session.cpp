@@ -612,6 +612,8 @@ void Session::drainOutputEvents() {
 	}
 	const EventList &events = drainingOutputEvents_;
 	const auto *params = pluginExtension<clap_plugin_params_t>(CLAP_EXT_PARAMS);
+	// Each parameter the plug-in moved, once, however many values it sent.
+	std::vector<clap_id> moved;
 	for (uint32_t i = 0; i < events.size(); ++i) {
 		const clap_event_header_t *header = events.at(i);
 		const uint64_t frame = drainingOutputFrames_[i];
@@ -625,6 +627,8 @@ void Session::drainOutputEvents() {
 				// The plug-in's own interface moved a parameter; this is the
 				// only way the host learns of it.
 				description = "param " + std::to_string(event->param_id) + " = " + std::to_string(event->value);
+				if (std::find(moved.begin(), moved.end(), event->param_id) == moved.end())
+					moved.push_back(event->param_id);
 				if (params == nullptr)
 					validator_.warn("clap_plugin.process",
 					                "sent a parameter value without implementing clap.params");
@@ -700,6 +704,8 @@ void Session::drainOutputEvents() {
 				midiOutput_.send(message.bytes, message.size);
 		}
 	}
+	for (clap_id id : moved)
+		panel_.paramChanged(id);
 }
 
 void Session::clearOutputEvents() {
