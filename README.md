@@ -36,7 +36,10 @@ cmake --build build -j
 
 Dependencies are submodules under `external/`: the CLAP SDK and clap-helpers,
 RtAudio and RtMidi for devices, choc for webviews and non-macOS windows, and
-Compost for the device selector. Nothing else is linked.
+Compost for the device selector. `external/wclap-bridge` is vendored rather
+than a submodule (see its `VENDORED.md`), and configuring downloads the
+Wasmtime C API it runs WCLAPs in; `-DNCH_WITH_WCLAP=OFF` builds without either.
+Nothing else is linked.
 
 On macOS the binary is inside an application bundle, because WebKit refuses to
 composite a webview in a process with no bundle identifier:
@@ -62,6 +65,30 @@ rebuild does not take the command away.
 Opened from the Finder, with no plug-in and no script, the host has no input to
 read, so it opens its home window instead of exiting. Given anything to do it
 behaves exactly as it does from a shell.
+
+### WCLAP plug-ins
+
+A WCLAP is a CLAP plug-in compiled to WebAssembly. Anywhere a `.clap` goes —
+the command line, `load`, the File menu, a drop on the window — a WCLAP goes
+too, in any of the forms a WCLAP build produces:
+
+```sh
+clap-host Tapa.wclap            # the bundle directory
+clap-host Tapa.wclap.tar.gz     # the archive, unpacked into the temp directory
+clap-host module.wasm           # a bare module, with no bundled files
+```
+
+The module runs in Wasmtime through wclap-bridge, which hands the host an
+ordinary plug-in factory and preset-discovery factory, so every command,
+`validate.run` included, works unchanged. Its interface opens in the same
+window a native plug-in's does. The plug-in sees its bundle read-only at
+`/plugin.wclap/`, and writable `/presets/`, `/cache/` and `/var/` folders kept
+in `Application Support/clap-host/wclap/<name>/` (the XDG or `%APPDATA%`
+equivalent elsewhere), so presets it saves survive a rebuild. Preset locations
+it declares under those paths are listed and loaded by their real paths.
+
+Wasmtime is not a browser: this checks the plug-in, not a browser runtime's
+memory limits, AudioWorklet timing or WebKit on iOS.
 
 ## Three ways in
 
@@ -362,7 +389,7 @@ factories are not asked for.
 cd build && ctest --output-on-failure
 ```
 
-Three layers — 84 unit cases and 14 CTest cases:
+Three layers — 129 unit cases and 16 CTest cases:
 
 - **Unit tests** for the host's own pieces, most driving real fixture plug-ins
   rather than mocks: the CLAP state machine, the timeline arithmetic, note
@@ -403,6 +430,8 @@ fixture's own assertion rather than by review.
 | `src/devices.*`, `src/device-settings.*` | Audio and MIDI I/O, and choosing between them |
 | `src/gui.*`, `src/native-window-*`, `src/webview.*` | Windows and plug-in interfaces |
 | `src/json.*`, `src/wav.*`, `src/midi-file.*`, `src/event-list.*` | Small, deep pieces with no host knowledge |
+| `src/bundle.*` | Opening a `.clap` or `.wclap` and reaching its factories; which paths are plug-ins |
+| `external/wclap-bridge` | The WCLAP runtime: Wasmtime, and CLAP translated into and out of WebAssembly |
 
 ## Platforms
 
@@ -425,6 +454,10 @@ activation policy and quit handling live there.
 - Linux and Windows have never been built on those platforms.
 - The choc window path has no menu bar, so no ⌘Q equivalent off macOS.
 - One plug-in per process, by design. There is no graph and no routing.
+- Off macOS the Load Plug-in dialog picks files, so a `.wclap` directory is
+  dropped on the window or passed on the command line instead.
+- A bare `.wasm` has no bundle, so a WCLAP interface that serves files from
+  `/plugin.wclap/` needs the `.wclap` directory or archive.
 - `gui.snapshot` is implemented on macOS, where it captures the composited view (including WebViews and GPU-drawn content); other window backends do not support snapshots.
 
 ## For agents

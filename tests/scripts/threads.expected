@@ -5,6 +5,7 @@ version: 0.1.0
 description: CLAP symbolic thread-role diagnostics
 features:
   utility
+format: clap
 sampleRate: 48000
 blockSize: 256
 frames: 4800

@@ -7,6 +7,7 @@ features:
   instrument
   synthesizer
   stereo
+format: clap
 tests:
   test  checks
   descriptor-consistency  The factory and the created plug-in describe themselves the same way.
@@ -70,6 +71,7 @@ version: 0.1.0
 description: CLAP symbolic thread-role diagnostics
 features:
   utility
+format: clap
 error: 1 of 2 tests failed
 seed: 0x13376767
 tests:

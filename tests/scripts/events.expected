@@ -5,6 +5,7 @@ version: 0.1.0
 description: Sample-accurate native CLAP note echo
 features:
   note-effect
+format: clap
 audio:
 note:
   inputs:

@@ -6,6 +6,7 @@ description: Sine frequency parameter example
 features:
   instrument
   stereo
+format: clap
 id: 0
 value: 440
 text: 440 Hz

@@ -6,6 +6,8 @@
 // bar, activation policy and quit handling all live there.
 #include "native-window.h"
 
+#include "bundle.h"
+
 #include <clap/clap.h>
 
 #if defined(__linux__)
@@ -16,7 +18,9 @@
 #include <choc/gui/choc_DesktopWindow.h>
 #include <choc/gui/choc_MessageLoop.h>
 
+#include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cstdlib>
 #include <string>
 
@@ -181,13 +185,13 @@ private:
 		bool accepted = false;
 		if (const auto uris = gtk_selection_data_get_uris(data)) {
 			for (const auto *uri = uris; *uri != nullptr && !accepted; ++uri) {
-				if (g_str_has_suffix(*uri, ".clap") || g_str_has_suffix(*uri, ".CLAP")) {
-					if (char *path = g_filename_from_uri(*uri, nullptr, nullptr)) {
+				if (char *path = g_filename_from_uri(*uri, nullptr, nullptr)) {
+					if (isPluginPath(path)) {
 						if (loadPluginHandler())
 							loadPluginHandler()(path);
 						accepted = true;
-						g_free(path);
 					}
+					g_free(path);
 				}
 			}
 			g_strfreev(uris);
@@ -242,12 +246,19 @@ private:
 
 	void choosePlugin() {
 		auto *dialog = gtk_file_chooser_native_new(
-		    "Load CLAP Plug-in", GTK_WINDOW(window_.getWindowHandle()), GTK_FILE_CHOOSER_ACTION_OPEN,
+		    "Load Plug-in", GTK_WINDOW(window_.getWindowHandle()), GTK_FILE_CHOOSER_ACTION_OPEN,
 		    "_Open", "_Cancel");
+		// An open dialog picks files, so a .wclap directory is dropped on the
+		// window instead; its archive and bare .wasm forms are listed here.
 		auto *filter = gtk_file_filter_new();
-		gtk_file_filter_set_name(filter, "CLAP plug-ins (*.clap)");
-		gtk_file_filter_add_pattern(filter, "*.clap");
-		gtk_file_filter_add_pattern(filter, "*.CLAP");
+		gtk_file_filter_set_name(filter, "CLAP and WCLAP plug-ins");
+		for (const auto &suffix : pluginSuffixes()) {
+			gtk_file_filter_add_pattern(filter, ("*" + suffix).c_str());
+			std::string upper = suffix;
+			std::transform(upper.begin(), upper.end(), upper.begin(),
+			               [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+			gtk_file_filter_add_pattern(filter, ("*" + upper).c_str());
+		}
 		gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), filter);
 		g_object_unref(filter);
 		g_signal_connect(dialog, "response", G_CALLBACK(&ChocWindow::fileChooserResponse), nullptr);

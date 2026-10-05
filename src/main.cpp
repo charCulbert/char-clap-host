@@ -39,7 +39,7 @@ int exitStatus(const Session &session, const Options &options) {
 void printUsage() {
 	std::puts(R"(clap-host — a single-plugin native CLAP host
 
-usage: clap-host [options] [plugin.clap] [-- command ...]
+usage: clap-host [options] [plugin.clap|plugin.wclap] [-- command ...]
 
 options:
   --json                 replies are JSON objects rather than text

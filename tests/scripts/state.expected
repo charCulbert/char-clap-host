@@ -6,6 +6,7 @@ description: Complete CLAP state example
 features:
   audio-effect
   stereo
+format: clap
 error: plug-in does not implement clap.params
 error: no parameter with id 0
 bytes: 12

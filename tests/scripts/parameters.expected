@@ -6,6 +6,7 @@ description: Sine frequency parameter example
 features:
   instrument
   stereo
+format: clap
 params:
   id  name  module  value  text  min  max  default  flags
   0  Frequency  Oscillator  220  220 Hz  100  1000  220  automatable,modulatable,requires-process

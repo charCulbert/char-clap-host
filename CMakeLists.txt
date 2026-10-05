@@ -49,6 +49,7 @@ endif()
 
 add_library(nch-core STATIC
     ${nch_window_source}
+    src/app-data.cpp
     src/bundle.cpp
     src/command.cpp
     src/commands.cpp
@@ -143,6 +144,17 @@ if(NCH_WITH_WEBVIEW)
     # loads first wins, and the plug-in silently ends up running the host's copy
     # of choc with its own data. Hiding the host's copy keeps the two apart.
     set_target_properties(nch-core PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+endif()
+
+# WCLAPs (CLAP compiled to WebAssembly) load through the vendored wclap-bridge,
+# which runs the module in Wasmtime and hands back an ordinary plug-in factory.
+# Configuring downloads the Wasmtime C API, so it can be turned off.
+option(NCH_WITH_WCLAP "Load .wclap plug-ins through wclap-bridge and Wasmtime" ON)
+if(NCH_WITH_WCLAP)
+    set(WCLAP_BRIDGE_CHOC_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/external/choc")
+    add_subdirectory(external/wclap-bridge wclap-bridge EXCLUDE_FROM_ALL)
+    target_compile_definitions(nch-core PUBLIC NCH_WITH_WCLAP)
+    target_link_libraries(nch-core PUBLIC wclap-bridge)
 endif()
 
 add_executable(clap-host src/main.cpp)

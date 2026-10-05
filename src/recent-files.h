@@ -27,9 +27,8 @@ public:
 	void forgetIfMissing(const std::string &path);
 	const std::vector<std::string> &list() const { return paths_; }
 
-	// Where a host on this machine keeps the list called `name`: Application
-	// Support on macOS, %APPDATA% on Windows, the XDG config directory
-	// elsewhere. Empty when there is nowhere to put it.
+	// Where a host on this machine keeps the list called `name`, inside
+	// appDataDirectory(). Empty when there is nowhere to put it.
 	static std::string defaultStorePath(const std::string &name);
 
 private:

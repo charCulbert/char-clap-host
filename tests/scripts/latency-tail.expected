@@ -6,6 +6,7 @@ description: Dynamic 32/64-sample latency example
 features:
   audio-effect
   stereo
+format: clap
 error: latency is only readable while the plug-in is active; activate first
 sampleRate: 48000
 blockSize: 512
@@ -19,6 +20,7 @@ description: Schroeder room CLAP tail example
 features:
   audio-effect
   reverb
+format: clap
 error: tail is only readable while the plug-in is active; activate first
 sampleRate: 48000
 blockSize: 512
@@ -34,6 +36,7 @@ features:
   instrument
   synthesizer
   stereo
+format: clap
 error: voice info is only readable while the plug-in is active; activate first
 sampleRate: 48000
 blockSize: 512
@@ -49,6 +52,7 @@ features:
   instrument
   synthesizer
   stereo
+format: clap
 noteNames:
   name  port  channel  key
   Kick  0  -1  36
@@ -63,6 +67,7 @@ version: 0.1.0
 description: Two hardware-controller pages and both host callbacks
 features:
   instrument
+format: clap
 pages:
   id  section  page  params
   100  Controls  Page 1  0,1,2,3,-,-,-,-

@@ -1,6 +1,7 @@
 # Unit tests for host internals. Plug-in-facing behaviour is covered by the
 # script tests, which drive the real binary against the fixture plug-ins.
 add_executable(nch-tests
+    bundle.test.cpp
     json.test.cpp
     command.test.cpp
     device-settings.test.cpp

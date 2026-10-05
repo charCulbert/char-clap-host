@@ -6,6 +6,7 @@ description: Transport-driven metronome and field proof
 features:
   instrument
   utility
+format: clap
 playing: true
 recording: false
 tempo: 90

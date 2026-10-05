@@ -5,6 +5,7 @@ version: 0.1.0
 description: All clap.log severities from three thread roles
 features:
   utility
+format: clap
 sampleRate: 48000
 blockSize: 512
 frames: 2400

@@ -1,9 +1,9 @@
 #include "recent-files.h"
 
+#include "app-data.h"
 #include "json.h"
 
 #include <algorithm>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -64,18 +64,8 @@ void RecentFiles::save() const {
 }
 
 std::string RecentFiles::defaultStorePath(const std::string &name) {
-	const auto under = [&name](const char *variable, const char *folder) -> std::string {
-		const char *base = std::getenv(variable);
-		return base != nullptr && *base != '\0' ? std::string(base) + folder + name + ".json" : std::string();
-	};
-#if defined(_WIN32)
-	return under("APPDATA", "\\clap-host\\");
-#elif defined(__APPLE__)
-	return under("HOME", "/Library/Application Support/clap-host/");
-#else
-	const std::string xdg = under("XDG_CONFIG_HOME", "/clap-host/");
-	return !xdg.empty() ? xdg : under("HOME", "/.config/clap-host/");
-#endif
+	const std::string directory = appDataDirectory();
+	return directory.empty() ? std::string() : directory + name + ".json";
 }
 
 } // namespace nch

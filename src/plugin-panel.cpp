@@ -176,8 +176,8 @@ const char *kPage = R"(<!doctype html>
 </div>
 
 <div id="empty" hidden>
-	<p class="empty">Drop a <code>.clap</code> on this window to load it, or choose
-	one from the File menu.</p>
+	<p class="empty">Drop a <code>.clap</code> or <code>.wclap</code> on this window to load
+	it, or choose one from the File menu.</p>
 </div>
 
 <div id="loaded" hidden>

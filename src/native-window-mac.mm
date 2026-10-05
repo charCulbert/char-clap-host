@@ -1,5 +1,7 @@
 #include "native-window.h"
 
+#include "bundle.h"
+
 #include <clap/clap.h>
 
 #include <cstdio>
@@ -20,11 +22,11 @@ void openPanel();
 void loadPlugin(const std::string &path);
 std::vector<std::string> recentPlugins();
 void clearRecentPlugins();
-// The dragged .clap, .wav or .mid, or an empty string when the drag carries
-// none of them.
+// The dragged plug-in (see pluginSuffixes()), .wav or .mid, or an empty
+// string when the drag carries none of them.
 // Shared by the content view and the drop target, which both take a drop.
 NSString *droppedPath(id<NSDraggingInfo> sender);
-// A .clap loads; a .wav or .mid plays into it.
+// A plug-in loads; a .wav or .mid plays into it.
 void openDropped(NSString *path);
 } // namespace nch
 
@@ -106,7 +108,7 @@ void openDropped(NSString *path);
 }
 @end
 
-// A window that accepts a .clap dropped onto it. Dropping is the quickest way
+// A window that accepts a plug-in dropped onto it. Dropping is the quickest way
 // to try a plug-in, and it costs one view subclass.
 @interface NchContentView : NSView
 @end
@@ -142,6 +144,27 @@ void openDropped(NSString *path);
 // Cmd-Q would otherwise call -terminate: and kill the process where it stands,
 // leaving the plug-in undestroyed. Cancelling the termination and asking the
 // host to quit takes the ordinary shutdown path instead.
+// Lets the Load Plug-in panel pick exactly what Bundle::open takes. A .wclap
+// is a plain directory, so a fixed list of file types cannot say it; asking
+// isPluginPath can, and keeps every other folder open for browsing into.
+@interface NchPluginPanelDelegate : NSObject <NSOpenSavePanelDelegate>
+@end
+
+@implementation NchPluginPanelDelegate
+- (BOOL)panel:(id)sender shouldEnableURL:(NSURL *)url {
+	(void)sender;
+	NSNumber *directory = nil;
+	[url getResourceValue:&directory forKey:NSURLIsDirectoryKey error:nil];
+	return [directory boolValue] || nch::isPluginPath([[url path] UTF8String]);
+}
+
+- (BOOL)panel:(id)sender validateURL:(NSURL *)url error:(NSError **)error {
+	(void)sender;
+	(void)error;
+	return nch::isPluginPath([[url path] UTF8String]);
+}
+@end
+
 @interface NchAppDelegate : NSObject <NSApplicationDelegate, NSMenuDelegate>
 @end
 
@@ -195,15 +218,20 @@ void openDropped(NSString *path);
 - (void)loadPlugin:(id)sender {
 	(void)sender;
 	NSOpenPanel *panel = [NSOpenPanel openPanel];
-	[panel setAllowedFileTypes:@[ @"clap" ]];
-	// A .clap is a bundle on macOS, which the panel treats as a directory
-	// unless it is told to select it whole.
+	NchPluginPanelDelegate *filter = [[NchPluginPanelDelegate alloc] init];
+	[panel setDelegate:filter];
+	// A .clap is a bundle on macOS and a .wclap may be a directory, so both
+	// have to be selectable whole.
 	[panel setCanChooseDirectories:YES];
 	[panel setCanChooseFiles:YES];
 	[panel setTreatsFilePackagesAsDirectories:NO];
 	[panel setAllowsMultipleSelection:NO];
-	[panel setMessage:@"Choose a CLAP plug-in"];
-	if ([panel runModal] != NSModalResponseOK)
+	[panel setMessage:@"Choose a CLAP or WCLAP plug-in"];
+	const NSModalResponse response = [panel runModal];
+	// The panel holds its delegate weakly.
+	[panel setDelegate:nil];
+	[filter release];
+	if (response != NSModalResponseOK)
 		return;
 	NSURL *url = [[panel URLs] firstObject];
 	if (url != nil)
@@ -403,16 +431,19 @@ namespace nch {
 NSString *droppedPath(id<NSDraggingInfo> sender) {
 	NSArray *urls = [[sender draggingPasteboard] readObjectsForClasses:@[ [NSURL class] ]
 	                                                           options:@{NSPasteboardURLReadingFileURLsOnlyKey : @YES}];
-	for (NSURL *url in urls)
-		for (NSString *extension in @[ @"clap", @"wav", @"wave", @"mid", @"midi" ])
+	for (NSURL *url in urls) {
+		if (isPluginPath([[url path] UTF8String]))
+			return [url path];
+		for (NSString *extension in @[ @"wav", @"wave", @"mid", @"midi" ])
 			if ([[url pathExtension] caseInsensitiveCompare:extension] == NSOrderedSame)
 				return [url path];
+	}
 	return @"";
 }
 
 void openDropped(NSString *path) {
 	const std::string text([path UTF8String]);
-	if ([[path pathExtension] caseInsensitiveCompare:@"clap"] == NSOrderedSame)
+	if (isPluginPath(text))
 		loadPlugin(text);
 	else if (playFileHandler())
 		playFileHandler()(text);

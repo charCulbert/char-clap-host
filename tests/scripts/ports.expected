@@ -7,6 +7,7 @@ features:
   audio-effect
   mono
   stereo
+format: clap
 audio:
   inputs:
   index  id  name  channels  type  main
@@ -27,6 +28,7 @@ description: Two independently activatable polyBLEP oscillator outputs
 features:
   instrument
   synthesizer
+format: clap
 audio:
   inputs:
   outputs:

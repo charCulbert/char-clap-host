@@ -272,7 +272,7 @@ void Session::registerCommands() {
 	commands_.add({"quit", "", "Leave the host.", quit});
 	commands_.add({"exit", "", "Leave the host.", quit});
 
-	commands_.add({"load", "<path> [plugin-id]", "Load a .clap bundle and create a plug-in from it.",
+	commands_.add({"load", "<path> [plugin-id]", "Load a .clap or .wclap and create a plug-in from it.",
 	               [](Session &session, const Request &request) -> Response {
 		               const std::string path = request.arg(0, "path").asString();
 		               if (path.empty())
@@ -282,7 +282,9 @@ void Session::registerCommands() {
 		               std::string error;
 		               if (!session.load(path, id, index, error))
 			               return Response::failure(error);
-		               return Response::success(describeDescriptor(*session.descriptor()));
+		               Value out = describeDescriptor(*session.descriptor());
+		               out.set("format", Value(session.bundle().format()));
+		               return Response::success(std::move(out));
 	               }});
 
 	commands_.add({"unload", "", "Destroy the plug-in and close its bundle.",
@@ -325,6 +327,7 @@ void Session::registerCommands() {
 			               return ready;
 		               Value out = describeDescriptor(*session.descriptor());
 		               out.set("path", Value(session.bundle().path()));
+		               out.set("format", Value(session.bundle().format()));
 		               out.set("audioPorts", describeAudioPorts(session));
 		               out.set("notePorts", describeNotePorts(session));
 		               Array extensions;
