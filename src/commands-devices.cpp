@@ -12,13 +12,22 @@ void Session::registerDeviceCommands() {
 	               }});
 
 	commands_.add({"audio.start", "[device-name] [--input=channels]",
-	               "Open an audio device; its input passes through until a plug-in is loaded.",
+	               "Turn audio on using the window's settings, optionally choosing an output or input channel count.",
 	               [](Session &session, const Request &request) -> Response {
-		               const std::string name = request.arg(0, "device").asString();
-		               const auto inputChannels = static_cast<uint32_t>(request.arg("input").asNumber(0));
 		               std::string error;
-		               if (!session.audioDevice().start(name, inputChannels, error))
-			               return Response::failure(error);
+		               if (!request.hasArg(0, "device") && request.named.count("input") == 0) {
+			               // Opening the panel later must adopt this stream, not
+			               // replace a second set of CLI-only device defaults.
+			               if (!session.powerOn(error))
+				               return Response::failure(error);
+		               } else {
+			               const DeviceSettings settings = session.audioDevice().currentSettings();
+			               const std::string name = request.arg(0, "device").asString(settings.outputDeviceId);
+			               const auto inputChannels = static_cast<uint32_t>(request.arg("input").asNumber(
+			                   settings.inputDeviceId == kNoAudioInput ? 0 : kLiveInputChannels));
+			               if (!session.audioDevice().start(name, inputChannels, error))
+				               return Response::failure(error);
+		               }
 		               return Response::success(session.audioDevice().statusReport());
 	               }});
 
@@ -91,7 +100,7 @@ void Session::registerDeviceCommands() {
 
 	commands_.add({"audio.stop", "", "Stop the audio stream.",
 	               [](Session &session, const Request &) -> Response {
-		               session.audioDevice().stop();
+		               session.powerOff();
 		               return Response::success();
 	               }});
 

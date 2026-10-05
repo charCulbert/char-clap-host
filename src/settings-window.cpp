@@ -118,6 +118,10 @@ const char *kPage = R"(<!doctype html>
 		}
 		if (reply.plugin !== undefined) {
 			document.getElementById("plugin").textContent = reply.plugin;
+		}
+		// A CLI device change is a state update, not a reply to a page request.
+		if (reply.id === undefined) {
+			if (reply.snapshot) selector.applySnapshot(reply.snapshot);
 			return;
 		}
 		const waiting = pending.get(reply.id);
@@ -338,8 +342,14 @@ void SettingsWindow::onMessage(const uint8_t *bytes, uint32_t size) {
 	webview_.send(encoded.data(), static_cast<uint32_t>(encoded.size()));
 }
 
+void SettingsWindow::refresh() {
+	if (isOpen())
+		sendSnapshot();
+}
+
 void SettingsWindow::sendSnapshot() {
 	Object message;
+	message["snapshot"] = snapshot();
 	message["plugin"] = Value(session_.isLoaded() && session_.descriptor()->name != nullptr
 	                              ? session_.descriptor()->name
 	                              : "No plug-in loaded");

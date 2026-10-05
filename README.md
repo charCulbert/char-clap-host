@@ -143,6 +143,13 @@ meter, **Power** (`power`) opens the audio stream -- the last devices chosen, or
 the default output and input -- and closes it again; the window starts with it
 off, so launching never makes a sound or opens a microphone. **Mute input**
 (`input.mute`) keeps the input out of the signal while the stream stays up.
+The CLI and windows share that stream and its settings: `audio.start` with no
+arguments is `power on`, and opening `panel` adopts any already-running stream.
+`audio.start --input=0` explicitly selects no input. Device edits from
+`audio.settings` appear in an open settings window; edits while powered off
+are remembered for the next start. A failed device open closes any partially
+opened stream, so another choice or a Power retry does not get stuck on
+"a stream is already open".
 **Bypass** (`bypass`) keeps the plug-in processing but sends its main input to
 the output in place of what it made, crossfading over one block. **Interface**
 (`gui.open`, `gui.close`), shown when the plug-in has one, opens and closes its own

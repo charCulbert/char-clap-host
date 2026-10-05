@@ -85,6 +85,12 @@ bool AudioDevice::start(const std::string &deviceName, uint32_t inputChannels, s
 	impl_->requested = true;
 	impl_->requestedOutput = deviceName;
 	impl_->requestedInputChannels = inputChannels;
+	// The CLI's channel count and the selector's "No input" describe the
+	// same choice. Never show a default microphone for an output-only stream.
+	if (inputChannels == 0)
+		impl_->inputDeviceId = kNoAudioInput;
+	else if (impl_->inputDeviceId == kNoAudioInput)
+		impl_->inputDeviceId.clear();
 	impl_->inputChannels = 0;
 	impl_->inputDeviceName.clear();
 
@@ -164,6 +170,9 @@ bool AudioDevice::start(const std::string &deviceName, uint32_t inputChannels, s
 		error = impl_->audio.getErrorText();
 		if (error.empty())
 			error = "cannot open the audio stream";
+		// A duplex open can leave its output half open when the input fails.
+		// It isn't running yet, but must be closed before either UI retries.
+		stop();
 		return false;
 	}
 	impl_->blockSize = bufferFrames;
@@ -198,9 +207,9 @@ bool AudioDevice::hasRequest() const {
 }
 
 void AudioDevice::stop() {
-	if (!impl_->running)
-		return;
-	impl_->audio.stopStream();
+	// Own the backend's whole lifetime, not only successfully started streams.
+	if (impl_->audio.isStreamRunning())
+		impl_->audio.stopStream();
 	if (impl_->audio.isStreamOpen())
 		impl_->audio.closeStream();
 	impl_->running = false;
@@ -249,8 +258,12 @@ DeviceSettings AudioDevice::currentSettings() const {
 	DeviceSettings settings;
 	settings.outputDeviceId = impl_->outputDeviceId;
 	settings.inputDeviceId = impl_->inputDeviceId;
-	settings.sampleRate = impl_->sampleRate;
-	settings.bufferSize = impl_->blockSize;
+	settings.sampleRate = impl_->running ? impl_->sampleRate
+	                                    : (impl_->requestedSampleRate > 0.0 ? impl_->requestedSampleRate
+	                                                                        : session_.sampleRate());
+	settings.bufferSize = impl_->running ? impl_->blockSize
+	                                    : (impl_->requestedBufferSize != 0 ? impl_->requestedBufferSize
+	                                                                       : session_.blockSize());
 	return settings;
 }
 

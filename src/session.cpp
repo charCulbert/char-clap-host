@@ -905,6 +905,13 @@ Response Session::execute(const std::string &line) {
 	const size_t violationsBefore = validator_.violationCount();
 	Response response = commands_.dispatch(*this, request);
 	runMainThreadWork();
+	// The selector and the prompt edit one state. Keep an open selector in
+	// step even when the change (or a failed stream restart) came from stdin.
+	if (request.name == "audio.start" || request.name == "audio.stop" || request.name == "audio.settings" ||
+	    request.name == "audio.test" || request.name == "power" || request.name == "midi.open" ||
+	    request.name == "midi.close" || request.name == "midi.out" || request.name == "load" ||
+	    request.name == "unload" || request.name == "panel")
+		settings_.refresh();
 	if (options_.strict && response.ok && validator_.violationCount() != violationsBefore && validator_.hasErrors())
 		response = Response::failure("plug-in violated the CLAP contract; see `validate`");
 	return response;

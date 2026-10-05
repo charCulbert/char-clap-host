@@ -30,6 +30,8 @@ public:
 	bool isOpen() const;
 	// True once the user closed the window, so the main loop can tidy up.
 	bool wantsClose() const;
+	// Push CLI device changes into an already-open selector.
+	void refresh();
 
 	// The device state the interface shows, in the shape Compost's device
 	// selector expects.

@@ -58,6 +58,38 @@ private:
 
 } // namespace
 
+TEST(cli_device_settings_are_visible_before_a_stream_is_opened) {
+	TestSession host;
+	CHECK(host.run("audio.settings --input=__none__ --rate=44100 --buffer=128")["ok"].asBool());
+	CHECK(!host.session().isPowered());
+	const Value shown = host.session().settings().snapshot();
+	CHECK_EQ(shown["audio"]["inputDeviceId"].asString(), std::string(nch::kNoAudioInput));
+	CHECK_EQ(shown["audio"]["sampleRate"].asNumber(), 44100.0);
+	CHECK_EQ(shown["audio"]["bufferSize"].asNumber(), 128.0);
+
+	// Partial edits from the GUI preserve the CLI's rate and input choice.
+	nch::Object audio;
+	audio["bufferSize"] = Value(256u);
+	nch::Object body;
+	body["audio"] = Value(std::move(audio));
+	std::string error;
+	host.session().settings().apply(Value(std::move(body)), error);
+	CHECK(error.empty());
+	const Value readBack = host.run("audio.settings")["data"]["audio"];
+	CHECK_EQ(readBack["sampleRate"].asNumber(), 44100.0);
+	CHECK_EQ(readBack["bufferSize"].asNumber(), 256.0);
+	CHECK_EQ(readBack["inputDeviceId"].asString(), std::string(nch::kNoAudioInput));
+	CHECK(!host.session().isPowered());
+}
+
+TEST(stopping_an_unopened_stream_is_safe_from_either_interface) {
+	TestSession host;
+	CHECK(host.run("audio.stop")["ok"].asBool());
+	CHECK(host.run("power off")["ok"].asBool());
+	CHECK(host.run("audio.stop")["ok"].asBool());
+	CHECK(!host.session().isPowered());
+}
+
 TEST(a_command_reply_can_be_read_without_a_subprocess) {
 	TestSession host;
 	const Value loaded = host.run("load \"" + fixture("parameters") + "\"");
