@@ -25,7 +25,8 @@ std::string quote(const std::string &text) {
 	return "\"" + text + "\"";
 }
 
-std::vector<clap_param_info_t> parameters(Session &session) {
+// The parameters with every flag in `mustHave` and none in `mustLack`.
+std::vector<clap_param_info_t> parameters(Session &session, uint32_t mustHave = 0, uint32_t mustLack = 0) {
 	std::vector<clap_param_info_t> found;
 	const auto *params = session.pluginExtension<clap_plugin_params_t>(CLAP_EXT_PARAMS);
 	if (params == nullptr || params->count == nullptr || params->get_info == nullptr)
@@ -33,7 +34,8 @@ std::vector<clap_param_info_t> parameters(Session &session) {
 	const uint32_t count = params->count(session.plugin());
 	for (uint32_t i = 0; i < count; ++i) {
 		clap_param_info_t info{};
-		if (params->get_info(session.plugin(), i, &info))
+		if (params->get_info(session.plugin(), i, &info) && (info.flags & mustHave) == mustHave &&
+		    (info.flags & mustLack) == 0)
 			found.push_back(info);
 	}
 	return found;
@@ -46,6 +48,17 @@ bool readValue(Session &session, clap_id id, double &value) {
 	return params->get_value(session.plugin(), id, &value);
 }
 
+// The current value of each parameter that will report one.
+std::map<clap_id, double> snapshot(Session &session, const std::vector<clap_param_info_t> &params) {
+	std::map<clap_id, double> values;
+	for (const auto &info : params) {
+		double value = 0.0;
+		if (readValue(session, info.id, value))
+			values[info.id] = value;
+	}
+	return values;
+}
+
 // Two parameter values are the same if a stepped parameter rounds to the same
 // step, or a continuous one agrees to within a ten-thousandth of its range.
 bool sameValue(const clap_param_info_t &info, double a, double b) {
@@ -55,29 +68,52 @@ bool sameValue(const clap_param_info_t &info, double a, double b) {
 	return std::fabs(a - b) <= (range > 0.0 ? range * 1e-4 : 1e-4);
 }
 
-// Runs `blocks` blocks, checking each one, and reports the first thing wrong.
-void processChecked(TestContext &context, uint32_t blocks, uint32_t frames) {
+// Turns on the per-block checks and enters processing.
+bool startChecked(TestContext &context) {
 	Session &session = context.session();
 	session.engine().setProcessChecking(true);
 	std::string error;
 	if (!session.engine().start(error)) {
 		context.fail("could not start processing: " + error);
-		return;
+		return false;
 	}
+	return true;
+}
+
+// Fails on the first error the host has noticed. Returns false if it did.
+bool noViolations(TestContext &context) {
+	for (const auto &violation : context.session().validator().violations()) {
+		if (violation.severity == Severity::Error) {
+			context.fail(violation.where + ": " + violation.message);
+			return false;
+		}
+	}
+	return true;
+}
+
+// Processes one block and reports the first thing wrong with it. Returns false
+// if anything was.
+bool processOneChecked(TestContext &context, uint32_t frames,
+                       const char *failure = "process() returned CLAP_PROCESS_ERROR") {
+	if (context.session().engine().processBlock(frames, nullptr) == CLAP_PROCESS_ERROR) {
+		context.fail(failure);
+		return false;
+	}
+	return noViolations(context);
+}
+
+// Runs `blocks` blocks, checking each one, and reports the first thing wrong.
+void processChecked(TestContext &context, uint32_t blocks, uint32_t frames) {
+	if (!startChecked(context))
+		return;
 	for (uint32_t block = 0; block < blocks && !context.failed(); ++block) {
-		const int32_t status = session.engine().processBlock(frames, nullptr);
-		if (status == CLAP_PROCESS_ERROR) {
+		if (context.session().engine().processBlock(frames, nullptr) == CLAP_PROCESS_ERROR) {
 			context.fail("process() returned CLAP_PROCESS_ERROR");
 			return;
 		}
 	}
 	// Anything the host noticed while processing counts too.
-	for (const auto &violation : session.validator().violations()) {
-		if (violation.severity == Severity::Error) {
-			context.fail(violation.where + ": " + violation.message);
-			return;
-		}
-	}
+	noViolations(context);
 }
 
 // Hands a generated block to the plug-in at the times the generator chose.
@@ -241,12 +277,7 @@ void paramSetWrongNamespace(TestContext &context) {
 		return;
 	}
 
-	std::map<clap_id, double> before;
-	for (const auto &info : params) {
-		double value = 0.0;
-		if (readValue(session, info.id, value))
-			before[info.id] = value;
-	}
+	std::map<clap_id, double> before = snapshot(session, params);
 
 	std::string error;
 	if (!session.activate(48000.0, 1, 512, error)) {
@@ -289,10 +320,7 @@ void paramSetWrongNamespace(TestContext &context) {
 
 void paramModulationDoesNotMoveValue(TestContext &context) {
 	Session &session = context.session();
-	std::vector<clap_param_info_t> modulatable;
-	for (const auto &info : parameters(session))
-		if ((info.flags & CLAP_PARAM_IS_MODULATABLE) != 0)
-			modulatable.push_back(info);
+	const std::vector<clap_param_info_t> modulatable = parameters(session, CLAP_PARAM_IS_MODULATABLE);
 	if (modulatable.empty()) {
 		context.skip("the plug-in has no modulatable parameters");
 		return;
@@ -304,11 +332,8 @@ void paramModulationDoesNotMoveValue(TestContext &context) {
 		return;
 	}
 
-	std::map<clap_id, double> before;
+	std::map<clap_id, double> before = snapshot(session, modulatable);
 	for (const auto &info : modulatable) {
-		double value = 0.0;
-		if (readValue(session, info.id, value))
-			before[info.id] = value;
 		// Half the range, which is deliberately enough to be audible.
 		const double amount = (info.max_value - info.min_value) * 0.5;
 		session.engine().scheduleParamMod(info.id, info.cookie, amount, -1, -1, -1, -1, 0);
@@ -333,13 +358,12 @@ void paramModulationDoesNotMoveValue(TestContext &context) {
 
 void paramModulationPolyphonic(TestContext &context) {
 	Session &session = context.session();
+	const uint32_t perVoice = CLAP_PARAM_IS_MODULATABLE_PER_NOTE_ID | CLAP_PARAM_IS_MODULATABLE_PER_KEY |
+	                          CLAP_PARAM_IS_MODULATABLE_PER_CHANNEL | CLAP_PARAM_IS_MODULATABLE_PER_PORT;
 	std::vector<clap_param_info_t> poly;
-	for (const auto &info : parameters(session)) {
-		const uint32_t perVoice = CLAP_PARAM_IS_MODULATABLE_PER_NOTE_ID | CLAP_PARAM_IS_MODULATABLE_PER_KEY |
-		                          CLAP_PARAM_IS_MODULATABLE_PER_CHANNEL | CLAP_PARAM_IS_MODULATABLE_PER_PORT;
-		if ((info.flags & CLAP_PARAM_IS_MODULATABLE) != 0 && (info.flags & perVoice) != 0)
+	for (const auto &info : parameters(session, CLAP_PARAM_IS_MODULATABLE))
+		if ((info.flags & perVoice) != 0)
 			poly.push_back(info);
-	}
 	if (poly.empty()) {
 		context.skip("the plug-in has no per-voice modulatable parameters");
 		return;
@@ -376,10 +400,7 @@ void paramModulationPolyphonic(TestContext &context) {
 
 void paramModulationSurvivesReset(TestContext &context) {
 	Session &session = context.session();
-	std::vector<clap_param_info_t> modulatable;
-	for (const auto &info : parameters(session))
-		if ((info.flags & CLAP_PARAM_IS_MODULATABLE) != 0)
-			modulatable.push_back(info);
+	const std::vector<clap_param_info_t> modulatable = parameters(session, CLAP_PARAM_IS_MODULATABLE);
 	if (modulatable.empty()) {
 		context.skip("the plug-in has no modulatable parameters");
 		return;
@@ -534,12 +555,7 @@ void stateRoundTrip(TestContext &context) {
 		context.fail("the plug-in refused to save its state");
 		return;
 	}
-	std::map<clap_id, double> before;
-	for (const auto &info : params) {
-		double value = 0.0;
-		if (readValue(session, info.id, value))
-			before[info.id] = value;
-	}
+	std::map<clap_id, double> before = snapshot(session, params);
 
 	InputStream reloaded(saved.bytes());
 	if (!state->load(session.plugin(), reloaded.stream())) {
@@ -607,24 +623,14 @@ void runNoteStream(TestContext &context, bool inconsistent, double wildcardChanc
 	if (voiceInfo != nullptr && voiceInfo->get != nullptr && voiceInfo->get(session.plugin(), &info))
 		generator.setAllowOverlap((info.flags & CLAP_VOICE_INFO_SUPPORTS_OVERLAPPING_NOTES) != 0);
 
-	session.engine().setProcessChecking(true);
-	if (!session.engine().start(error)) {
-		context.fail("could not start processing: " + error);
+	if (!startChecked(context))
 		return;
-	}
 	for (uint32_t block = 0; block < 8 && !context.failed(); ++block) {
 		EventList events;
 		generator.fillBlock(events, 512, 6);
 		scheduleAll(session, events);
-		if (session.engine().processBlock(512, nullptr) == CLAP_PROCESS_ERROR) {
-			context.fail("process() returned CLAP_PROCESS_ERROR");
+		if (!processOneChecked(context, 512))
 			return;
-		}
-		for (const auto &violation : session.validator().violations())
-			if (violation.severity == Severity::Error) {
-				context.fail(violation.where + ": " + violation.message);
-				return;
-			}
 	}
 	EventList release;
 	generator.releaseAll(release, 512);
@@ -651,10 +657,7 @@ void processNoteWildcard(TestContext &context) {
 // Drives parameter changes in a given style, checking every block.
 void runParamFuzz(TestContext &context, ParamValueStyle style, bool nullCookies, uint32_t interval) {
 	Session &session = context.session();
-	std::vector<clap_param_info_t> params;
-	for (const auto &info : parameters(session))
-		if ((info.flags & CLAP_PARAM_IS_READONLY) == 0)
-			params.push_back(info);
+	const std::vector<clap_param_info_t> params = parameters(session, 0, CLAP_PARAM_IS_READONLY);
 	if (params.empty()) {
 		context.skip("the plug-in has no writable parameters");
 		return;
@@ -669,11 +672,8 @@ void runParamFuzz(TestContext &context, ParamValueStyle style, bool nullCookies,
 	fuzzer.setStyle(style);
 	fuzzer.setNullCookies(nullCookies);
 
-	session.engine().setProcessChecking(true);
-	if (!session.engine().start(error)) {
-		context.fail("could not start processing: " + error);
+	if (!startChecked(context))
 		return;
-	}
 
 	uint32_t cursor = 0;
 	for (uint32_t block = 0; block < 10 && !context.failed(); ++block) {
@@ -683,15 +683,8 @@ void runParamFuzz(TestContext &context, ParamValueStyle style, bool nullCookies,
 		else
 			fuzzer.fillSampleAccurate(events, 512, interval, cursor);
 		scheduleAll(session, events);
-		if (session.engine().processBlock(512, nullptr) == CLAP_PROCESS_ERROR) {
-			context.fail("process() returned CLAP_PROCESS_ERROR");
+		if (!processOneChecked(context, 512))
 			return;
-		}
-		for (const auto &violation : session.validator().violations())
-			if (violation.severity == Severity::Error) {
-				context.fail(violation.where + ": " + violation.message);
-				return;
-			}
 	}
 }
 
@@ -723,10 +716,7 @@ void paramFuzzNoCookies(TestContext &context) {
 
 void paramFuzzModulation(TestContext &context) {
 	Session &session = context.session();
-	std::vector<clap_param_info_t> modulatable;
-	for (const auto &info : parameters(session))
-		if ((info.flags & CLAP_PARAM_IS_MODULATABLE) != 0)
-			modulatable.push_back(info);
+	const std::vector<clap_param_info_t> modulatable = parameters(session, CLAP_PARAM_IS_MODULATABLE);
 	if (modulatable.empty()) {
 		context.skip("the plug-in has no modulatable parameters");
 		return;
@@ -743,11 +733,8 @@ void paramFuzzModulation(TestContext &context) {
 	NoteGenerator notes(context.random(), encoding);
 	ParamFuzzer fuzzer(context.random(), modulatable);
 
-	session.engine().setProcessChecking(true);
-	if (!session.engine().start(error)) {
-		context.fail("could not start processing: " + error);
+	if (!startChecked(context))
 		return;
-	}
 	for (uint32_t block = 0; block < 10 && !context.failed(); ++block) {
 		EventList events;
 		if (hasNotes)
@@ -757,25 +744,15 @@ void paramFuzzModulation(TestContext &context) {
 		fuzzer.fillModulation(events, static_cast<uint32_t>(context.random().below(512)), notes.sounding());
 		events.sortByTime();
 		scheduleAll(session, events);
-		if (session.engine().processBlock(512, nullptr) == CLAP_PROCESS_ERROR) {
-			context.fail("process() returned CLAP_PROCESS_ERROR");
+		if (!processOneChecked(context, 512))
 			return;
-		}
-		for (const auto &violation : session.validator().violations())
-			if (violation.severity == Severity::Error) {
-				context.fail(violation.where + ": " + violation.message);
-				return;
-			}
 	}
 	context.note("sent polyphonic modulation alongside a live note stream");
 }
 
 void paramSetEvents(TestContext &context) {
 	Session &session = context.session();
-	std::vector<clap_param_info_t> params;
-	for (const auto &info : parameters(session))
-		if ((info.flags & CLAP_PARAM_IS_READONLY) == 0)
-			params.push_back(info);
+	const std::vector<clap_param_info_t> params = parameters(session, 0, CLAP_PARAM_IS_READONLY);
 	if (params.empty()) {
 		context.skip("the plug-in has no writable parameters");
 		return;
@@ -794,12 +771,7 @@ void paramSetEvents(TestContext &context) {
 
 	EventList out;
 	ext->flush(session.plugin(), wanted.input(), out.output());
-	std::map<clap_id, double> viaFlush;
-	for (const auto &info : params) {
-		double value = 0.0;
-		if (readValue(session, info.id, value))
-			viaFlush[info.id] = value;
-	}
+	std::map<clap_id, double> viaFlush = snapshot(session, params);
 
 	// A second instance, because cookies are per-instance.
 	std::string error;
@@ -812,10 +784,7 @@ void paramSetEvents(TestContext &context) {
 		return;
 	}
 	// The parameters are the new instance's, so the events are rebuilt.
-	std::vector<clap_param_info_t> reloaded;
-	for (const auto &info : parameters(session))
-		if ((info.flags & CLAP_PARAM_IS_READONLY) == 0)
-			reloaded.push_back(info);
+	const std::vector<clap_param_info_t> reloaded = parameters(session, 0, CLAP_PARAM_IS_READONLY);
 	for (const auto &info : reloaded) {
 		if (viaFlush.count(info.id) == 0)
 			continue;
@@ -863,11 +832,8 @@ void transportNull(TestContext &context) {
 	const bool hasNotes = noteInputEncoding(session, encoding);
 	NoteGenerator notes(context.random(), encoding);
 
-	session.engine().setProcessChecking(true);
-	if (!session.engine().start(error)) {
-		context.fail("could not start processing: " + error);
+	if (!startChecked(context))
 		return;
-	}
 	for (uint32_t block = 0; block < 5 && !context.failed(); ++block) {
 		EventList events;
 		if (hasNotes)
@@ -889,11 +855,8 @@ void transportFuzz(TestContext &context) {
 		return;
 	}
 	Transport &transport = session.engine().transport();
-	session.engine().setProcessChecking(true);
-	if (!session.engine().start(error)) {
-		context.fail("could not start processing: " + error);
+	if (!startChecked(context))
 		return;
-	}
 
 	static const uint32_t optional[] = {CLAP_TRANSPORT_HAS_TEMPO, CLAP_TRANSPORT_HAS_BEATS_TIMELINE,
 	                                    CLAP_TRANSPORT_HAS_SECONDS_TIMELINE, CLAP_TRANSPORT_HAS_TIME_SIGNATURE};
@@ -921,15 +884,9 @@ void transportFuzz(TestContext &context) {
 			transport.songSeconds = transport.songBeats * 60.0 / transport.tempo;
 		}
 
-		if (session.engine().processBlock(128, nullptr) == CLAP_PROCESS_ERROR) {
-			context.fail("process() returned CLAP_PROCESS_ERROR while the transport was changing");
+		if (!processOneChecked(context, 128,
+		                       "process() returned CLAP_PROCESS_ERROR while the transport was changing"))
 			return;
-		}
-		for (const auto &violation : session.validator().violations())
-			if (violation.severity == Severity::Error) {
-				context.fail(violation.where + ": " + violation.message);
-				return;
-			}
 	}
 	transport.suppressedFlags = 0;
 	context.note("varied tempo, time signature, loop points and which flags were set");
@@ -1002,7 +959,9 @@ void guiResize(TestContext &context) {
 	session.gui().close();
 }
 
-const std::vector<TestCase> &tests() {
+} // namespace
+
+const std::vector<TestCase> &allTests() {
 	static const std::vector<TestCase> cases = {
 	    {"descriptor-consistency", "The factory and the created plug-in describe themselves the same way.",
 	     descriptorConsistency},
@@ -1047,12 +1006,6 @@ const std::vector<TestCase> &tests() {
 	    {"gui-resize", "The interface reports a size, and adjust_size settles.", guiResize},
 	};
 	return cases;
-}
-
-} // namespace
-
-const std::vector<TestCase> &allTests() {
-	return tests();
 }
 
 } // namespace nch

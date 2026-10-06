@@ -60,8 +60,6 @@ public:
 	TestStatus status() const { return status_; }
 	std::string details() const;
 	bool failed() const { return status_ == TestStatus::Failed; }
-	// True once the test has reached a verdict that makes continuing pointless.
-	bool finished() const { return status_ == TestStatus::Failed || status_ == TestStatus::Skipped; }
 
 private:
 	Session &session_;
