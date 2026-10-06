@@ -3,24 +3,26 @@
 #include "app-data.h"
 #include "json.h"
 
+#include <choc/text/choc_Files.h>
+
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
-#include <sstream>
 
 namespace nch {
 
 RecentFiles::RecentFiles(std::string storePath, size_t limit) : storePath_(std::move(storePath)), limit_(limit) {
 	if (storePath_.empty())
 		return;
-	std::ifstream in(storePath_);
-	if (!in)
-		return;
-	std::stringstream text;
-	text << in.rdbuf();
+	std::string text;
+	try {
+		text = choc::file::loadFileAsString(storePath_);
+	} catch (const std::exception &) {
+		return; // nothing remembered yet
+	}
 	Value stored;
 	std::string error;
-	if (!Value::parse(text.str(), stored, error))
+	if (!Value::parse(text, stored, error))
 		return;
 	for (const auto &entry : stored.array())
 		if (entry.isString() && paths_.size() < limit_)

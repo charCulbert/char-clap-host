@@ -12,7 +12,7 @@ bool readMidiFile(const std::string &path, MidiFile &out, std::string &error) {
 	std::string bytes;
 	try {
 		bytes = choc::file::loadFileAsString(path);
-	} catch (const choc::file::Error &) {
+	} catch (const std::exception &) {
 		error = "cannot open " + path;
 		return false;
 	}

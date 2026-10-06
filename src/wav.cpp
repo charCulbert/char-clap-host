@@ -1,5 +1,7 @@
 #include "wav.h"
 
+#include <choc/text/choc_Files.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -9,7 +11,7 @@ namespace nch {
 namespace {
 
 struct Reader {
-	const std::vector<uint8_t> &bytes;
+	const std::string &bytes;
 	size_t pos = 0;
 
 	bool take(void *out, size_t count) {
@@ -23,30 +25,6 @@ struct Reader {
 	bool u32(uint32_t &out) { return take(&out, 4); }
 	bool u16(uint16_t &out) { return take(&out, 2); }
 };
-
-bool readFile(const std::string &path, std::vector<uint8_t> &out, std::string &error) {
-	std::FILE *file = std::fopen(path.c_str(), "rb");
-	if (file == nullptr) {
-		error = "cannot open " + path;
-		return false;
-	}
-	std::fseek(file, 0, SEEK_END);
-	const long size = std::ftell(file);
-	std::fseek(file, 0, SEEK_SET);
-	if (size < 0) {
-		std::fclose(file);
-		error = "cannot size " + path;
-		return false;
-	}
-	out.resize(static_cast<size_t>(size));
-	const size_t read = out.empty() ? 0 : std::fread(out.data(), 1, out.size(), file);
-	std::fclose(file);
-	if (read != out.size()) {
-		error = "short read on " + path;
-		return false;
-	}
-	return true;
-}
 
 float sampleFromBytes(const uint8_t *data, uint16_t format, uint16_t bitsPerSample) {
 	if (format == 3) { // IEEE float
@@ -117,9 +95,13 @@ AudioStats measure(const AudioData &audio) {
 }
 
 bool readWav(const std::string &path, AudioData &out, std::string &error) {
-	std::vector<uint8_t> bytes;
-	if (!readFile(path, bytes, error))
+	std::string bytes;
+	try {
+		bytes = choc::file::loadFileAsString(path);
+	} catch (const std::exception &) {
+		error = "cannot open " + path;
 		return false;
+	}
 
 	Reader reader{bytes};
 	char tag[4] = {};
@@ -181,7 +163,7 @@ bool readWav(const std::string &path, AudioData &out, std::string &error) {
 			for (size_t frame = 0; frame < frames; ++frame) {
 				for (uint16_t channel = 0; channel < channels; ++channel) {
 					const size_t offset = chunkStart + frame * frameBytes + channel * bytesPerSample;
-					out.channels[channel][frame] = sampleFromBytes(bytes.data() + offset, format, bitsPerSample);
+					out.channels[channel][frame] = sampleFromBytes(reinterpret_cast<const uint8_t *>(bytes.data()) + offset, format, bitsPerSample);
 				}
 			}
 			return true;

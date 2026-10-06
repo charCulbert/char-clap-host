@@ -1,7 +1,8 @@
 #include "web-assets.h"
 
+#include <choc/text/choc_Files.h>
+
 #include <filesystem>
-#include <fstream>
 
 namespace nch {
 namespace {
@@ -30,11 +31,15 @@ std::optional<WebviewHost::Resource> compostResource(const std::string &path) {
 		return {};
 	const std::filesystem::path file =
 	    std::filesystem::path(NCH_COMPOST_ROOT) / "src" / path.substr(prefix.size());
-	std::ifstream input(file, std::ios::binary);
-	if (!input)
-		return {};
 	WebviewHost::Resource resource;
-	resource.data.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+	try {
+		choc::file::readFileContent(file, [&resource](uint64_t size) {
+			resource.data.resize(static_cast<size_t>(size));
+			return static_cast<void *>(resource.data.data());
+		});
+	} catch (const std::exception &) {
+		return {};
+	}
 	resource.mimeType = mimeForPath(path);
 	return resource;
 }
