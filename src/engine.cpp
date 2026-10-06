@@ -44,7 +44,59 @@ void passThrough(const Engine::BlockIo &io, uint32_t frames, const float *input)
 	            [&](uint32_t channel, uint32_t frame) { return input[frame * channels + channel]; });
 }
 
+// Calls `schedule` with each event a translation produced.
+template <typename Schedule> void forEachEvent(const NoteTranslation &translation, Schedule schedule) {
+	size_t offset = 0;
+	for (uint32_t i = 0; i < translation.produced; ++i) {
+		const auto *header = reinterpret_cast<const clap_event_header_t *>(translation.storage.data() + offset);
+		schedule(header);
+		offset += header->size;
+	}
+}
+
+bool sameNote(const clap_event_note_t &a, const clap_event_note_t &b) {
+	return a.port_index == b.port_index && a.channel == b.channel && a.key == b.key;
+}
+
 } // namespace
+
+class Engine::AudioExclusion {
+public:
+	explicit AudioExclusion(Engine &engine) : engine_(engine) {
+		// Said before trying, so a device block that loses the race knows it
+		// lost to the host between blocks and not to a second audio thread.
+		engine_.hostExclusive_.store(true, std::memory_order_release);
+		// A block is short; a few hundred milliseconds is far longer than any
+		// legitimate one and short enough that a stuck plug-in still fails fast.
+		const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+		for (;;) {
+			bool expected = false;
+			if (engine_.insideProcess_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+				held_ = true;
+				return;
+			}
+			if (std::chrono::steady_clock::now() >= deadline) {
+				engine_.hostExclusive_.store(false, std::memory_order_release);
+				return;
+			}
+			std::this_thread::yield();
+		}
+	}
+	~AudioExclusion() {
+		if (!held_)
+			return;
+		engine_.insideProcess_.store(false, std::memory_order_release);
+		engine_.hostExclusive_.store(false, std::memory_order_release);
+	}
+	AudioExclusion(const AudioExclusion &) = delete;
+	AudioExclusion &operator=(const AudioExclusion &) = delete;
+
+	explicit operator bool() const { return held_; }
+
+private:
+	Engine &engine_;
+	bool held_ = false;
+};
 
 Engine::Engine(Session &session) : session_(session) {}
 
@@ -132,47 +184,18 @@ void Engine::stop() {
 	// No new block starts once this is false; one already inside process()
 	// is waited for, so stop_processing never overlaps it.
 	running_.store(false, std::memory_order_release);
-	if (acquireAudioExclusion()) {
-		session_.instance().stopProcessing();
-		releaseAudioExclusion();
-	} else {
+	const AudioExclusion exclusion(*this);
+	if (!exclusion)
 		session_.validator().error("clap_plugin.process", "a block did not finish in time for stop_processing");
-		session_.instance().stopProcessing();
-	}
-}
-
-bool Engine::acquireAudioExclusion() {
-	// Said before trying, so a device block that loses the race knows it lost
-	// to the host between blocks and not to a second audio thread.
-	hostExclusive_.store(true, std::memory_order_release);
-	// A block is short; a few hundred milliseconds is far longer than any
-	// legitimate one and short enough that a stuck plug-in still fails fast.
-	const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
-	for (;;) {
-		bool expected = false;
-		if (insideProcess_.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
-			return true;
-		if (std::chrono::steady_clock::now() >= deadline) {
-			hostExclusive_.store(false, std::memory_order_release);
-			return false;
-		}
-		std::this_thread::yield();
-	}
-}
-
-void Engine::releaseAudioExclusion() {
-	insideProcess_.store(false, std::memory_order_release);
-	hostExclusive_.store(false, std::memory_order_release);
+	session_.instance().stopProcessing();
 }
 
 bool Engine::runAsAudioThread(const std::function<void()> &work) {
-	if (!acquireAudioExclusion())
+	const AudioExclusion exclusion(*this);
+	if (!exclusion)
 		return false;
-	{
-		ScopedThreadRole role(ThreadRole::Audio);
-		work();
-	}
-	releaseAudioExclusion();
+	ScopedThreadRole role(ThreadRole::Audio);
+	work();
 	return true;
 }
 
@@ -244,14 +267,14 @@ bool Engine::setInput(AudioData input, bool loop, std::string path) {
 	}
 	const uint64_t frames = input.frameCount();
 	const double sampleRate = input.sampleRate;
-	if (!acquireAudioExclusion())
+	const AudioExclusion exclusion(*this);
+	if (!exclusion)
 		return false;
 	std::swap(input_, input);
 	inputPosition_ = 0;
 	inputPositionShown_.store(0, std::memory_order_relaxed);
 	inputLoop_.store(loop, std::memory_order_release);
 	inputPlaying_.store(frames != 0, std::memory_order_release);
-	releaseAudioExclusion();
 	inputPath_ = std::move(path);
 	inputFrames_ = frames;
 	inputSampleRate_ = sampleRate;
@@ -263,11 +286,11 @@ bool Engine::clearInput() {
 }
 
 bool Engine::seekInput(uint64_t frame) {
-	if (!acquireAudioExclusion())
+	const AudioExclusion exclusion(*this);
+	if (!exclusion)
 		return false;
 	inputPosition_ = std::min<uint64_t>(frame, input_.frameCount());
 	inputPositionShown_.store(inputPosition_, std::memory_order_relaxed);
-	releaseAudioExclusion();
 	return true;
 }
 
@@ -284,14 +307,6 @@ void Engine::advanceInput(uint32_t frames) {
 	}
 	inputPositionShown_.store(inputPosition_, std::memory_order_relaxed);
 }
-
-namespace {
-
-bool sameNote(const clap_event_note_t &a, const clap_event_note_t &b) {
-	return a.port_index == b.port_index && a.channel == b.channel && a.key == b.key;
-}
-
-} // namespace
 
 // A plug-in only receives notes in the dialect its port declares, so the
 // choice is made once here and every caller inherits it.
@@ -312,18 +327,19 @@ void Engine::refreshNoteEncoding() {
 	const NoteEncoding encoding = noteEncoding(0);
 	cachedDialect_.store(encoding.dialect, std::memory_order_release);
 	// The MIDI file follows the plug-in: a new one may want the other dialect.
-	if (midiPlayer_.isLoaded() && acquireAudioExclusion()) {
+	if (!midiPlayer_.isLoaded())
+		return;
+	const AudioExclusion exclusion(*this);
+	if (exclusion)
 		midiPlayer_.reencode(encoding);
-		releaseAudioExclusion();
-	}
 }
 
 bool Engine::setMidiFile(MidiFile file, bool loop, std::string path) {
 	const NoteEncoding encoding = noteEncoding(0);
-	if (!acquireAudioExclusion())
+	const AudioExclusion exclusion(*this);
+	if (!exclusion)
 		return false;
 	midiPlayer_.load(std::move(file), encoding, loop);
-	releaseAudioExclusion();
 	midiFilePath_ = midiPlayer_.isLoaded() ? std::move(path) : std::string();
 	return true;
 }
@@ -333,34 +349,24 @@ bool Engine::clearMidiFile() {
 }
 
 bool Engine::seekMidiFile(double seconds) {
-	if (!acquireAudioExclusion())
+	const AudioExclusion exclusion(*this);
+	if (!exclusion)
 		return false;
 	midiPlayer_.seek(seconds);
-	releaseAudioExclusion();
 	return true;
 }
 
 NoteTranslation Engine::scheduleMidi(const uint8_t *bytes, uint32_t size, int16_t port, uint32_t flags,
                                      uint64_t delayFrames) {
 	NoteTranslation translation = translateMidi(bytes, size, noteEncoding(port), flags);
-	size_t offset = 0;
-	for (uint32_t i = 0; i < translation.produced; ++i) {
-		const auto *header = reinterpret_cast<const clap_event_header_t *>(translation.storage.data() + offset);
-		scheduleAfter(header, delayFrames);
-		offset += header->size;
-	}
+	forEachEvent(translation, [&](const clap_event_header_t *event) { scheduleAfter(event, delayFrames); });
 	return translation;
 }
 
 NoteTranslation Engine::scheduleLiveMidi(const uint8_t *bytes, uint32_t size, int16_t port,
                                          std::chrono::steady_clock::time_point arrival) {
 	NoteTranslation translation = translateMidi(bytes, size, noteEncoding(port), CLAP_EVENT_IS_LIVE);
-	size_t offset = 0;
-	for (uint32_t i = 0; i < translation.produced; ++i) {
-		const auto *header = reinterpret_cast<const clap_event_header_t *>(translation.storage.data() + offset);
-		scheduleLive(header, arrival);
-		offset += header->size;
-	}
+	forEachEvent(translation, [&](const clap_event_header_t *event) { scheduleLive(event, arrival); });
 	return translation;
 }
 
@@ -383,12 +389,7 @@ void Engine::noteOn(int16_t port, int16_t channel, int16_t key, double velocity,
 	if (port < 0 || channel < 0 || key < 0)
 		return;
 	const clap_event_note_t event = makeNote(CLAP_EVENT_NOTE_ON, port, channel, key, noteId, velocity);
-	if (noteEncoding(port).wantsClapNotes()) {
-		scheduleAfter(&event.header, delayFrames);
-	} else {
-		const clap_event_midi_t midi = makeMidiNote(true, port, channel, key, midiValue(velocity));
-		scheduleAfter(&midi.header, delayFrames);
-	}
+	scheduleNote(event, delayFrames);
 	for (auto &active : activeNotes_)
 		if (sameNote(active, event))
 			return;
@@ -397,18 +398,23 @@ void Engine::noteOn(int16_t port, int16_t channel, int16_t key, double velocity,
 
 void Engine::noteOff(int16_t port, int16_t channel, int16_t key, double velocity, int32_t noteId, uint64_t delayFrames) {
 	const clap_event_note_t event = makeNote(CLAP_EVENT_NOTE_OFF, port, channel, key, noteId, velocity);
-	if (noteEncoding(port).wantsClapNotes()) {
-		scheduleAfter(&event.header, delayFrames);
-	} else {
-		const clap_event_midi_t midi = makeMidiNote(false, port, channel, key, midiValue(velocity));
-		scheduleAfter(&midi.header, delayFrames);
-	}
+	scheduleNote(event, delayFrames);
 	for (auto it = activeNotes_.begin(); it != activeNotes_.end(); ++it) {
 		if (sameNote(*it, event)) {
 			activeNotes_.erase(it);
 			return;
 		}
 	}
+}
+
+void Engine::scheduleNote(const clap_event_note_t &note, uint64_t delayFrames) {
+	if (noteEncoding(note.port_index).wantsClapNotes()) {
+		scheduleAfter(&note.header, delayFrames);
+		return;
+	}
+	const clap_event_midi_t midi = makeMidiNote(note.header.type == CLAP_EVENT_NOTE_ON, note.port_index,
+	                                            note.channel, note.key, midiValue(note.velocity));
+	scheduleAfter(&midi.header, delayFrames);
 }
 
 void Engine::allNotesOff(uint64_t delayFrames) {
@@ -442,7 +448,6 @@ void Engine::collectBlockEvents(uint32_t frames) {
 	// wait for the main thread, so it tries rather than blocks.
 	std::unique_lock<std::mutex> lock(scheduleMutex_, std::try_to_lock);
 	if (!lock.owns_lock()) {
-		missedCollections_.fetch_add(1, std::memory_order_relaxed);
 		inEvents_.sortByTime();
 		return;
 	}

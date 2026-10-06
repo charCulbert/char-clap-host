@@ -182,11 +182,6 @@ public:
 	// default because it costs a copy of every buffer per block; the
 	// validation suite turns it on.
 	void setProcessChecking(bool enabled) { checkBlocks_ = enabled; }
-	ProcessCheck &processCheck() { return check_; }
-
-	// True while a block is being processed, so a caller on another thread can
-	// refuse rather than join in.
-	bool isInsideProcess() const { return insideProcess_.load(std::memory_order_acquire); }
 
 	// How many interleaved channels the device callback writes. Set once the
 	// stream's layout is known.
@@ -237,10 +232,6 @@ public:
 	NoteTranslation scheduleLiveMidi(const uint8_t *bytes, uint32_t size, int16_t port,
 	                                 std::chrono::steady_clock::time_point arrival);
 
-	// Blocks that could not take the schedule lock and so carried no new
-	// events. Anything other than zero is worth knowing about.
-	uint64_t missedCollections() const { return missedCollections_.load(std::memory_order_relaxed); }
-
 	// Events the plug-in emitted during the last block.
 	const EventList &lastOutputEvents() const { return outEvents_; }
 
@@ -256,10 +247,12 @@ private:
 	bool blockHasInput(uint32_t frames) const;
 	// Applies the status process() returned: enters or leaves the tail, sleeps.
 	void applyProcessStatus(int32_t status, uint32_t frames, bool hadInput);
-	// Takes the process guard for a caller that is not a block, waiting a
-	// bounded time for one under way to finish.
-	bool acquireAudioExclusion();
-	void releaseAudioExclusion();
+	// Holds the process guard for a caller that is not a block, for as long
+	// as it lives. Waits a bounded time for a block under way to finish, and
+	// is false if one did not.
+	class AudioExclusion;
+	// Sends a note in the one dialect its port accepts.
+	void scheduleNote(const clap_event_note_t &note, uint64_t delayFrames);
 	void buildTransportEvent();
 	void markBlockStart();
 	void collectBlockEvents(uint32_t frames);
@@ -327,7 +320,6 @@ private:
 	// that cannot take it carries no new events and the next one does.
 	mutable std::mutex scheduleMutex_;
 	std::vector<ScheduledEvent> schedule_;
-	std::atomic<uint64_t> missedCollections_{0};
 	std::vector<clap_event_note_t> activeNotes_;
 };
 
