@@ -20,8 +20,6 @@ add_executable(nch-tests
     main.cpp
 )
 target_link_libraries(nch-tests PRIVATE nch-core)
-# The unit tests drive real fixture plug-ins, which is what makes them worth
-# more than a mock would be.
 # The unit tests drive real fixture plug-ins rather than mocks, so they need
 # them built and need to know where they landed.
 add_dependencies(nch-tests fixtures)

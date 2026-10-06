@@ -7,10 +7,6 @@
 #include "native-window.h"
 #include "session.h"
 
-#include <cstdio>
-#include <filesystem>
-#include <fstream>
-
 namespace nch {
 namespace {
 
@@ -185,19 +181,6 @@ const char *kPage = R"(<!doctype html>
 		if (dialog && !dialog.open) dialog.setAttribute("open", "");
 	}
 
-	// Tells the host what the page actually rendered, which is the only way to
-	// tell an empty section from one that was never given any devices.
-	function reportRendered(snapshot) {
-		post({
-			rendered: {
-				audioOutputs: snapshot?.audio?.outputDevices?.length ?? 0,
-				audioInputs: snapshot?.audio?.inputDevices?.length ?? 0,
-				midiInputs: snapshot?.midi?.inputDevices?.length ?? 0,
-				midiOutputs: snapshot?.midi?.outputDevices?.length ?? 0,
-			},
-		});
-	}
-
 	// The device selector is as tall as the machine has devices, so the window
 	// cannot know its own size in advance. The page measures itself and the
 	// host grows the window to match, which is why nothing here scrolls.
@@ -210,7 +193,6 @@ const char *kPage = R"(<!doctype html>
 		getSnapshot: () => call("snapshot"),
 		applySettings: request => call("apply", request).then(snapshot => {
 			status.textContent = "Applied.";
-			reportRendered(snapshot);
 			return snapshot;
 		}),
 	});
@@ -231,7 +213,6 @@ const char *kPage = R"(<!doctype html>
 	call("snapshot").then(snapshot => {
 		selector.applySnapshot(snapshot);
 		reveal();
-		reportRendered(snapshot);
 	}).catch(error => {
 		status.textContent = String(error);
 	});
@@ -313,16 +294,6 @@ void SettingsWindow::onMessage(const uint8_t *bytes, uint32_t size) {
 		return;
 	}
 
-	if (request.has("rendered")) {
-		// A note from the page about what it drew, not a request.
-		const Value &rendered = request["rendered"];
-		std::fprintf(stderr,
-		             "[settings] rendered %g audio outputs, %g audio inputs, %g MIDI inputs, %g MIDI outputs\n",
-		             rendered["audioOutputs"].asNumber(), rendered["audioInputs"].asNumber(),
-		             rendered["midiInputs"].asNumber(), rendered["midiOutputs"].asNumber());
-		return;
-	}
-
 	Object reply;
 	reply["id"] = request["id"];
 	const std::string type = request["type"].asString();
@@ -366,14 +337,13 @@ bool SettingsWindow::open(std::string &error) {
 		error = "this build has no webview support, so there is no settings window";
 		return false;
 	}
-	prepareApplication();
 	window_ = createNativeWindow(kWidth, kHeight, "clap-host settings", error);
 	if (window_ == nullptr)
 		return false;
 	// On screen before the webview is made, for the same reason a plug-in's
 	// interface is: WebKit will not composite into a window that is not there.
 	window_->show();
-	if (!webview_.open({}, window_->handle(), kWidth, kHeight, error)) {
+	if (!webview_.open({}, error)) {
 		window_.reset();
 		return false;
 	}

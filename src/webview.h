@@ -39,14 +39,12 @@ public:
 	void setFetch(Fetch fetch);
 	void setReceive(Receive receive);
 
-	// Creates the webview inside `parentView` (an NSView, HWND or GtkWidget).
-	// `uri` is the page to show; an empty one means the fetch callback serves
-	// the root itself rather than through an iframe.
-	bool open(const std::string &uri, void *parentView, uint32_t width, uint32_t height, std::string &error);
+	// Creates the webview. `uri` is the page to show; an empty one means the
+	// fetch callback serves the root itself rather than through an iframe.
+	bool open(const std::string &uri, std::string &error);
 	void close();
-	bool isOpen() const;
-	void setSize(uint32_t width, uint32_t height);
-	// The platform view to place inside the host's window.
+	// The platform view to place inside the host's window; it fills its
+	// parent, so resizing the window resizes the page.
 	void *viewHandle() const;
 
 	// Host to webview, as clap_host_webview.send.

@@ -823,13 +823,12 @@ bool PluginPanel::open(std::string &error) {
 		error = "this build has no webview support, so there is no parameter view";
 		return false;
 	}
-	prepareApplication();
 	window_ = createNativeWindow(kWidth, kHeight, windowTitle(), error);
 	if (window_ == nullptr)
 		return false;
 	// On screen before the webview is made, or WebKit never composites.
 	window_->show();
-	if (!webview_.open({}, window_->handle(), kWidth, kHeight, error)) {
+	if (!webview_.open({}, error)) {
 		window_.reset();
 		return false;
 	}

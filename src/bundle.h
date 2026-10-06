@@ -61,7 +61,4 @@ const std::vector<std::string> &pluginSuffixes();
 bool isWclapPath(const std::string &path);
 bool isPluginPath(const std::string &path);
 
-// The standard CLAP search directories for this platform, most specific first.
-std::vector<std::string> pluginSearchPaths();
-
 } // namespace nch

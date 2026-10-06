@@ -136,18 +136,6 @@ void unloadEntry(void *handle) {
 
 #endif
 
-std::string homeDirectory() {
-	const char *home = std::getenv("HOME");
-	if (home != nullptr)
-		return home;
-#if defined(_WIN32)
-	const char *profile = std::getenv("USERPROFILE");
-	if (profile != nullptr)
-		return profile;
-#endif
-	return {};
-}
-
 std::string lowercase(std::string text) {
 	std::transform(text.begin(), text.end(), text.begin(),
 	               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -485,44 +473,6 @@ bool isWclapPath(const std::string &path) {
 
 bool isPluginPath(const std::string &path) {
 	return hasSuffix(path, pluginSuffixes());
-}
-
-std::vector<std::string> pluginSearchPaths() {
-	std::vector<std::string> paths;
-	const std::string home = homeDirectory();
-	if (const char *override = std::getenv("CLAP_PATH"); override != nullptr && *override != '\0') {
-#if defined(_WIN32)
-		const char separator = ';';
-#else
-		const char separator = ':';
-#endif
-		std::string remaining = override;
-		size_t start = 0;
-		while (start <= remaining.size()) {
-			const size_t end = remaining.find(separator, start);
-			const std::string entry = remaining.substr(start, end == std::string::npos ? std::string::npos : end - start);
-			if (!entry.empty())
-				paths.push_back(entry);
-			if (end == std::string::npos)
-				break;
-			start = end + 1;
-		}
-	}
-#if defined(__APPLE__)
-	if (!home.empty())
-		paths.push_back(home + "/Library/Audio/Plug-Ins/CLAP");
-	paths.push_back("/Library/Audio/Plug-Ins/CLAP");
-#elif defined(_WIN32)
-	if (const char *programFiles = std::getenv("COMMONPROGRAMFILES"); programFiles != nullptr)
-		paths.push_back(std::string(programFiles) + "\\CLAP");
-	if (!home.empty())
-		paths.push_back(home + "\\AppData\\Local\\Programs\\Common\\CLAP");
-#else
-	if (!home.empty())
-		paths.push_back(home + "/.clap");
-	paths.push_back("/usr/lib/clap");
-#endif
-	return paths;
 }
 
 } // namespace nch

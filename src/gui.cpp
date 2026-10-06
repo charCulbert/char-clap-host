@@ -16,11 +16,7 @@ constexpr uint32_t kFallbackHeight = 400;
 
 } // namespace
 
-struct PluginGui::Window {
-	std::unique_ptr<NativeWindow> native;
-};
-
-PluginGui::PluginGui(PluginInstance &instance) : instance_(instance), window_(std::make_unique<Window>()) {
+PluginGui::PluginGui(PluginInstance &instance) : instance_(instance) {
 	// The webview itself knows nothing about plug-ins; this is what makes its
 	// content the plug-in's.
 	webview_.setFetch([this](const std::string &path) -> std::optional<WebviewHost::Resource> {
@@ -140,8 +136,8 @@ bool PluginGui::openNative(bool floating, std::string &error) {
 	if (!floating) {
 		const std::string title =
 		    instance_.descriptor()->name != nullptr ? instance_.descriptor()->name : "CLAP plug-in";
-		window_->native = createNativeWindow(width, height, title, error);
-		if (window_->native == nullptr) {
+		window_ = createNativeWindow(width, height, title, error);
+		if (window_ == nullptr) {
 			if (gui->destroy != nullptr)
 				gui->destroy(instance_.plugin());
 			api_ = GuiApi::None;
@@ -150,13 +146,13 @@ bool PluginGui::openNative(bool floating, std::string &error) {
 		// The window goes on screen before the plug-in is told about it. A
 		// WebKit view added to a window that is not yet visible never starts
 		// compositing and stays blank, and it does not retry.
-		window_->native->setSize(width, height);
-		window_->native->show();
+		window_->setSize(width, height);
+		window_->show();
 
 		// The user's drag is answered by the plug-in as it happens: adjust_size
 		// says what it will take, set_size makes it so. Without this the window
 		// and the interface inside it disagree about how big they are.
-		window_->native->setUserResizable(resizable);
+		window_->setUserResizable(resizable);
 		if (resizable) {
 			readResizeHints();
 			NativeWindow::Resizer resizer;
@@ -177,14 +173,14 @@ bool PluginGui::openNative(bool floating, std::string &error) {
 				width_ = width;
 				height_ = height;
 			};
-			window_->native->setResizer(std::move(resizer));
+			window_->setResizer(std::move(resizer));
 		}
 
 		clap_window_t parent{};
 		parent.api = nativeWindowApi();
-		parent.ptr = window_->native->handle();
+		parent.ptr = window_->handle();
 		if (gui->set_parent == nullptr || !gui->set_parent(instance_.plugin(), &parent)) {
-			window_->native.reset();
+			window_.reset();
 			if (gui->destroy != nullptr)
 				gui->destroy(instance_.plugin());
 			api_ = GuiApi::None;
@@ -251,21 +247,21 @@ bool PluginGui::openWebview(std::string &error) {
 	}
 
 	const std::string title = instance_.descriptor()->name != nullptr ? instance_.descriptor()->name : "CLAP plug-in";
-	window_->native = createNativeWindow(width, height, title, error);
-	if (window_->native == nullptr) {
+	window_ = createNativeWindow(width, height, title, error);
+	if (window_ == nullptr) {
 		if (gui != nullptr && gui->destroy != nullptr)
 			gui->destroy(instance_.plugin());
 		return false;
 	}
-	window_->native->setSize(width, height);
-	window_->native->show();
-	if (!webview_.open(uri, window_->native->handle(), width, height, error)) {
-		window_->native.reset();
+	window_->setSize(width, height);
+	window_->show();
+	if (!webview_.open(uri, error)) {
+		window_.reset();
 		if (gui != nullptr && gui->destroy != nullptr)
 			gui->destroy(instance_.plugin());
 		return false;
 	}
-	window_->native->attachChild(webview_.viewHandle());
+	window_->attachChild(webview_.viewHandle());
 
 	if (gui != nullptr && gui->set_parent != nullptr) {
 		// The extension requires a null pointer for the webview API; the host
@@ -298,7 +294,7 @@ void PluginGui::close() {
 			gui->destroy(instance_.plugin());
 	}
 	webview_.close();
-	window_->native.reset();
+	window_.reset();
 	api_ = GuiApi::None;
 	width_ = 0;
 	height_ = 0;
@@ -364,13 +360,13 @@ bool PluginGui::resize(uint32_t width, uint32_t height, std::string &error) {
 	// way it reports a drag, and the commit for that must find nothing to do.
 	width_ = adjustedWidth;
 	height_ = adjustedHeight;
-	if (window_->native != nullptr)
-		window_->native->setSize(adjustedWidth, adjustedHeight);
+	if (window_ != nullptr)
+		window_->setSize(adjustedWidth, adjustedHeight);
 	return true;
 }
 
 bool PluginGui::requestResize(uint32_t width, uint32_t height) {
-	if (api_ != GuiApi::Native || window_->native == nullptr)
+	if (api_ != GuiApi::Native || window_ == nullptr)
 		return false;
 	// "If the host returns true the new size is accepted, the host doesn't
 	// have to call clap_plugin_gui->set_size()." So the size is taken as
@@ -378,21 +374,21 @@ bool PluginGui::requestResize(uint32_t width, uint32_t height) {
 	// reports would call set_size from inside the plug-in's own request.
 	width_ = width;
 	height_ = height;
-	window_->native->setSize(width, height);
+	window_->setSize(width, height);
 	return true;
 }
 
 bool PluginGui::requestShow() {
-	if (api_ == GuiApi::None || window_->native == nullptr)
+	if (api_ == GuiApi::None || window_ == nullptr)
 		return false;
-	window_->native->show();
+	window_->show();
 	return true;
 }
 
 bool PluginGui::requestHide() {
-	if (api_ == GuiApi::None || window_->native == nullptr)
+	if (api_ == GuiApi::None || window_ == nullptr)
 		return false;
-	window_->native->hide();
+	window_->hide();
 	return true;
 }
 
@@ -410,7 +406,7 @@ void PluginGui::onPluginClosed(bool wasDestroyed) {
 		gui->destroy(instance_.plugin());
 
 	webview_.close();
-	window_->native.reset();
+	window_.reset();
 	api_ = GuiApi::None;
 	width_ = 0;
 	height_ = 0;
@@ -423,21 +419,21 @@ bool PluginGui::sendWebviewMessage(const void *buffer, uint32_t size) {
 bool PluginGui::wantsClose() const {
 	if (closedByPlugin_)
 		return true;
-	return window_->native != nullptr && window_->native->wantsClose();
+	return window_ != nullptr && window_->wantsClose();
 }
 
 std::string PluginGui::describeContents() const {
-	if (window_->native == nullptr)
+	if (window_ == nullptr)
 		return "no host window is open\n";
-	return window_->native->describeContents();
+	return window_->describeContents();
 }
 
 bool PluginGui::writeSnapshot(const std::string &path, std::string &error) {
-	if (window_->native == nullptr) {
+	if (window_ == nullptr) {
 		error = "no host window is open";
 		return false;
 	}
-	return window_->native->writeSnapshot(path, error);
+	return window_->writeSnapshot(path, error);
 }
 
 Value PluginGui::report() const {

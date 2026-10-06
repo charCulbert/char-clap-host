@@ -8,7 +8,6 @@
 
 #include <cstdint>
 #include <string>
-#include <vector>
 
 namespace nch {
 
@@ -33,8 +32,6 @@ public:
 	double between(double low, double high);
 	// True with the given probability.
 	bool chance(double probability);
-
-	template <typename T> const T &pick(const std::vector<T> &from) { return from[below(static_cast<uint32_t>(from.size()))]; }
 
 private:
 	uint32_t state_[4] = {};

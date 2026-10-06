@@ -16,6 +16,7 @@
 
 namespace nch {
 
+class NativeWindow;
 class Session;
 
 // Which clap.gui API the window speaks.
@@ -65,10 +66,8 @@ private:
 	void applyResizeHints(uint32_t &width, uint32_t &height) const;
 	bool openWebview(std::string &error);
 
-	struct Window;
-
 	PluginInstance &instance_;
-	std::unique_ptr<Window> window_;
+	std::unique_ptr<NativeWindow> window_;
 	WebviewHost webview_;
 	GuiApi api_ = GuiApi::None;
 	bool floating_ = false;
@@ -79,8 +78,5 @@ private:
 	clap_gui_resize_hints_t hints_{};
 	bool closedByPlugin_ = false;
 };
-
-// The clap.gui API string for this platform, e.g. "cocoa".
-const char *nativeWindowApi();
 
 } // namespace nch

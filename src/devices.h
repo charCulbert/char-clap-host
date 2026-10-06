@@ -37,7 +37,6 @@ struct DeviceSettings {
 	std::string inputDeviceId;
 	double sampleRate = 0.0;
 	uint32_t bufferSize = 0;
-	std::vector<std::string> midiInputIds;
 };
 
 class AudioDevice {
@@ -129,7 +128,6 @@ public:
 	bool setOpenPorts(const std::vector<std::string> &ids, std::string &error);
 
 	Value portReport() const;
-	uint64_t messageCount() const;
 
 private:
 	struct Impl;

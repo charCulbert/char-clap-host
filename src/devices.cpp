@@ -489,10 +489,6 @@ bool MidiInput::setOpenPorts(const std::vector<std::string> &ids, std::string &e
 	return true;
 }
 
-uint64_t MidiInput::messageCount() const {
-	return session_.midiMessageCount();
-}
-
 bool MidiInput::open(const std::string &portName, std::string &error) {
 	const unsigned int count = impl_->enumerator.getPortCount();
 	if (count == 0) {

@@ -19,24 +19,26 @@ struct Preset {
 	std::string name;
 	std::string loadKey;
 	std::string location;
-	uint32_t locationKind = CLAP_PRESET_DISCOVERY_LOCATION_FILE;
 	std::string soundpack;
 	std::string description;
-	std::vector<std::string> creators;
 	std::vector<std::string> features;
+};
+
+// A declared location, copied: the provider's strings need not outlive the call.
+struct Location {
+	uint32_t kind = CLAP_PRESET_DISCOVERY_LOCATION_FILE;
+	std::string name;
+	std::string path;
 };
 
 // Collects everything a provider declares during init() and reports.
 struct Indexing {
 	clap_preset_discovery_indexer_t indexer{};
 	clap_preset_discovery_metadata_receiver_t receiver{};
-	std::vector<clap_preset_discovery_location_t> locations;
-	std::vector<std::string> locationNames;
-	std::vector<std::string> locationPaths;
+	std::vector<Location> locations;
 	std::vector<std::string> filetypes;
 	std::vector<Preset> presets;
 	std::string currentLocation;
-	uint32_t currentLocationKind = CLAP_PRESET_DISCOVERY_LOCATION_FILE;
 	std::vector<std::string> errors;
 	// Whether begin_preset has been called for the file being read.
 	bool presetOpen = false;
@@ -62,9 +64,8 @@ bool declareLocation(const clap_preset_discovery_indexer_t *indexer, const clap_
 	if (location == nullptr)
 		return false;
 	Indexing &indexing = indexingOf(indexer);
-	indexing.locations.push_back(*location);
-	indexing.locationNames.push_back(location->name != nullptr ? location->name : "");
-	indexing.locationPaths.push_back(location->location != nullptr ? location->location : "");
+	indexing.locations.push_back({location->kind, location->name != nullptr ? location->name : "",
+	                              location->location != nullptr ? location->location : ""});
 	return true;
 }
 
@@ -91,7 +92,6 @@ bool receiverBeginPreset(const clap_preset_discovery_metadata_receiver_t *receiv
 	preset.name = name != nullptr ? name : "";
 	preset.loadKey = loadKey != nullptr ? loadKey : "";
 	preset.location = indexing.currentLocation;
-	preset.locationKind = indexing.currentLocationKind;
 	indexing.presets.push_back(std::move(preset));
 	return true;
 }
@@ -116,10 +116,9 @@ void receiverSetSoundpackId(const clap_preset_discovery_metadata_receiver_t *rec
 
 void receiverSetFlags(const clap_preset_discovery_metadata_receiver_t *, uint32_t) {}
 
-void receiverAddCreator(const clap_preset_discovery_metadata_receiver_t *receiver, const char *creator) {
-	Preset *preset = openPreset(indexingOf(receiver), "add_creator");
-	if (preset != nullptr && creator != nullptr)
-		preset->creators.emplace_back(creator);
+// Creators are not reported, but a call outside a preset still is.
+void receiverAddCreator(const clap_preset_discovery_metadata_receiver_t *receiver, const char *) {
+	openPreset(indexingOf(receiver), "add_creator");
 }
 
 void receiverSetDescription(const clap_preset_discovery_metadata_receiver_t *receiver, const char *description) {
@@ -223,11 +222,11 @@ Value describePresets(const Indexing &indexing) {
 	out["presets"] = Value(std::move(rows));
 
 	Array locations;
-	for (size_t i = 0; i < indexing.locations.size(); ++i) {
+	for (const auto &location : indexing.locations) {
 		Object row;
-		row["name"] = Value(indexing.locationNames[i]);
-		row["kind"] = Value(indexing.locations[i].kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN ? "plugin" : "file");
-		row["path"] = Value(indexing.locationPaths[i]);
+		row["name"] = Value(location.name);
+		row["kind"] = Value(location.kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN ? "plugin" : "file");
+		row["path"] = Value(location.path);
 		locations.push_back(Value(std::move(row)));
 	}
 	out["locations"] = Value(std::move(locations));
@@ -294,24 +293,24 @@ Value Session::presetReport() {
 		// one declaring none would inherit a list instead of matching all.
 		const std::vector<std::string> filetypes(indexing.filetypes.begin() + static_cast<long>(filetypesBefore),
 		                                         indexing.filetypes.end());
-		for (size_t location = locationsBefore; location < indexing.locations.size(); ++location) {
-			indexing.currentLocationKind = indexing.locations[location].kind;
+		for (size_t index = locationsBefore; index < indexing.locations.size(); ++index) {
 			if (provider->get_metadata == nullptr)
 				continue;
+			// A copy: get_metadata may declare more locations and grow the vector.
+			const Location location = indexing.locations[index];
 			indexing.presetOpen = false;
 
-			if (indexing.locations[location].kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN) {
+			if (location.kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN) {
 				// The plug-in's own list, which CLAP spells as a null location.
 				indexing.currentLocation.clear();
-				provider->get_metadata(provider, indexing.locations[location].kind, nullptr, &indexing.receiver);
+				provider->get_metadata(provider, location.kind, nullptr, &indexing.receiver);
 				continue;
 			}
 
-			for (const auto &file : presetFilesUnder(indexing.locationPaths[location], filetypes)) {
+			for (const auto &file : presetFilesUnder(location.path, filetypes)) {
 				indexing.currentLocation = file;
 				indexing.presetOpen = false;
-				provider->get_metadata(provider, indexing.locations[location].kind, file.c_str(),
-				                       &indexing.receiver);
+				provider->get_metadata(provider, location.kind, file.c_str(), &indexing.receiver);
 			}
 		}
 		if (provider->destroy != nullptr)

@@ -127,10 +127,17 @@ option(NCH_WITH_WEBVIEW "Display clap.webview interfaces with choc" ${nch_webvie
 # the code that serves it compiles either way.
 set(COMPOST_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/external/compost" CACHE PATH "compost")
 target_compile_definitions(nch-core PUBLIC NCH_COMPOST_ROOT="${COMPOST_ROOT}")
+# choc is header-only and used beyond the webview (files, MIDI, WAV, base64).
+set(CHOC_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/external/choc" CACHE PATH "choc")
+target_include_directories(nch-core PUBLIC "${CHOC_ROOT}")
+# choc is a header-only library, so its inline functions and function-local
+# statics are emitted as weak symbols. A plug-in that also uses choc has the
+# same symbols, and dyld coalesces weak definitions across images: whichever
+# loads first wins, and the plug-in silently ends up running the host's copy
+# of choc with its own data. Hiding the host's copy keeps the two apart.
+set_target_properties(nch-core PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
 if(NCH_WITH_WEBVIEW)
-    set(CHOC_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/external/choc" CACHE PATH "choc")
     target_compile_definitions(nch-core PUBLIC NCH_WITH_WEBVIEW)
-    target_include_directories(nch-core PUBLIC "${CHOC_ROOT}")
     if(APPLE)
         set_source_files_properties(src/webview.cpp PROPERTIES LANGUAGE OBJCXX)
         target_link_libraries(nch-core PUBLIC "-framework WebKit")
@@ -138,12 +145,6 @@ if(NCH_WITH_WEBVIEW)
         pkg_check_modules(WEBKIT2GTK REQUIRED IMPORTED_TARGET webkit2gtk-4.1)
         target_link_libraries(nch-core PUBLIC PkgConfig::WEBKIT2GTK)
     endif()
-    # choc is a header-only library, so its inline functions and function-local
-    # statics are emitted as weak symbols. A plug-in that also uses choc has the
-    # same symbols, and dyld coalesces weak definitions across images: whichever
-    # loads first wins, and the plug-in silently ends up running the host's copy
-    # of choc with its own data. Hiding the host's copy keeps the two apart.
-    set_target_properties(nch-core PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
 endif()
 
 # WCLAPs (CLAP compiled to WebAssembly) load through the vendored wclap-bridge,
