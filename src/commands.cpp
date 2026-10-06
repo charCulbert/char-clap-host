@@ -322,9 +322,6 @@ void Session::registerCommands() {
 
 	commands_.add({"info", "", "Describe the loaded plug-in, its ports and its extensions.",
 	               [](Session &session, const Request &) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               Value out = describeDescriptor(*session.descriptor());
 		               out.set("path", Value(session.bundle().path()));
 		               out.set("format", Value(session.bundle().format()));
@@ -337,13 +334,10 @@ void Session::registerCommands() {
 				               extensions.push_back(Value(probe.label));
 		               out.set("extensions", Value(std::move(extensions)));
 		               return Response::success(std::move(out));
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"extensions", "", "List which CLAP extensions the plug-in implements.",
 	               [](Session &session, const Request &) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               Array rows;
 		               for (const auto &probe : kPluginExtensions) {
 			               const bool draft = session.rawPluginExtension(probe.id) != nullptr;
@@ -358,13 +352,10 @@ void Session::registerCommands() {
 		               Object out;
 		               out["extensions"] = Value(std::move(rows));
 		               return Response::success(Value(std::move(out)));
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"activate", "[sample-rate] [block-size]", "Activate the plug-in for processing.",
 	               [](Session &session, const Request &request) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               const double rate = request.arg(0, "sampleRate").asNumber(session.sampleRate());
 		               const double requestedBlock = request.arg(1, "blockSize").asNumber(session.blockSize());
 		               if (!(rate > 0.0) || !std::isfinite(rate))
@@ -379,7 +370,7 @@ void Session::registerCommands() {
 		               out["sampleRate"] = Value(rate);
 		               out["blockSize"] = Value(block);
 		               return Response::success(Value(std::move(out)));
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"deactivate", "", "Deactivate the plug-in.",
 	               [](Session &session, const Request &) -> Response {
@@ -389,9 +380,6 @@ void Session::registerCommands() {
 
 	commands_.add({"params.list", "", "List every parameter with its current value.",
 	               [](Session &session, const Request &) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               const auto *params = paramsExtension(session);
 		               if (params == nullptr)
 			               return Response::failure("plug-in does not implement clap.params");
@@ -406,13 +394,10 @@ void Session::registerCommands() {
 		               Object out;
 		               out["params"] = Value(std::move(rows));
 		               return Response::success(Value(std::move(out)));
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"param.get", "<id>", "Read one parameter.",
 	               [](Session &session, const Request &request) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               if (!request.hasArg(0, "id"))
 			               return Response::failure("usage: param.get <id>");
 		               const auto id = static_cast<clap_id>(request.arg(0, "id").asNumber());
@@ -420,25 +405,19 @@ void Session::registerCommands() {
 		               if (!paramInfoById(session, id, info))
 			               return Response::failure("no parameter with id " + std::to_string(id));
 		               return Response::success(describeParam(session, info));
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"param.set", "<id> <value>", "Set one parameter.",
 	               [](Session &session, const Request &request) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               if (!request.hasArg(0, "id") || !request.hasArg(1, "value"))
 			               return Response::failure("usage: param.set <id> <value>");
 		               const auto id = static_cast<clap_id>(request.arg(0, "id").asNumber());
 		               return setParamValue(session, id, request.arg(1, "value").asNumber());
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"param.steps", "<id> [limit]",
 	               "Name every step of a stepped parameter, as the plug-in words them.",
 	               [](Session &session, const Request &request) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               if (!request.hasArg(0, "id"))
 			               return Response::failure("usage: param.steps <id> [limit]");
 		               const auto id = static_cast<clap_id>(request.arg(0, "id").asNumber());
@@ -466,14 +445,11 @@ void Session::registerCommands() {
 		               out["id"] = Value(static_cast<uint64_t>(id));
 		               out["steps"] = Value(std::move(steps));
 		               return Response::success(Value(std::move(out)));
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"param.mod", "<id> <amount> [key] [channel] [port]",
 	               "Modulate a parameter, without changing its value.",
 	               [](Session &session, const Request &request) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               if (!request.hasArg(0, "id") || !request.hasArg(1, "amount"))
 			               return Response::failure("usage: param.mod <id> <amount> [key] [channel] [port]");
 
@@ -513,18 +489,15 @@ void Session::registerCommands() {
 		               out["value"] = Value(info.default_value);
 		               out["note"] = Value("modulation is an offset; the parameter's own value is unchanged");
 		               return Response::success(Value(std::move(out)));
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"ports", "", "List the plug-in's audio and note ports.",
 	               [](Session &session, const Request &) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               Object out;
 		               out["audio"] = describeAudioPorts(session);
 		               out["note"] = describeNotePorts(session);
 		               return Response::success(Value(std::move(out)));
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"status", "", "Report host and plug-in state.",
 	               [](Session &session, const Request &) -> Response {

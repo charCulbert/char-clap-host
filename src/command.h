@@ -42,6 +42,7 @@ struct Command {
 	std::string usage; // argument shape, e.g. "<id> <value>"
 	std::string help;  // one line
 	std::function<Response(Session &, const Request &)> run;
+	bool needsPlugin = false; // dispatch answers "no plug-in loaded" before running
 };
 
 class CommandTable {

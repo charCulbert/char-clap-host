@@ -114,9 +114,6 @@ void Session::registerStateCommands() {
 
 	commands_.add({"state.load", "<file> [preset|duplicate|project]", "Restore the plug-in's state from a file.",
 	               [](Session &session, const Request &request) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               const std::string path = request.arg(0, "file").asString();
 		               if (path.empty())
 			               return Response::failure("usage: state.load <file> [preset|duplicate|project]");
@@ -150,7 +147,7 @@ void Session::registerStateCommands() {
 		               out["bytes"] = Value(static_cast<uint64_t>(byteCount));
 		               out["file"] = Value(path);
 		               return Response::success(Value(std::move(out)));
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"state.info", "", "Report the state the plug-in would save right now.",
 	               [](Session &session, const Request &) -> Response {
@@ -170,9 +167,6 @@ void Session::registerStateCommands() {
 
 	commands_.add({"preset.load", "<location> [load-key]", "Load a preset through clap.preset-load.",
 	               [](Session &session, const Request &request) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               const auto *presets = session.pluginExtension<clap_plugin_preset_load_t>(CLAP_EXT_PRESET_LOAD);
 		               if (presets == nullptr)
 			               presets = session.pluginExtension<clap_plugin_preset_load_t>(CLAP_EXT_PRESET_LOAD_COMPAT);
@@ -191,13 +185,10 @@ void Session::registerStateCommands() {
 		                                           loadKey.empty() ? nullptr : loadKey.c_str()))
 			               return Response::failure("the plug-in refused to load that preset");
 		               return Response::success();
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"params.dump", "<file.json>", "Write every parameter value to a JSON file.",
 	               [](Session &session, const Request &request) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               const std::string path = request.arg(0, "file").asString();
 		               const Value report = sidecar(session, 0);
 		               if (path.empty())
@@ -210,7 +201,7 @@ void Session::registerStateCommands() {
 		               Object out;
 		               out["file"] = Value(path);
 		               return Response::success(Value(std::move(out)));
-	               }});
+	               }, /* needsPlugin */ true});
 }
 
 } // namespace nch

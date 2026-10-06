@@ -51,9 +51,6 @@ void Session::registerExtensionCommands() {
 
 	commands_.add({"render.mode", "[realtime|offline]", "Read or set the plug-in's render mode.",
 	               [](Session &session, const Request &request) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               const auto *render = session.pluginExtension<clap_plugin_render_t>(CLAP_EXT_RENDER);
 		               if (render == nullptr)
 			               return Response::failure("plug-in does not implement clap.render");
@@ -72,7 +69,7 @@ void Session::registerExtensionCommands() {
 			               out["mode"] = Value(mode);
 		               }
 		               return Response::success(Value(std::move(out)));
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"voices", "", "Report the plug-in's voice configuration.",
 	               [](Session &session, const Request &) -> Response {
@@ -96,9 +93,6 @@ void Session::registerExtensionCommands() {
 
 	commands_.add({"note.names", "", "List the note names the plug-in declares.",
 	               [](Session &session, const Request &) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               const auto *noteName = session.pluginExtension<clap_plugin_note_name_t>(CLAP_EXT_NOTE_NAME);
 		               if (noteName == nullptr || noteName->count == nullptr)
 			               return Response::failure("plug-in does not implement clap.note-name");
@@ -118,13 +112,10 @@ void Session::registerExtensionCommands() {
 		               Object out;
 		               out["noteNames"] = Value(std::move(rows));
 		               return Response::success(Value(std::move(out)));
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"remote.pages", "", "List the plug-in's remote control pages.",
 	               [](Session &session, const Request &) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               const auto *remote = extensionOf<clap_plugin_remote_controls_t>(
 		                   session, CLAP_EXT_REMOTE_CONTROLS, CLAP_EXT_REMOTE_CONTROLS_COMPAT);
 		               if (remote == nullptr || remote->count == nullptr)
@@ -153,13 +144,10 @@ void Session::registerExtensionCommands() {
 		                                            : Value(static_cast<uint64_t>(
 		                                                  session.services().suggestedRemotePage())));
 		               return Response::success(Value(std::move(out)));
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"ports.configs", "", "List the plug-in's audio port configurations.",
 	               [](Session &session, const Request &) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               // "The audio ports config scan has to be done while the
 		               // plugin is deactivated."
 		               if (session.isActive())
@@ -186,13 +174,10 @@ void Session::registerExtensionCommands() {
 		               Object out;
 		               out["configs"] = Value(std::move(rows));
 		               return Response::success(Value(std::move(out)));
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"ports.select", "<config-id>", "Select an audio port configuration.",
 	               [](Session &session, const Request &request) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               const auto *configs =
 		                   session.pluginExtension<clap_plugin_audio_ports_config_t>(CLAP_EXT_AUDIO_PORTS_CONFIG);
 		               if (configs == nullptr || configs->select == nullptr)
@@ -217,13 +202,10 @@ void Session::registerExtensionCommands() {
 		               if (!selected)
 			               return Response::failure("the plug-in refused that configuration");
 		               return Response::success();
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"ports.activate", "<port-index> <on|off> [input]", "Activate or deactivate one audio port.",
 	               [](Session &session, const Request &request) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               const auto *activation = extensionOf<clap_plugin_audio_ports_activation_t>(
 		                   session, CLAP_EXT_AUDIO_PORTS_ACTIVATION, CLAP_EXT_AUDIO_PORTS_ACTIVATION_COMPAT);
 		               if (activation == nullptr || activation->set_active == nullptr)
@@ -266,13 +248,10 @@ void Session::registerExtensionCommands() {
 		               Object out;
 		               out["canActivateWhileProcessing"] = Value(whileProcessing);
 		               return Response::success(Value(std::move(out)));
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"surround", "[port-index]", "Report the plug-in's surround channel map.",
 	               [](Session &session, const Request &request) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               const auto *surround = extensionOf<clap_plugin_surround_t>(session, CLAP_EXT_SURROUND,
 		                                                                          CLAP_EXT_SURROUND_COMPAT);
 		               if (surround == nullptr || surround->get_channel_map == nullptr)
@@ -288,13 +267,10 @@ void Session::registerExtensionCommands() {
 		               Object out;
 		               out["channels"] = Value(std::move(channels));
 		               return Response::success(Value(std::move(out)));
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"ambisonic", "[port-index]", "Report the plug-in's ambisonic configuration.",
 	               [](Session &session, const Request &request) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               const auto *ambisonic = extensionOf<clap_plugin_ambisonic_t>(session, CLAP_EXT_AMBISONIC,
 		                                                                            CLAP_EXT_AMBISONIC_COMPAT);
 		               if (ambisonic == nullptr || ambisonic->get_config == nullptr)
@@ -308,14 +284,11 @@ void Session::registerExtensionCommands() {
 		               out["ordering"] = Value(config.ordering == CLAP_AMBISONIC_ORDERING_FUMA ? "fuma" : "acn");
 		               out["normalization"] = Value(config.normalization);
 		               return Response::success(Value(std::move(out)));
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"param.indication", "<id> <automation-state> [color]",
 	               "Tell the plug-in how a parameter is being automated or mapped.",
 	               [](Session &session, const Request &request) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               const auto *indication = extensionOf<clap_plugin_param_indication_t>(
 		                   session, CLAP_EXT_PARAM_INDICATION, CLAP_EXT_PARAM_INDICATION_COMPAT);
 		               if (indication == nullptr || indication->set_automation == nullptr)
@@ -336,13 +309,10 @@ void Session::registerExtensionCommands() {
 			               automation = CLAP_PARAM_INDICATION_AUTOMATION_OVERRIDING;
 		               indication->set_automation(session.plugin(), id, automation, nullptr);
 		               return Response::success();
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"triggers", "", "List the plug-in's triggers.",
 	               [](Session &session, const Request &) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               const auto *triggers = session.pluginExtension<clap_plugin_triggers_t>(CLAP_EXT_TRIGGERS);
 		               if (triggers == nullptr || triggers->count == nullptr)
 			               return Response::failure("plug-in does not implement clap.triggers");
@@ -361,7 +331,7 @@ void Session::registerExtensionCommands() {
 		               Object out;
 		               out["triggers"] = Value(std::move(rows));
 		               return Response::success(Value(std::move(out)));
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"track.info", "[name] [channels]", "Report or set the track the plug-in is told it sits on.",
 	               [](Session &session, const Request &request) -> Response {

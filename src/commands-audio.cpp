@@ -216,9 +216,6 @@ void Session::registerAudioCommands() {
 	commands_.add({"bypass", "[on|off|toggle]",
 	               "Hear the plug-in's input in place of its output; it keeps processing.",
 	               [](Session &session, const Request &request) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               bool bypassed = false;
 		               if (!switchArg(request, session.engine().isBypassed(), bypassed))
 			               return Response::failure("usage: bypass [on|off|toggle]");
@@ -226,7 +223,7 @@ void Session::registerAudioCommands() {
 		               Object out;
 		               out["bypassed"] = Value(bypassed);
 		               return Response::success(Value(std::move(out)));
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"transport", "play|stop|rewind|record|loop|send|info", "Control or report the transport.",
 	               [](Session &session, const Request &request) -> Response {
@@ -269,9 +266,6 @@ void Session::registerAudioCommands() {
 
 	commands_.add({"note.on", "<key> [velocity] [channel] [port] [--at=<seconds|Nf>]", "Start a note at the playhead, or --at after it.",
 	               [](Session &session, const Request &request) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               if (!request.hasArg(0, "key"))
 			               return Response::failure("usage: note.on <key> [velocity] [channel] [port] [--at=<seconds|Nf>]");
 		               const double requestedKey = request.arg(0, "key").asNumber(-1);
@@ -300,13 +294,10 @@ void Session::registerAudioCommands() {
 		               const uint64_t delay = framesFromArgument(request.arg("at"), session.sampleRate(), 0);
 		               session.engine().noteOn(port, channel, key, velocity, noteId, delay);
 		               return Response::success();
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"note.off", "<key|all> [velocity] [channel] [port] [--at=<seconds|Nf>]", "End a sounding note, now or --at after the playhead.",
 	               [](Session &session, const Request &request) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               const uint64_t delay = framesFromArgument(request.arg("at"), session.sampleRate(), 0);
 		               const std::string key = request.arg(0, "key").asString();
 		               if (key.empty() || key == "all") {
@@ -333,7 +324,7 @@ void Session::registerAudioCommands() {
 		               session.engine().noteOff(static_cast<int16_t>(requestedPort), static_cast<int16_t>(requestedChannel),
 		                                        static_cast<int16_t>(requestedKey), velocity, noteId, delay);
 		               return Response::success();
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"notes", "", "List the notes the host has started and not ended.",
 	               [](Session &session, const Request &) -> Response {
@@ -354,9 +345,6 @@ void Session::registerAudioCommands() {
 
 	commands_.add({"midi", "<status> <data1> [data2] [port]", "Send one raw MIDI 1.0 message.",
 	               [](Session &session, const Request &request) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               if (!request.hasArg(0, "status") || !request.hasArg(1, "data1"))
 			               return Response::failure("usage: midi <status> <data1> [data2] [port]");
 		               const double status = request.arg(0, "status").asNumber(-1);
@@ -375,13 +363,10 @@ void Session::registerAudioCommands() {
 		               const NoteTranslation translation =
 		                   session.engine().scheduleMidi(bytes, 3, port, 0, delay);
 		               return Response::success(describeTranslation(translation));
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"cc", "<controller> <value> [channel] [port]", "Send one MIDI control change.",
 	               [](Session &session, const Request &request) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               if (!request.hasArg(0, "controller") || !request.hasArg(1, "value"))
 			               return Response::failure("usage: cc <controller> <value> [channel] [port]");
 		               const double controller = request.arg(0, "controller").asNumber(-1);
@@ -399,14 +384,11 @@ void Session::registerAudioCommands() {
 		               const NoteTranslation translation =
 		                   session.engine().scheduleMidi(bytes, 3, port, 0, delay);
 		               return Response::success(describeTranslation(translation));
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"midi.load", "<file.mid> [--tempo] [--at=<seconds>]",
 	               "Schedule a MIDI file's events from the playhead.",
 	               [](Session &session, const Request &request) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               const std::string path = request.arg(0, "file").asString();
 		               if (path.empty())
 			               return Response::failure("usage: midi.load <file.mid>");
@@ -450,16 +432,13 @@ void Session::registerAudioCommands() {
 		               out["tempo"] = Value(file.initialTempo);
 		               out["seconds"] = Value(file.durationSeconds / tempoRatio);
 		               return Response::success(Value(std::move(out)));
-	               }});
+	               }, /* needsPlugin */ true});
 
 	registerFilePlayer(commands_, audioFilePlayer());
 	registerFilePlayer(commands_, midiFilePlayer());
 
 	commands_.add({"render", "<seconds|Nf> [file.wav]", "Render audio offline and report its level.",
 	               [](Session &session, const Request &request) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               if (!request.hasArg(0, "duration"))
 			               return Response::failure("usage: render <seconds|Nf> [file.wav]");
 		               const uint64_t frames = framesFromArgument(request.arg(0, "duration"), session.sampleRate(), 0);
@@ -478,13 +457,10 @@ void Session::registerAudioCommands() {
 			               report.set("file", Value(path));
 		               }
 		               return Response::success(std::move(report));
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"process", "<frames>", "Advance the plug-in without collecting audio.",
 	               [](Session &session, const Request &request) -> Response {
-		               Response ready = needPlugin(session);
-		               if (!ready.ok)
-			               return ready;
 		               std::string error;
 		               if (!session.engine().start(error))
 			               return Response::failure(error);
@@ -511,7 +487,7 @@ void Session::registerAudioCommands() {
 		               out["status"] = Value(status);
 		               out["outputEvents"] = Value(session.engine().lastOutputEvents().size());
 		               return Response::success(Value(std::move(out)));
-	               }});
+	               }, /* needsPlugin */ true});
 
 	commands_.add({"events", "[clear]", "What the plug-in has sent back to the host.",
 	               [](Session &session, const Request &request) -> Response {

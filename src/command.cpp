@@ -1,5 +1,7 @@
 #include "command.h"
 
+#include "session.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -123,6 +125,8 @@ Response CommandTable::dispatch(Session &session, const Request &request) const 
 	const Command *command = find(request.name);
 	if (command == nullptr)
 		return Response::failure("unknown command: " + request.name);
+	if (command->needsPlugin && !session.isLoaded())
+		return Response::failure("no plug-in loaded");
 	return command->run(session, request);
 }
 
