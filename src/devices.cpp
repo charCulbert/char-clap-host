@@ -6,6 +6,7 @@
 #include <RtAudio.h>
 #include <RtMidi.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstring>
@@ -66,6 +67,45 @@ void midiCallback(double, std::vector<unsigned char> *message, void *userData) {
 		return;
 	auto *session = static_cast<Session *>(userData);
 	session->onMidiMessage(message->data(), static_cast<uint32_t>(message->size()), arrival);
+}
+
+// Inputs and outputs enumerate the same way; these work on either.
+std::vector<DeviceChoice> midiPorts(RtMidi &midi) {
+	std::vector<DeviceChoice> found;
+	const unsigned int count = midi.getPortCount();
+	for (unsigned int i = 0; i < count; ++i) {
+		DeviceChoice choice;
+		choice.name = midi.getPortName(i);
+		choice.id = choice.name;
+		found.push_back(std::move(choice));
+	}
+	return found;
+}
+
+// The index of the port with exactly this name, or false.
+bool findMidiPort(RtMidi &midi, const std::string &name, unsigned int &index) {
+	const unsigned int count = midi.getPortCount();
+	for (index = 0; index < count; ++index)
+		if (midi.getPortName(index) == name)
+			return true;
+	return false;
+}
+
+Value midiPortReport(RtMidi &midi, const std::vector<std::string> &openNames, uint64_t messages) {
+	Array rows;
+	const unsigned int count = midi.getPortCount();
+	for (unsigned int i = 0; i < count; ++i) {
+		const std::string name = midi.getPortName(i);
+		Object row;
+		row["index"] = Value(i);
+		row["name"] = Value(name);
+		row["open"] = Value(std::find(openNames.begin(), openNames.end(), name) != openNames.end());
+		rows.push_back(Value(std::move(row)));
+	}
+	Object out;
+	out["ports"] = Value(std::move(rows));
+	out["messages"] = Value(messages);
+	return Value(std::move(out));
 }
 
 } // namespace
@@ -333,15 +373,7 @@ bool MidiOutput::isOpen() const {
 }
 
 std::vector<DeviceChoice> MidiOutput::ports() const {
-	std::vector<DeviceChoice> found;
-	const unsigned int count = impl_->enumerator.getPortCount();
-	for (unsigned int i = 0; i < count; ++i) {
-		DeviceChoice choice;
-		choice.name = impl_->enumerator.getPortName(i);
-		choice.id = choice.name;
-		found.push_back(std::move(choice));
-	}
-	return found;
+	return midiPorts(impl_->enumerator);
 }
 
 std::vector<std::string> MidiOutput::openPortIds() const {
@@ -351,15 +383,8 @@ std::vector<std::string> MidiOutput::openPortIds() const {
 bool MidiOutput::setOpenPorts(const std::vector<std::string> &ids, std::string &error) {
 	close();
 	for (const auto &id : ids) {
-		const unsigned int count = impl_->enumerator.getPortCount();
-		unsigned int chosen = count;
-		for (unsigned int i = 0; i < count; ++i) {
-			if (impl_->enumerator.getPortName(i) == id) {
-				chosen = i;
-				break;
-			}
-		}
-		if (chosen == count) {
+		unsigned int chosen = 0;
+		if (!findMidiPort(impl_->enumerator, id, chosen)) {
 			error = "no MIDI output port called \"" + id + "\"";
 			return false;
 		}
@@ -402,23 +427,7 @@ uint64_t MidiOutput::messageCount() const {
 }
 
 Value MidiOutput::portReport() const {
-	Array rows;
-	const unsigned int count = impl_->enumerator.getPortCount();
-	for (unsigned int i = 0; i < count; ++i) {
-		const std::string name = impl_->enumerator.getPortName(i);
-		bool isOpenPort = false;
-		for (const auto &openName : impl_->openNames)
-			isOpenPort = isOpenPort || openName == name;
-		Object row;
-		row["index"] = Value(i);
-		row["name"] = Value(name);
-		row["open"] = Value(isOpenPort);
-		rows.push_back(Value(std::move(row)));
-	}
-	Object out;
-	out["ports"] = Value(std::move(rows));
-	out["messages"] = Value(messageCount());
-	return Value(std::move(out));
+	return midiPortReport(impl_->enumerator, impl_->openNames, messageCount());
 }
 
 struct MidiInput::Impl {
@@ -444,15 +453,7 @@ std::string MidiInput::openPortName() const {
 }
 
 std::vector<DeviceChoice> MidiInput::ports() const {
-	std::vector<DeviceChoice> found;
-	const unsigned int count = impl_->enumerator.getPortCount();
-	for (unsigned int i = 0; i < count; ++i) {
-		DeviceChoice choice;
-		choice.name = impl_->enumerator.getPortName(i);
-		choice.id = choice.name;
-		found.push_back(std::move(choice));
-	}
-	return found;
+	return midiPorts(impl_->enumerator);
 }
 
 std::vector<std::string> MidiInput::openPortIds() const {
@@ -462,15 +463,8 @@ std::vector<std::string> MidiInput::openPortIds() const {
 bool MidiInput::setOpenPorts(const std::vector<std::string> &ids, std::string &error) {
 	close();
 	for (const auto &id : ids) {
-		const unsigned int count = impl_->enumerator.getPortCount();
-		unsigned int chosen = count;
-		for (unsigned int i = 0; i < count; ++i) {
-			if (impl_->enumerator.getPortName(i) == id) {
-				chosen = i;
-				break;
-			}
-		}
-		if (chosen == count) {
+		unsigned int chosen = 0;
+		if (!findMidiPort(impl_->enumerator, id, chosen)) {
 			error = "no MIDI input port called \"" + id + "\"";
 			return false;
 		}
@@ -516,23 +510,7 @@ void MidiInput::close() {
 }
 
 Value MidiInput::portReport() const {
-	Array rows;
-	const unsigned int count = impl_->enumerator.getPortCount();
-	for (unsigned int i = 0; i < count; ++i) {
-		const std::string name = impl_->enumerator.getPortName(i);
-		bool isOpenPort = false;
-		for (const auto &openName : impl_->openNames)
-			isOpenPort = isOpenPort || openName == name;
-		Object row;
-		row["index"] = Value(i);
-		row["name"] = Value(name);
-		row["open"] = Value(isOpenPort);
-		rows.push_back(Value(std::move(row)));
-	}
-	Object out;
-	out["ports"] = Value(std::move(rows));
-	out["messages"] = Value(session_.midiMessageCount());
-	return Value(std::move(out));
+	return midiPortReport(impl_->enumerator, impl_->openNames, session_.midiMessageCount());
 }
 
 } // namespace nch
