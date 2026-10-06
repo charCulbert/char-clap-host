@@ -109,7 +109,6 @@ public:
 	// the top. Swapped between blocks, so it is safe while a stream runs;
 	// false if a block would not yield in time. An empty file clears it.
 	bool setInput(AudioData input, bool loop, std::string path);
-	bool clearInput();
 	// Main thread only: what was loaded, empty with nothing.
 	const std::string &inputPath() const { return inputPath_; }
 	uint64_t inputFrames() const { return inputFrames_; }
@@ -134,10 +133,9 @@ public:
 	// --- the MIDI file player ----------------------------------------------
 	// Plays a MIDI file into the plug-in's first note port while it is
 	// processing, encoded for its dialect. Loading, clearing and seeking wait
-	// for a block to finish; false if one would not yield. Play, pause and
-	// loop go through midiPlayer() directly.
+	// for a block to finish; false if one would not yield. An empty file clears
+	// it. Play, pause and loop go through midiPlayer() directly.
 	bool setMidiFile(MidiFile file, bool loop, std::string path);
-	bool clearMidiFile();
 	bool seekMidiFile(double seconds);
 	MidiPlayer &midiPlayer() { return midiPlayer_; }
 	const MidiPlayer &midiPlayer() const { return midiPlayer_; }

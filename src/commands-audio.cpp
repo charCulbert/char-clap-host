@@ -63,7 +63,7 @@ FilePlayer audioFilePlayer() {
 	player.load = [](Session &session, const std::string &path, bool loop, Value &report, std::string &error) {
 		return session.playInputFile(path, loop, report, error);
 	};
-	player.clear = [](Session &session) { return session.engine().clearInput(); };
+	player.clear = [](Session &session) { return session.engine().setInput({}, false, {}); };
 	player.report = [](Session &session) { return session.inputFileReport(); };
 	player.playing = [](Session &session) { return session.engine().isInputPlaying(); };
 	player.setPlaying = [](Session &session, bool on) { session.engine().setInputPlaying(on); };
@@ -86,7 +86,7 @@ FilePlayer midiFilePlayer() {
 	player.load = [](Session &session, const std::string &path, bool loop, Value &report, std::string &error) {
 		return session.playMidiFile(path, loop, report, error);
 	};
-	player.clear = [](Session &session) { return session.engine().clearMidiFile(); };
+	player.clear = [](Session &session) { return session.engine().setMidiFile({}, false, {}); };
 	player.report = [](Session &session) { return session.midiFileReport(); };
 	player.playing = [](Session &session) { return session.engine().midiPlayer().isPlaying(); };
 	player.setPlaying = [](Session &session, bool on) { session.engine().midiPlayer().setPlaying(on); };

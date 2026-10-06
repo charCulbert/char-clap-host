@@ -281,10 +281,6 @@ bool Engine::setInput(AudioData input, bool loop, std::string path) {
 	return true;
 }
 
-bool Engine::clearInput() {
-	return setInput({}, false, {});
-}
-
 bool Engine::seekInput(uint64_t frame) {
 	const AudioExclusion exclusion(*this);
 	if (!exclusion)
@@ -342,10 +338,6 @@ bool Engine::setMidiFile(MidiFile file, bool loop, std::string path) {
 	midiPlayer_.load(std::move(file), encoding, loop);
 	midiFilePath_ = midiPlayer_.isLoaded() ? std::move(path) : std::string();
 	return true;
-}
-
-bool Engine::clearMidiFile() {
-	return setMidiFile({}, false, {});
 }
 
 bool Engine::seekMidiFile(double seconds) {
