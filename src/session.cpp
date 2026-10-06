@@ -709,8 +709,8 @@ void Session::drainOutputEvents() {
 		// which is what makes a note effect useful rather than merely
 		// observable.
 		if (midiOutput_.isOpen()) {
-			for (const auto &message : encodeToMidi(header))
-				midiOutput_.send(message.bytes, message.size);
+			if (const auto message = encodeToMidi(header))
+				midiOutput_.send(message->bytes, message->size);
 		}
 	}
 	for (clap_id id : moved)

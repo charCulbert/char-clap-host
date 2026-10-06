@@ -19,8 +19,6 @@
 
 namespace nch {
 
-class PluginInstance;
-
 // A note as the generator remembers it, so it never ends one that is not
 // playing unless it is asked to.
 struct ActiveNote {
@@ -50,7 +48,7 @@ public:
 
 	const std::vector<ActiveNote> &sounding() const { return sounding_; }
 	// Ends every note still playing, so a test can leave the plug-in quiet.
-	void releaseAll(EventList &events, uint32_t frames);
+	void releaseAll(EventList &events);
 	void reset() { sounding_.clear(); }
 
 private:
@@ -102,8 +100,5 @@ private:
 	ParamValueStyle style_ = ParamValueStyle::Anywhere;
 	bool nullCookies_ = false;
 };
-
-// The parameters a plug-in declares, which every generator needs.
-std::vector<clap_param_info_t> readParameters(const PluginInstance &instance);
 
 } // namespace nch

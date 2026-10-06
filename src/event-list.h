@@ -18,6 +18,17 @@
 
 namespace nch {
 
+// A core event with its header filled in; the caller sets the rest.
+template <class T> T makeEvent(uint16_t type, uint32_t time = 0, uint32_t flags = 0) {
+	T event{};
+	event.header.size = sizeof(T);
+	event.header.time = time;
+	event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+	event.header.type = type;
+	event.header.flags = flags;
+	return event;
+}
+
 class EventList {
 public:
 	EventList() {

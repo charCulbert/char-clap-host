@@ -17,6 +17,7 @@
 #include <clap/clap.h>
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace nch {
@@ -38,6 +39,15 @@ struct NoteEncoding {
 // nothing usable, or a plug-in without clap.note-ports, yields CLAP.
 NoteEncoding encodingForPort(const clap_plugin_t *plugin, const clap_plugin_note_ports_t *notePorts,
                              int16_t portIndex);
+
+// A CLAP note event. -1 in the tuple is a wildcard.
+clap_event_note_t makeNote(uint16_t type, int16_t port, int16_t channel, int16_t key, int32_t noteId, double velocity,
+                           uint32_t time = 0, uint32_t flags = 0);
+// A MIDI 1.0 note on or off. A wildcard port goes to the first.
+clap_event_midi_t makeMidiNote(bool on, int16_t port, int16_t channel, int16_t key, uint8_t velocity,
+                               uint32_t time = 0);
+// A 0..1 amount, clamped, as a 7-bit MIDI value.
+uint8_t midiValue(double amount);
 
 // What happened to one incoming MIDI message, so a host can report what it
 // could not deliver rather than dropping it silently.
@@ -72,7 +82,7 @@ struct MidiMessage {
 // expression becomes pitch bend and a PRESSURE expression becomes channel
 // pressure or poly aftertouch depending on whether it names a key. A raw MIDI
 // event passes through. Anything with no MIDI form yields nothing.
-std::vector<MidiMessage> encodeToMidi(const clap_event_header_t *event);
+std::optional<MidiMessage> encodeToMidi(const clap_event_header_t *event);
 
 // The bend range the host assumes when translating pitch bend to TUNING.
 // MIDI does not carry its own range, and +/-2 semitones is the universal

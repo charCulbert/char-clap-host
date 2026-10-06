@@ -29,32 +29,11 @@ template <typename T> void append(NoteTranslation &out, const T &event) {
 	append(out, &event.header);
 }
 
-clap_event_note_t makeNote(uint16_t type, int16_t port, int16_t channel, int16_t key, double velocity,
-                           uint32_t flags) {
-	clap_event_note_t event{};
-	event.header.size = sizeof(event);
-	event.header.time = 0;
-	event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-	event.header.type = type;
-	event.header.flags = flags;
-	event.port_index = port;
-	event.channel = channel;
-	event.key = key;
-	event.note_id = -1;
-	event.velocity = velocity;
-	return event;
-}
-
 // Note expressions target voices by the same wildcard rules as notes, so a
 // per-channel MIDI message becomes an expression with a wildcard key.
 clap_event_note_expression_t makeExpression(uint32_t expressionId, int16_t port, int16_t channel, int16_t key,
                                             double value, uint32_t flags) {
-	clap_event_note_expression_t event{};
-	event.header.size = sizeof(event);
-	event.header.time = 0;
-	event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-	event.header.type = CLAP_EVENT_NOTE_EXPRESSION;
-	event.header.flags = flags;
+	auto event = makeEvent<clap_event_note_expression_t>(CLAP_EVENT_NOTE_EXPRESSION, 0, flags);
 	event.expression_id = expressionId;
 	event.port_index = port;
 	event.channel = channel;
@@ -65,12 +44,7 @@ clap_event_note_expression_t makeExpression(uint32_t expressionId, int16_t port,
 }
 
 clap_event_midi_t makeMidi(int16_t port, const uint8_t *bytes, uint32_t size, uint32_t flags) {
-	clap_event_midi_t event{};
-	event.header.size = sizeof(event);
-	event.header.time = 0;
-	event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-	event.header.type = CLAP_EVENT_MIDI;
-	event.header.flags = flags;
+	auto event = makeEvent<clap_event_midi_t>(CLAP_EVENT_MIDI, 0, flags);
 	event.port_index = static_cast<uint16_t>(port < 0 ? 0 : port);
 	for (uint32_t i = 0; i < size && i < 3; ++i)
 		event.data[i] = bytes[i];
@@ -79,10 +53,33 @@ clap_event_midi_t makeMidi(int16_t port, const uint8_t *bytes, uint32_t size, ui
 
 } // namespace
 
-std::vector<MidiMessage> encodeToMidi(const clap_event_header_t *event) {
-	std::vector<MidiMessage> out;
+clap_event_note_t makeNote(uint16_t type, int16_t port, int16_t channel, int16_t key, int32_t noteId, double velocity,
+                           uint32_t time, uint32_t flags) {
+	auto event = makeEvent<clap_event_note_t>(type, time, flags);
+	event.port_index = port;
+	event.channel = channel;
+	event.key = key;
+	event.note_id = noteId;
+	event.velocity = velocity;
+	return event;
+}
+
+clap_event_midi_t makeMidiNote(bool on, int16_t port, int16_t channel, int16_t key, uint8_t velocity, uint32_t time) {
+	auto event = makeEvent<clap_event_midi_t>(CLAP_EVENT_MIDI, time);
+	event.port_index = static_cast<uint16_t>(port < 0 ? 0 : port);
+	event.data[0] = static_cast<uint8_t>((on ? kNoteOn : kNoteOff) | (channel & 0x0F));
+	event.data[1] = static_cast<uint8_t>(key & 0x7F);
+	event.data[2] = velocity;
+	return event;
+}
+
+uint8_t midiValue(double amount) {
+	return static_cast<uint8_t>(std::lround(std::min(1.0, std::max(0.0, amount)) * 127.0));
+}
+
+std::optional<MidiMessage> encodeToMidi(const clap_event_header_t *event) {
 	if (event == nullptr || event->space_id != CLAP_CORE_EVENT_SPACE_ID)
-		return out;
+		return std::nullopt;
 
 	const auto clampChannel = [](int16_t channel) {
 		// A wildcard channel has to become a concrete one on the wire; channel
@@ -95,15 +92,14 @@ std::vector<MidiMessage> encodeToMidi(const clap_event_header_t *event) {
 	case CLAP_EVENT_NOTE_OFF: {
 		const auto *note = reinterpret_cast<const clap_event_note_t *>(event);
 		if (note->key < 0)
-			return out;
+			return std::nullopt;
 		MidiMessage message;
 		message.size = 3;
-		message.bytes[0] = static_cast<uint8_t>((event->type == CLAP_EVENT_NOTE_ON ? 0x90 : 0x80) |
+		message.bytes[0] = static_cast<uint8_t>((event->type == CLAP_EVENT_NOTE_ON ? kNoteOn : kNoteOff) |
 		                                        clampChannel(note->channel));
 		message.bytes[1] = static_cast<uint8_t>(note->key & 0x7F);
-		message.bytes[2] = static_cast<uint8_t>(std::lround(std::min(1.0, std::max(0.0, note->velocity)) * 127.0));
-		out.push_back(message);
-		return out;
+		message.bytes[2] = midiValue(note->velocity);
+		return message;
 	}
 	case CLAP_EVENT_NOTE_EXPRESSION: {
 		const auto *expression = reinterpret_cast<const clap_event_note_expression_t *>(event);
@@ -116,12 +112,10 @@ std::vector<MidiMessage> encodeToMidi(const clap_event_header_t *event) {
 			message.bytes[0] = static_cast<uint8_t>(0xE0 | clampChannel(expression->channel));
 			message.bytes[1] = static_cast<uint8_t>(raw & 0x7F);
 			message.bytes[2] = static_cast<uint8_t>((raw >> 7) & 0x7F);
-			out.push_back(message);
-			return out;
+			return message;
 		}
 		if (expression->expression_id == CLAP_NOTE_EXPRESSION_PRESSURE) {
-			const auto amount =
-			    static_cast<uint8_t>(std::lround(std::min(1.0, std::max(0.0, expression->value)) * 127.0));
+			const uint8_t amount = midiValue(expression->value);
 			MidiMessage message;
 			if (expression->key < 0) {
 				message.size = 2;
@@ -133,11 +127,10 @@ std::vector<MidiMessage> encodeToMidi(const clap_event_header_t *event) {
 				message.bytes[1] = static_cast<uint8_t>(expression->key & 0x7F);
 				message.bytes[2] = amount;
 			}
-			out.push_back(message);
-			return out;
+			return message;
 		}
 		// Every other expression is CLAP-only; MIDI 1.0 has nowhere to put it.
-		return out;
+		return std::nullopt;
 	}
 	case CLAP_EVENT_MIDI: {
 		const auto *midi = reinterpret_cast<const clap_event_midi_t *>(event);
@@ -146,11 +139,10 @@ std::vector<MidiMessage> encodeToMidi(const clap_event_header_t *event) {
 		message.bytes[0] = midi->data[0];
 		message.bytes[1] = midi->data[1];
 		message.bytes[2] = midi->data[2];
-		out.push_back(message);
-		return out;
+		return message;
 	}
 	default:
-		return out;
+		return std::nullopt;
 	}
 }
 
@@ -227,13 +219,13 @@ NoteTranslation translateMidi(const uint8_t *bytes, uint32_t size, const NoteEnc
 		// says a zero-velocity NOTE_ON must not be read that way, so the host
 		// resolves it here rather than passing on the ambiguity.
 		if ((bytes[2] & 0x7F) == 0)
-			append(out, makeNote(CLAP_EVENT_NOTE_OFF, port, channel, key, 0.0, flags));
+			append(out, makeNote(CLAP_EVENT_NOTE_OFF, port, channel, key, -1, 0.0, 0, flags));
 		else
-			append(out, makeNote(CLAP_EVENT_NOTE_ON, port, channel, key, velocity, flags));
+			append(out, makeNote(CLAP_EVENT_NOTE_ON, port, channel, key, -1, velocity, 0, flags));
 		return out;
 	}
 	case kNoteOff:
-		append(out, makeNote(CLAP_EVENT_NOTE_OFF, port, channel, key, (bytes[2] & 0x7F) / 127.0, flags));
+		append(out, makeNote(CLAP_EVENT_NOTE_OFF, port, channel, key, -1, (bytes[2] & 0x7F) / 127.0, 0, flags));
 		return out;
 	case kPitchBend: {
 		// 14 bits, centre 8192, expressed as semitones of relative tuning.

@@ -287,10 +287,8 @@ void paramSetWrongNamespace(TestContext &context) {
 	// A value event in a namespace the host made up. The plug-in must check
 	// the space id and ignore it.
 	for (const auto &info : params) {
-		clap_event_param_value_t event{};
-		event.header.size = sizeof(event);
+		auto event = makeEvent<clap_event_param_value_t>(CLAP_EVENT_PARAM_VALUE);
 		event.header.space_id = 0xB33F;
-		event.header.type = CLAP_EVENT_PARAM_VALUE;
 		event.param_id = info.id;
 		event.cookie = info.cookie;
 		event.note_id = -1;
@@ -633,7 +631,7 @@ void runNoteStream(TestContext &context, bool inconsistent, double wildcardChanc
 			return;
 	}
 	EventList release;
-	generator.releaseAll(release, 512);
+	generator.releaseAll(release);
 	scheduleAll(session, release);
 	session.engine().processBlock(512, nullptr);
 }
@@ -742,7 +740,6 @@ void paramFuzzModulation(TestContext &context) {
 		// Real CLAP_EVENT_PARAM_MOD, addressed at a sounding voice half the
 		// time. This is the stream neither reference tool produces.
 		fuzzer.fillModulation(events, static_cast<uint32_t>(context.random().below(512)), notes.sounding());
-		events.sortByTime();
 		scheduleAll(session, events);
 		if (!processOneChecked(context, 512))
 			return;
@@ -788,10 +785,7 @@ void paramSetEvents(TestContext &context) {
 	for (const auto &info : reloaded) {
 		if (viaFlush.count(info.id) == 0)
 			continue;
-		clap_event_param_value_t event{};
-		event.header.size = sizeof(event);
-		event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-		event.header.type = CLAP_EVENT_PARAM_VALUE;
+		auto event = makeEvent<clap_event_param_value_t>(CLAP_EVENT_PARAM_VALUE);
 		event.param_id = info.id;
 		event.cookie = info.cookie;
 		event.note_id = -1;
