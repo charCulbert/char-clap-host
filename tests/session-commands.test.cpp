@@ -48,7 +48,6 @@ private:
 	static Options makeOptions() {
 		Options options;
 		options.json = true;
-		options.quiet = true;
 		return options;
 	}
 

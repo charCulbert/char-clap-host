@@ -33,7 +33,6 @@ namespace nch {
 struct Options {
 	bool json = false;   // replies as JSON rather than text
 	bool strict = false; // a validator error fails the command that caused it
-	bool quiet = false;  // suppress the banner and prompt
 	// Opened from the Finder rather than a shell: stdin is /dev/null, so the
 	// host would otherwise reach end of input and exit before anything
 	// appeared. When nothing at all was asked for, it opens a window instead.
@@ -48,8 +47,6 @@ struct Options {
 	// saved, so scripts and agents do not fill them with scratch files.
 	bool recentFilesOnDisk = false;
 	bool interactive = false;
-	std::string pluginId;
-	uint32_t pluginIndex = 0;
 	double sampleRate = 48000.0;
 	uint32_t blockSize = 512;
 };

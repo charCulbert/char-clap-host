@@ -63,6 +63,9 @@ int main(int argc, char **argv) {
 	nch::ScopedThreadRole mainThread(nch::ThreadRole::Main);
 
 	Options options;
+	bool quiet = false; // no banner or prompt
+	std::string pluginId;
+	uint32_t pluginIndex = 0;
 	std::string scriptPath;
 	std::vector<std::string> immediateCommands;
 	bool sawSeparator = false;
@@ -88,9 +91,9 @@ int main(int argc, char **argv) {
 		}
 		if (argument == "--json") { options.json = true; continue; }
 		if (argument == "--strict") { options.strict = true; continue; }
-		if (argument == "--quiet") { options.quiet = true; continue; }
-		if (argument == "--id") { options.pluginId = next("--id"); continue; }
-		if (argument == "--index") { options.pluginIndex = static_cast<uint32_t>(std::stoul(next("--index"))); continue; }
+		if (argument == "--quiet") { quiet = true; continue; }
+		if (argument == "--id") { pluginId = next("--id"); continue; }
+		if (argument == "--index") { pluginIndex = static_cast<uint32_t>(std::stoul(next("--index"))); continue; }
 		if (argument == "--sample-rate") { options.sampleRate = std::stod(next("--sample-rate")); continue; }
 		if (argument == "--block-size") { options.blockSize = static_cast<uint32_t>(std::stoul(next("--block-size"))); continue; }
 		if (argument == "--script") { scriptPath = next("--script"); continue; }
@@ -127,10 +130,10 @@ int main(int argc, char **argv) {
 
 	if (!options.pluginPath.empty()) {
 		std::string line = "load \"" + options.pluginPath + "\"";
-		if (!options.pluginId.empty())
-			line += " --id=" + options.pluginId;
-		if (options.pluginIndex != 0)
-			line += " --index=" + std::to_string(options.pluginIndex);
+		if (!pluginId.empty())
+			line += " --id=" + pluginId;
+		if (pluginIndex != 0)
+			line += " --index=" + std::to_string(pluginIndex);
 		if (!session.runLine(line))
 			return 0;
 		if (!session.isLoaded())
@@ -159,7 +162,7 @@ int main(int argc, char **argv) {
 	if (!immediateCommands.empty())
 		return exitStatus(session, options);
 
-	if (interactive && !options.quiet)
+	if (interactive && !quiet)
 		std::puts("clap-host 0.1.0 — type `help` for commands, `quit` to leave.");
 
 	// The main thread belongs to the plug-in: CLAP main-thread calls, timers
@@ -174,7 +177,7 @@ int main(int argc, char **argv) {
 	};
 	auto link = std::make_shared<ReaderLink>();
 	link->session = &session;
-	std::thread reader([link, interactive, quiet = options.quiet] {
+	std::thread reader([link, interactive, quiet] {
 		std::string line;
 		while (true) {
 			if (interactive && !quiet) {

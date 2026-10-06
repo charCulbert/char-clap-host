@@ -53,11 +53,7 @@ Session::Session(Options options)
     : options_(std::move(options)), host_(*this, validator_), instance_(host_.clapHost(), validator_), engine_(*this), audioDevice_(*this), midiInput_(*this), gui_(instance_), settings_(*this), panel_(*this), recentInputFiles_(recentStore(options_, "recent-input-files")),
       recentMidiFiles_(recentStore(options_, "recent-midi-files")), recentPlugins_(recentStore(options_, "recent-plugins")) {
 	instance_.setPreferredFormat(options_.sampleRate, options_.blockSize);
-	instance_.setPhaseObserver([this](PluginInstance::Phase phase) {
-		host_.setPluginState(phase == PluginInstance::Phase::Ready      ? Host::PluginState::Ready
-		                     : phase == PluginInstance::Phase::Creating ? Host::PluginState::Creating
-		                                                                : Host::PluginState::None);
-	});
+	instance_.setPhaseObserver([this](PluginInstance::Phase phase) { host_.setPluginPhase(phase); });
 	pendingOutputEvents_.reserve(kMaxPendingOutputEvents, 256 * 1024);
 	pendingOutputFrames_.reserve(kMaxPendingOutputEvents);
 	drainingOutputEvents_.reserve(kMaxPendingOutputEvents, 256 * 1024);
@@ -777,11 +773,11 @@ bool Session::onTimerRegister(uint32_t periodMs, clap_id *timerId) {
 }
 
 bool Session::onTimerUnregister(clap_id timerId) {
-	for (auto it = timers_.begin(); it != timers_.end(); ++it) {
-		if (it->id == timerId) {
-			timers_.erase(it);
-			return true;
-		}
+	const auto it =
+	    std::find_if(timers_.begin(), timers_.end(), [timerId](const Timer &timer) { return timer.id == timerId; });
+	if (it != timers_.end()) {
+		timers_.erase(it);
+		return true;
 	}
 	validator_.warn("clap_host_timer_support.unregister_timer", "unknown timer id");
 	return false;

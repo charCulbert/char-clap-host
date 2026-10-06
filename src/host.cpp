@@ -226,7 +226,7 @@ const void *hostGetExtension(const clap_host_t *host, const char *extensionId) {
 		return nullptr;
 	// "It is forbidden to call it before plugin->init()." A plug-in asking
 	// from inside create_plugin is the usual way to break this.
-	if (Host::from(host).pluginState() == Host::PluginState::Creating)
+	if (Host::from(host).pluginPhase() == Host::Phase::Creating)
 		Host::from(host).validator().error("clap_host.get_extension",
 		                                   std::string("the plug-in asked for ") + extensionId +
 		                                       " before init(), which the host forbids; query host extensions from init() or later");
@@ -291,7 +291,7 @@ void Host::noteMainThreadCall(const char *where) {
 	if (currentThreadRole() != ThreadRole::Main)
 		validator_.error(where, std::string("called from the ") + threadRoleName(currentThreadRole()) +
 		                            " thread; this call is main-thread only");
-	if (pluginState_.load(std::memory_order_acquire) == PluginState::None)
+	if (pluginPhase_.load(std::memory_order_acquire) == Phase::None)
 		validator_.warn(where, "called while no plug-in instance was live");
 }
 
