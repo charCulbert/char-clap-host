@@ -30,10 +30,10 @@ using nch::Session;
 
 // Non-zero when a command failed, or when --strict and the plug-in broke the
 // contract.
-int exitStatus(const Session &session, const Options &options) {
+int exitStatus(Session &session, const Options &options) {
 	if (session.anyCommandFailed())
 		return 1;
-	return options.strict && session.validatorHasErrors() ? 1 : 0;
+	return options.strict && session.validator().hasErrors() ? 1 : 0;
 }
 
 void printUsage() {

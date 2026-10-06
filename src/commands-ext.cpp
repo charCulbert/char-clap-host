@@ -9,9 +9,6 @@
 #include <cstring>
 
 namespace nch {
-namespace {
-
-} // namespace
 
 void Session::registerExtensionCommands() {
 	commands_.add({"latency", "", "Report the plug-in's reported latency in frames.",

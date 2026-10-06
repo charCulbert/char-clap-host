@@ -105,7 +105,6 @@ const clap_host_latency_t kLatency = {latencyChanged};
 void tailChanged(const clap_host_t *host) {
 	// clap.tail marks changed() [audio-thread].
 	Host::from(host).noteAudioThreadCall("clap_host_tail.changed");
-	sessionOf(host).onTailChanged();
 }
 
 const clap_host_tail_t kTail = {tailChanged};
@@ -151,7 +150,6 @@ const clap_host_audio_ports_t kAudioPorts = {audioPortsIsRescanFlagSupported, au
 
 void voiceInfoChanged(const clap_host_t *host) {
 	Host::from(host).noteMainThreadCall("clap_host_voice_info.changed");
-	sessionOf(host).onVoiceInfoChanged();
 }
 
 const clap_host_voice_info_t kVoiceInfo = {voiceInfoChanged};
@@ -160,7 +158,6 @@ const clap_host_voice_info_t kVoiceInfo = {voiceInfoChanged};
 
 void noteNameChanged(const clap_host_t *host) {
 	Host::from(host).noteMainThreadCall("clap_host_note_name.changed");
-	sessionOf(host).onNoteNameChanged();
 }
 
 const clap_host_note_name_t kNoteName = {noteNameChanged};

@@ -316,7 +316,6 @@ Value Session::outputLevels() const {
 	out["inputMuted"] = Value(engine_.isInputMuted());
 	out["inputFile"] = inputFileReport();
 	out["midiFile"] = midiFileReport();
-	out["midiFile"] = midiFileReport();
 	out["bypassed"] = Value(engine_.isBypassed());
 	out["sleeping"] = Value(engine_.isSleeping());
 	out["peaks"] = outputMeter_.read(engine_.deviceOutputChannels());
@@ -745,11 +744,6 @@ void Session::onLatencyChanged() {
 		                                      : "called outside activate(), where the latency may not change");
 }
 
-void Session::onTailChanged() {
-	// Recorded by the host callback; nothing to decide, the tail is read on
-	// demand.
-}
-
 void Session::onNotePortsRescan(uint32_t flags) {
 	(void)flags;
 	notePortsChanged_ = true;
@@ -764,14 +758,6 @@ void Session::onAudioPortsRescan(uint32_t flags) {
 	if ((flags & layoutFlags) != 0 && instance_.isActive())
 		validator_.error("clap_host_audio_ports.rescan",
 		                 "a layout-changing rescan while the plug-in is active; those flags require deactivation");
-}
-
-void Session::onVoiceInfoChanged() {
-	// Recorded by the host callback; voice info is read on demand.
-}
-
-void Session::onNoteNameChanged() {
-	// Recorded by the host callback; note names are read on demand.
 }
 
 bool Session::onTimerRegister(uint32_t periodMs, clap_id *timerId) {

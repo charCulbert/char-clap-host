@@ -52,7 +52,6 @@ public:
 
 	Kind kind() const { return kind_; }
 	bool isNull() const { return kind_ == Kind::Null; }
-	bool isBool() const { return kind_ == Kind::Bool; }
 	bool isNumber() const { return kind_ == Kind::Number; }
 	bool isString() const { return kind_ == Kind::String; }
 	bool isArray() const { return kind_ == Kind::Array; }

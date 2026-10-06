@@ -70,7 +70,6 @@ public:
 
 	const Options &options() const { return options_; }
 	Validator &validator() { return validator_; }
-	bool validatorHasErrors() const { return validator_.hasErrors(); }
 	Host &host() { return host_; }
 	HostServices &services() { return services_; }
 	Bundle &bundle() { return instance_.bundle(); }
@@ -184,11 +183,8 @@ public:
 	void onParamsRequestFlush();
 	void onStateMarkDirty();
 	void onLatencyChanged();
-	void onTailChanged();
 	void onNotePortsRescan(uint32_t flags);
 	void onAudioPortsRescan(uint32_t flags);
-	void onVoiceInfoChanged();
-	void onNoteNameChanged();
 	bool onTimerRegister(uint32_t periodMs, clap_id *timerId);
 	bool onTimerUnregister(clap_id timerId);
 	void onGuiResizeHintsChanged();
@@ -242,7 +238,6 @@ public:
 	bool tick();
 	// Called by the reader thread when stdin ends.
 	void closeInput();
-	bool shouldQuit() const { return quit_; }
 	// Whether any command has answered with a failure. A one-shot run exits
 	// non-zero on this, so a script or a CI job gets a verdict rather than
 	// having to parse the output.
