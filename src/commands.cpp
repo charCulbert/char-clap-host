@@ -179,26 +179,26 @@ Response setParamValue(Session &session, clap_id id, double value) {
 	return Response::success(Value(std::move(result)));
 }
 
-Value describeAudioPorts(Session &session) {
-	const auto *ports = session.pluginExtension<clap_plugin_audio_ports_t>(CLAP_EXT_AUDIO_PORTS);
+// Audio and note ports are listed the same way: inputs then outputs, one row
+// per port the plug-in describes. `describe` adds what is particular to each.
+template <typename Ports, typename Info, typename Describe>
+Value describePorts(Session &session, const char *id, Describe describe) {
+	const auto *ports = session.pluginExtension<Ports>(id);
 	Object out;
 	if (ports == nullptr)
 		return Value(std::move(out));
-	for (int direction = 0; direction < 2; ++direction) {
-		const bool isInput = direction == 0;
+	for (const bool isInput : {true, false}) {
 		const uint32_t count = ports->count != nullptr ? ports->count(session.plugin(), isInput) : 0;
 		Array rows;
 		for (uint32_t i = 0; i < count; ++i) {
-			clap_audio_port_info_t info{};
+			Info info{};
 			if (ports->get == nullptr || !ports->get(session.plugin(), i, isInput, &info))
 				continue;
 			Object row;
 			row["index"] = Value(i);
 			row["id"] = Value(static_cast<uint64_t>(info.id));
 			row["name"] = Value(textOrEmpty(info.name));
-			row["channels"] = Value(info.channel_count);
-			row["type"] = Value(textOrEmpty(info.port_type));
-			row["main"] = Value((info.flags & CLAP_AUDIO_PORT_IS_MAIN) != 0);
+			describe(info, row);
 			rows.push_back(Value(std::move(row)));
 		}
 		out[isInput ? "inputs" : "outputs"] = Value(std::move(rows));
@@ -206,34 +206,25 @@ Value describeAudioPorts(Session &session) {
 	return Value(std::move(out));
 }
 
+Value describeAudioPorts(Session &session) {
+	return describePorts<clap_plugin_audio_ports_t, clap_audio_port_info_t>(
+	    session, CLAP_EXT_AUDIO_PORTS, [](const clap_audio_port_info_t &info, Object &row) {
+		    row["channels"] = Value(info.channel_count);
+		    row["type"] = Value(textOrEmpty(info.port_type));
+		    row["main"] = Value((info.flags & CLAP_AUDIO_PORT_IS_MAIN) != 0);
+	    });
+}
+
 Value describeNotePorts(Session &session) {
-	const auto *ports = session.pluginExtension<clap_plugin_note_ports_t>(CLAP_EXT_NOTE_PORTS);
-	Object out;
-	if (ports == nullptr)
-		return Value(std::move(out));
-	for (int direction = 0; direction < 2; ++direction) {
-		const bool isInput = direction == 0;
-		const uint32_t count = ports->count != nullptr ? ports->count(session.plugin(), isInput) : 0;
-		Array rows;
-		for (uint32_t i = 0; i < count; ++i) {
-			clap_note_port_info_t info{};
-			if (ports->get == nullptr || !ports->get(session.plugin(), i, isInput, &info))
-				continue;
-			Object row;
-			row["index"] = Value(i);
-			row["id"] = Value(static_cast<uint64_t>(info.id));
-			row["name"] = Value(textOrEmpty(info.name));
-			Array dialects;
-			if ((info.supported_dialects & CLAP_NOTE_DIALECT_CLAP) != 0) dialects.push_back(Value("clap"));
-			if ((info.supported_dialects & CLAP_NOTE_DIALECT_MIDI) != 0) dialects.push_back(Value("midi"));
-			if ((info.supported_dialects & CLAP_NOTE_DIALECT_MIDI_MPE) != 0) dialects.push_back(Value("mpe"));
-			if ((info.supported_dialects & CLAP_NOTE_DIALECT_MIDI2) != 0) dialects.push_back(Value("midi2"));
-			row["dialects"] = Value(std::move(dialects));
-			rows.push_back(Value(std::move(row)));
-		}
-		out[isInput ? "inputs" : "outputs"] = Value(std::move(rows));
-	}
-	return Value(std::move(out));
+	return describePorts<clap_plugin_note_ports_t, clap_note_port_info_t>(
+	    session, CLAP_EXT_NOTE_PORTS, [](const clap_note_port_info_t &info, Object &row) {
+		    Array dialects;
+		    if ((info.supported_dialects & CLAP_NOTE_DIALECT_CLAP) != 0) dialects.push_back(Value("clap"));
+		    if ((info.supported_dialects & CLAP_NOTE_DIALECT_MIDI) != 0) dialects.push_back(Value("midi"));
+		    if ((info.supported_dialects & CLAP_NOTE_DIALECT_MIDI_MPE) != 0) dialects.push_back(Value("mpe"));
+		    if ((info.supported_dialects & CLAP_NOTE_DIALECT_MIDI2) != 0) dialects.push_back(Value("midi2"));
+		    row["dialects"] = Value(std::move(dialects));
+	    });
 }
 
 } // namespace

@@ -24,9 +24,9 @@ uint32_t contextFromName(const std::string &name) {
 // the opaque bytes remain the only authority on the plug-in's state.
 Value sidecar(Session &session, size_t byteCount) {
 	Object out;
-	out["plugin"] = Value(session.descriptor()->id != nullptr ? session.descriptor()->id : "");
-	out["name"] = Value(session.descriptor()->name != nullptr ? session.descriptor()->name : "");
-	out["version"] = Value(session.descriptor()->version != nullptr ? session.descriptor()->version : "");
+	out["plugin"] = Value(textOrEmpty(session.descriptor()->id));
+	out["name"] = Value(textOrEmpty(session.descriptor()->name));
+	out["version"] = Value(textOrEmpty(session.descriptor()->version));
 	out["bytes"] = Value(static_cast<uint64_t>(byteCount));
 	out["sampleRate"] = Value(session.sampleRate());
 	out["blockSize"] = Value(session.blockSize());
@@ -167,9 +167,8 @@ void Session::registerStateCommands() {
 
 	commands_.add({"preset.load", "<location> [load-key]", "Load a preset through clap.preset-load.",
 	               [](Session &session, const Request &request) -> Response {
-		               const auto *presets = session.pluginExtension<clap_plugin_preset_load_t>(CLAP_EXT_PRESET_LOAD);
-		               if (presets == nullptr)
-			               presets = session.pluginExtension<clap_plugin_preset_load_t>(CLAP_EXT_PRESET_LOAD_COMPAT);
+		               const auto *presets = extensionOf<clap_plugin_preset_load_t>(session, CLAP_EXT_PRESET_LOAD,
+		                                                                            CLAP_EXT_PRESET_LOAD_COMPAT);
 		               if (presets == nullptr || presets->from_location == nullptr)
 			               return Response::failure("plug-in does not implement clap.preset-load");
 		               const std::string location = request.arg(0, "location").asString();
