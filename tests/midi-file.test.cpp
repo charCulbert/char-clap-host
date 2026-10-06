@@ -70,8 +70,6 @@ TEST(reads_notes_with_their_tempo_map_applied) {
 	CHECK_EQ(file.events[0].seconds, 0.0);
 	CHECK_EQ(file.events[1].seconds, 0.5); // one beat at 120 bpm
 	CHECK_EQ(file.events[2].seconds, 1.0);
-	CHECK_EQ(file.events[0].beats, 0.0);
-	CHECK_EQ(file.events[1].beats, 1.0);
 	std::remove(path.c_str());
 }
 

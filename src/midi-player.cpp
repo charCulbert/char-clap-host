@@ -9,9 +9,7 @@ namespace nch {
 void MidiPlayer::load(MidiFile file, const NoteEncoding &encoding, bool loop) {
 	file_ = std::move(file);
 	tempo_ = file_.initialTempo;
-	// A file whose last event sits at its very end would loop with no room
-	// for it, so the length is never shorter than its events.
-	duration_ = file_.events.empty() ? 0.0 : std::max(file_.durationSeconds, file_.events.back().seconds);
+	duration_ = file_.events.empty() ? 0.0 : file_.durationSeconds;
 	encode(encoding);
 	position_ = 0.0;
 	next_ = 0;

@@ -11,8 +11,7 @@
 namespace nch {
 
 struct MidiFileEvent {
-	double seconds = 0.0;  // from the start of the file, with the tempo map applied
-	double beats = 0.0;    // musical position, tempo-independent
+	double seconds = 0.0; // from the start of the file, with the tempo map applied
 	uint8_t data[3] = {0, 0, 0};
 	uint8_t size = 0;
 };
