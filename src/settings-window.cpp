@@ -1,7 +1,5 @@
 #include "settings-window.h"
 
-#include "web-assets.h"
-
 #include "device-settings.h"
 #include "devices.h"
 #include "native-window.h"
@@ -67,65 +65,21 @@ const char *kPage = R"(<!doctype html>
 <p id="status">&nbsp;</p>
 <script type="module">
 	import "./compost/components/compost-device-selector.js";
+	import { post, request, listen } from "./host-page.js";
 
-	// A plug-in's page sits in an iframe and talks through its parent. This
-	// one is the whole document, so it uses the host's binding directly and
-	// provides the receiving half itself.
-	const pending = new Map();
-	let nextRequest = 1;
-
-	function toBase64(bytes) {
-		let text = "";
-		for (const byte of bytes) text += String.fromCharCode(byte);
-		return btoa(text);
+	async function call(type, payload) {
+		const reply = await request({ type, payload });
+		if (reply.error) throw new Error(reply.error);
+		return reply.snapshot;
 	}
 
-	function fromBase64(encoded) {
-		const text = atob(encoded);
-		const bytes = new Uint8Array(text.length);
-		for (let i = 0; i < text.length; ++i) bytes[i] = text.charCodeAt(i);
-		return bytes;
-	}
-
-	function post(object) {
-		const bytes = new TextEncoder().encode(JSON.stringify(object));
-		nchFromPlugin(toBase64(bytes));
-	}
-
-	// The host calls this to deliver a reply.
-	window.nchToPlugin = function (encoded) {
-		handle(fromBase64(encoded));
-	};
-
-	function call(type, payload) {
-		const id = nextRequest++;
-		return new Promise((resolve, reject) => {
-			pending.set(id, { resolve, reject });
-			post({ id, type, payload });
-		});
-	}
-
-	function handle(bytes) {
-		let reply;
-		try {
-			reply = JSON.parse(new TextDecoder().decode(bytes));
-		} catch {
-			return;
+	// A CLI device change is a state update, not a reply to a page request.
+	listen(message => {
+		if (message.plugin !== undefined) {
+			document.getElementById("plugin").textContent = message.plugin;
 		}
-		if (reply.plugin !== undefined) {
-			document.getElementById("plugin").textContent = reply.plugin;
-		}
-		// A CLI device change is a state update, not a reply to a page request.
-		if (reply.id === undefined) {
-			if (reply.snapshot) selector.applySnapshot(reply.snapshot);
-			return;
-		}
-		const waiting = pending.get(reply.id);
-		if (!waiting) return;
-		pending.delete(reply.id);
-		if (reply.error) waiting.reject(new Error(reply.error));
-		else waiting.resolve(reply.snapshot);
-	}
+		if (message.snapshot) selector.applySnapshot(message.snapshot);
+	});
 
 	const selector = document.getElementById("devices");
 	const status = document.getElementById("status");
@@ -221,28 +175,8 @@ const char *kPage = R"(<!doctype html>
 
 } // namespace
 
-SettingsWindow::SettingsWindow(Session &session) : session_(session) {
-	webview_.setFetch([this](const std::string &path) { return fetch(path); });
-	webview_.setReceive([this](const uint8_t *bytes, uint32_t size) { onMessage(bytes, size); });
-}
-
-SettingsWindow::~SettingsWindow() {
-	close();
-}
-
-bool SettingsWindow::isOpen() const {
-	return window_ != nullptr;
-}
-
-bool SettingsWindow::wantsClose() const {
-	return window_ != nullptr && window_->wantsClose();
-}
-
-std::optional<WebviewHost::Resource> SettingsWindow::fetch(const std::string &path) const {
-	if (path == "/" || path.empty())
-		return htmlResource(kPage);
-	return compostResource(path);
-}
+SettingsWindow::SettingsWindow(Session &session)
+    : session_(session), page_(kPage, [this](const Value &request) { onMessage(request); }) {}
 
 DeviceState SettingsWindow::deviceState() const {
 	AudioDevice &audio = session_.audioDevice();
@@ -280,17 +214,11 @@ Value SettingsWindow::apply(const Value &request, std::string &error) {
 	return snapshot();
 }
 
-void SettingsWindow::onMessage(const uint8_t *bytes, uint32_t size) {
-	const std::string text(reinterpret_cast<const char *>(bytes), size);
-	Value request;
-	std::string parseError;
-	if (!Value::parse(text, request, parseError))
-		return;
-
+void SettingsWindow::onMessage(const Value &request) {
 	if (request.has("contentHeight")) {
 		const auto height = static_cast<uint32_t>(request["contentHeight"].asNumber());
-		if (window_ != nullptr && height != 0)
-			window_->setSize(kWidth, height);
+		if (isOpen() && height != 0)
+			page_.window()->setSize(kWidth, height);
 		return;
 	}
 
@@ -309,8 +237,7 @@ void SettingsWindow::onMessage(const uint8_t *bytes, uint32_t size) {
 	if (!error.empty())
 		reply["error"] = Value(error);
 
-	const std::string encoded = Value(std::move(reply)).toJson();
-	webview_.send(encoded.data(), static_cast<uint32_t>(encoded.size()));
+	page_.send(Value(std::move(reply)));
 }
 
 void SettingsWindow::refresh() {
@@ -324,38 +251,22 @@ void SettingsWindow::sendSnapshot() {
 	message["plugin"] = Value(session_.isLoaded() && session_.descriptor()->name != nullptr
 	                              ? session_.descriptor()->name
 	                              : "No plug-in loaded");
-	const std::string encoded = Value(std::move(message)).toJson();
-	webview_.send(encoded.data(), static_cast<uint32_t>(encoded.size()));
+	page_.send(Value(std::move(message)));
 }
 
 bool SettingsWindow::open(std::string &error) {
 	if (isOpen()) {
-		window_->show();
+		page_.window()->show();
 		return true;
 	}
-	if (!WebviewHost::available()) {
-		error = "this build has no webview support, so there is no settings window";
+	if (!page_.open(kWidth, kHeight, "clap-host settings", "settings window", error))
 		return false;
-	}
-	window_ = createNativeWindow(kWidth, kHeight, "clap-host settings", error);
-	if (window_ == nullptr)
-		return false;
-	// On screen before the webview is made, for the same reason a plug-in's
-	// interface is: WebKit will not composite into a window that is not there.
-	window_->show();
-	if (!webview_.open({}, error)) {
-		window_.reset();
-		return false;
-	}
-	window_->attachChild(webview_.viewHandle());
-	window_->acceptDropsAboveChild();
 	sendSnapshot();
 	return true;
 }
 
 void SettingsWindow::close() {
-	webview_.close();
-	window_.reset();
+	page_.close();
 }
 
 } // namespace nch

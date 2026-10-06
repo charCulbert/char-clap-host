@@ -13,29 +13,24 @@
 // replies. Anything the command set gains is available here without new code.
 #pragma once
 
-#include "webview.h"
+#include "host-page.h"
 
 #include <clap/clap.h>
 
-#include <memory>
 #include <string>
 
 namespace nch {
 
-class NativeWindow;
 class Session;
 
 class PluginPanel {
 public:
 	explicit PluginPanel(Session &session);
-	~PluginPanel();
-	PluginPanel(const PluginPanel &) = delete;
-	PluginPanel &operator=(const PluginPanel &) = delete;
 
 	bool open(std::string &error);
 	void close();
-	bool isOpen() const;
-	bool wantsClose() const;
+	bool isOpen() const { return page_.isOpen(); }
+	bool wantsClose() const { return page_.wantsClose(); }
 	// Tells an open panel the plug-in changed, so it reloads what it shows.
 	void refresh();
 	// Tells an open panel the plug-in moved one parameter itself, from its own
@@ -49,12 +44,10 @@ private:
 	// one plug-in.
 	std::string windowTitle() const;
 
-	std::optional<WebviewHost::Resource> fetch(const std::string &path) const;
-	void onMessage(const uint8_t *bytes, uint32_t size);
+	void onMessage(const Value &request);
 
 	Session &session_;
-	std::unique_ptr<NativeWindow> window_;
-	WebviewHost webview_;
+	HostPage page_;
 };
 
 } // namespace nch

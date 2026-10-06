@@ -7,29 +7,24 @@
 #pragma once
 
 #include "device-settings.h"
+#include "host-page.h"
 #include "json.h"
-#include "webview.h"
 
-#include <memory>
 #include <string>
 
 namespace nch {
 
-class NativeWindow;
 class Session;
 
 class SettingsWindow {
 public:
 	explicit SettingsWindow(Session &session);
-	~SettingsWindow();
-	SettingsWindow(const SettingsWindow &) = delete;
-	SettingsWindow &operator=(const SettingsWindow &) = delete;
 
 	bool open(std::string &error);
 	void close();
-	bool isOpen() const;
+	bool isOpen() const { return page_.isOpen(); }
 	// True once the user closed the window, so the main loop can tidy up.
-	bool wantsClose() const;
+	bool wantsClose() const { return page_.wantsClose(); }
 	// Push CLI device changes into an already-open selector.
 	void refresh();
 
@@ -45,13 +40,11 @@ public:
 	Value apply(const Value &request, std::string &error);
 
 private:
-	std::optional<WebviewHost::Resource> fetch(const std::string &path) const;
-	void onMessage(const uint8_t *bytes, uint32_t size);
+	void onMessage(const Value &request);
 	void sendSnapshot();
 
 	Session &session_;
-	std::unique_ptr<NativeWindow> window_;
-	WebviewHost webview_;
+	HostPage page_;
 	// Whether the user asked for every MIDI input, which is a decision and not
 	// something to infer from the ports that happen to be open: with one port
 	// on the system, "all of them" and "that one" are the same set.

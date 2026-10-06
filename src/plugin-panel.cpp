@@ -1,10 +1,7 @@
 #include "plugin-panel.h"
 
 #include "native-window.h"
-#include "web-assets.h"
 #include "session.h"
-
-#include <cstdio>
 
 namespace nch {
 namespace {
@@ -195,45 +192,15 @@ const char *kPage = R"(<!doctype html>
 	import "./compost/components/compost-knob.js";
 	import "./compost/components/compost-button.js";
 	import "./compost/components/compost-select.js";
+	import { request } from "./host-page.js";
 
 	// The page drives the host's own command table, so everything here is the
 	// same command a person would type.
-	const pending = new Map();
-	let nextRequest = 1;
-
-	function toBase64(bytes) {
-		let text = "";
-		for (const byte of bytes) text += String.fromCharCode(byte);
-		return btoa(text);
+	async function run(command) {
+		const reply = await request({ command });
+		if (reply.ok === false) throw new Error(reply.error || "failed");
+		return reply.data || {};
 	}
-
-	function fromBase64(encoded) {
-		const text = atob(encoded);
-		const bytes = new Uint8Array(text.length);
-		for (let i = 0; i < text.length; ++i) bytes[i] = text.charCodeAt(i);
-		return bytes;
-	}
-
-	function run(command) {
-		const id = nextRequest++;
-		const message = JSON.stringify({ id, command });
-		nchFromPlugin(toBase64(new TextEncoder().encode(message)));
-		return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
-	}
-
-	window.nchToPlugin = function (encoded) {
-		let reply;
-		try {
-			reply = JSON.parse(new TextDecoder().decode(fromBase64(encoded)));
-		} catch {
-			return;
-		}
-		const waiting = pending.get(reply.id);
-		if (!waiting) return;
-		pending.delete(reply.id);
-		if (reply.ok === false) waiting.reject(new Error(reply.error || "failed"));
-		else waiting.resolve(reply.data || {});
-	};
 
 	const status = document.getElementById("status");
 
@@ -759,40 +726,14 @@ const char *kPage = R"(<!doctype html>
 
 } // namespace
 
-PluginPanel::PluginPanel(Session &session) : session_(session) {
-	webview_.setFetch([this](const std::string &path) { return fetch(path); });
-	webview_.setReceive([this](const uint8_t *bytes, uint32_t size) { onMessage(bytes, size); });
-}
+PluginPanel::PluginPanel(Session &session)
+    : session_(session), page_(kPage, [this](const Value &request) { onMessage(request); }) {}
 
-PluginPanel::~PluginPanel() {
-	close();
-}
-
-bool PluginPanel::isOpen() const {
-	return window_ != nullptr;
-}
-
-bool PluginPanel::wantsClose() const {
-	return window_ != nullptr && window_->wantsClose();
-}
-
-std::optional<WebviewHost::Resource> PluginPanel::fetch(const std::string &path) const {
-	if (path.empty() || path == "/")
-		return htmlResource(kPage);
-	return compostResource(path);
-}
-
-void PluginPanel::onMessage(const uint8_t *bytes, uint32_t size) {
-	Value request;
-	std::string parseError;
-	if (!Value::parse(std::string(reinterpret_cast<const char *>(bytes), size), request, parseError))
-		return;
-
+void PluginPanel::onMessage(const Value &request) {
 	// The page asked for a command; it gets exactly what the prompt would.
 	Value reply = session_.executeAsJson(request["command"].asString());
 	reply.set("id", request["id"]);
-	const std::string encoded = reply.toJson();
-	webview_.send(encoded.data(), static_cast<uint32_t>(encoded.size()));
+	page_.send(reply);
 }
 
 std::string PluginPanel::windowTitle() const {
@@ -803,37 +744,24 @@ std::string PluginPanel::windowTitle() const {
 
 void PluginPanel::paramChanged(clap_id id) {
 	if (isOpen())
-		webview_.evaluate("window.nchParamChanged && window.nchParamChanged(" + std::to_string(id) + ");");
+		page_.evaluate("window.nchParamChanged && window.nchParamChanged(" + std::to_string(id) + ");");
 }
 
 void PluginPanel::refresh() {
 	if (!isOpen())
 		return;
-	window_->setTitle(windowTitle());
-	webview_.evaluate("window.nchRefresh && window.nchRefresh();");
+	page_.window()->setTitle(windowTitle());
+	page_.evaluate("window.nchRefresh && window.nchRefresh();");
 }
 
 bool PluginPanel::open(std::string &error) {
 	if (isOpen()) {
-		window_->show();
+		page_.window()->show();
 		refresh();
 		return true;
 	}
-	if (!WebviewHost::available()) {
-		error = "this build has no webview support, so there is no parameter view";
+	if (!page_.open(kWidth, kHeight, windowTitle(), "parameter view", error))
 		return false;
-	}
-	window_ = createNativeWindow(kWidth, kHeight, windowTitle(), error);
-	if (window_ == nullptr)
-		return false;
-	// On screen before the webview is made, or WebKit never composites.
-	window_->show();
-	if (!webview_.open({}, error)) {
-		window_.reset();
-		return false;
-	}
-	window_->attachChild(webview_.viewHandle());
-	window_->acceptDropsAboveChild();
 	// A window means a person, and a person expects a keyboard to play it.
 	session_.openEveryMidiInput();
 	return true;
@@ -844,12 +772,11 @@ bool PluginPanel::writeSnapshot(const std::string &path, std::string &error) {
 		error = "the parameter window is not open";
 		return false;
 	}
-	return window_->writeSnapshot(path, error);
+	return page_.window()->writeSnapshot(path, error);
 }
 
 void PluginPanel::close() {
-	webview_.close();
-	window_.reset();
+	page_.close();
 }
 
 } // namespace nch
