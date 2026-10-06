@@ -42,6 +42,20 @@ uint64_t nowMs() {
 	return static_cast<uint64_t>(duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());
 }
 
+// A reply as it goes over the wire. `cmd` is left out when empty, as it is for
+// a window's request or a line that never parsed far enough to name one.
+Value envelope(const Response &response, const std::string &cmd) {
+	Object out;
+	out["ok"] = Value(response.ok);
+	if (!cmd.empty())
+		out["cmd"] = Value(cmd);
+	if (!response.ok)
+		out["error"] = Value(response.error);
+	if (!response.data.isNull())
+		out["data"] = response.data;
+	return Value(std::move(out));
+}
+
 // A recent-file list, on disk if the options say so.
 std::string recentStore(const Options &options, const char *name) {
 	return options.recentFilesOnDisk ? RecentFiles::defaultStorePath(name) : std::string();
@@ -788,31 +802,27 @@ void Session::onGuiResizeHintsChanged() {
 	postToMainThread([this] { gui_.onResizeHintsChanged(); });
 }
 
-bool Session::onGuiRequestResize(uint32_t width, uint32_t height) {
-	// clap.gui marks this [thread-safe]. Off the main thread the host may only
-	// acknowledge and act later, which is exactly what the extension says a
-	// true return means in that case.
+bool Session::onMainThread(std::function<bool()> request) {
+	// clap.gui marks its requests [thread-safe]. Off the main thread the host
+	// may only acknowledge and act later, which is exactly what the extension
+	// says a true return means in that case.
 	if (currentThreadRole() != ThreadRole::Main) {
-		postToMainThread([this, width, height] { gui_.requestResize(width, height); });
+		postToMainThread([request] { request(); });
 		return true;
 	}
-	return gui_.requestResize(width, height);
+	return request();
+}
+
+bool Session::onGuiRequestResize(uint32_t width, uint32_t height) {
+	return onMainThread([this, width, height] { return gui_.requestResize(width, height); });
 }
 
 bool Session::onGuiRequestShow() {
-	if (currentThreadRole() != ThreadRole::Main) {
-		postToMainThread([this] { gui_.requestShow(); });
-		return true;
-	}
-	return gui_.requestShow();
+	return onMainThread([this] { return gui_.requestShow(); });
 }
 
 bool Session::onGuiRequestHide() {
-	if (currentThreadRole() != ThreadRole::Main) {
-		postToMainThread([this] { gui_.requestHide(); });
-		return true;
-	}
-	return gui_.requestHide();
+	return onMainThread([this] { return gui_.requestHide(); });
 }
 
 bool Session::onWebviewMessage(const void *buffer, uint32_t size) {
@@ -881,6 +891,10 @@ Response Session::execute(const std::string &line) {
 	std::string error;
 	if (!commands_.parseLine(line, request, error))
 		return Response::failure(error);
+	return execute(request);
+}
+
+Response Session::execute(const Request &request) {
 	if (request.name.empty())
 		return Response::success();
 
@@ -900,28 +914,17 @@ Response Session::execute(const std::string &line) {
 }
 
 Value Session::executeAsJson(const std::string &line) {
-	const Response response = execute(line);
-	Object envelope;
-	envelope["ok"] = Value(response.ok);
-	if (!response.ok)
-		envelope["error"] = Value(response.error);
-	if (!response.data.isNull())
-		envelope["data"] = response.data;
-	return Value(std::move(envelope));
+	return envelope(execute(line), {});
 }
 
 bool Session::runLine(const std::string &line) {
 	Request request;
 	std::string error;
-	if (!commands_.parseLine(line, request, error)) {
-		writeResponse(request, Response::failure(error));
-		++commandFailures_;
-		return !quit_;
-	}
-	if (request.name.empty())
+	const bool parsed = commands_.parseLine(line, request, error);
+	if (parsed && request.name.empty())
 		return !quit_;
 
-	const Response response = execute(line);
+	const Response response = parsed ? execute(request) : Response::failure(error);
 	if (!response.ok)
 		++commandFailures_;
 	writeResponse(request, response);
@@ -1003,15 +1006,7 @@ void Session::writeResponse(const Request &request, const Response &response) {
 	};
 
 	if (options_.json) {
-		Object envelope;
-		envelope["ok"] = Value(response.ok);
-		if (!request.name.empty())
-			envelope["cmd"] = Value(request.name);
-		if (!response.ok)
-			envelope["error"] = Value(response.error);
-		if (!response.data.isNull())
-			envelope["data"] = response.data;
-		emit(Value(std::move(envelope)).toJson() + "\n");
+		emit(envelope(response, request.name).toJson() + "\n");
 		return;
 	}
 	if (!response.ok) {

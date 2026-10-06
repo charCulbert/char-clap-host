@@ -248,6 +248,12 @@ public:
 	void setOutput(std::function<void(const std::string &)> sink);
 
 private:
+	// Runs a parsed line: what execute() and runLine() share once parsing is done.
+	Response execute(const Request &request);
+	// Answers a [thread-safe] GUI request now on the main thread, or queues it
+	// there and acknowledges.
+	bool onMainThread(std::function<bool()> request);
+
 	// Mixes the test tone into a device block, if one is playing.
 	void renderTestTone(float *output, uint32_t frames, uint32_t channels);
 
