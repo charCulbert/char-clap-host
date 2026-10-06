@@ -35,6 +35,11 @@ and the Rust bindings are not copied.
 - **Streams.** Reads and writes pass through whole (up to 16 MB a call) rather
   than 1 KB at a time. Plug-ins that serve a webview resource in one `write()`
   otherwise show a blank interface.
+- **Host struct.** The `clap_host` a WCLAP gets from `create_plugin()` has its
+  `clap_version`, `name`, `vendor`, `url` and `version` filled in from the
+  native host. Upstream copies a template that only sets the functions, so a
+  plug-in checking `clap_version_is_compatible(host->clap_version)` saw
+  whatever bytes were there and could refuse to load.
 - **Logging.** Diagnostics go to stderr, never stdout, which clap-host keeps for
   replies; the per-call extension logging is gone.
 - Stored directories are made absolute, so mapped paths are too.

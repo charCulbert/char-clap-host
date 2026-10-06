@@ -45,7 +45,18 @@ struct PluginFactory {
 		// In order to get to this point, it must've started with the WCLAP prefix (if defined), so skip it
 		pluginId += wclap_bridge::pluginIdPrefix.size();
 		auto strPtr = scoped.writeString(pluginId);
-		auto hostPtr = scoped.copyAcross(module.hostTemplate);
+		// The template only holds the host functions: the version and strings come from the native host
+		wclap_host wHost = module.hostTemplate;
+		wHost.clap_version = {CLAP_VERSION_MAJOR, CLAP_VERSION_MINOR, CLAP_VERSION_REVISION};
+		wHost.host_data = {};
+		auto copyString = [&](const char *str) -> Pointer<const char> {
+			return str ? scoped.writeString(str) : Pointer<const char>{};
+		};
+		wHost.name = copyString(host->name);
+		wHost.vendor = copyString(host->vendor);
+		wHost.url = copyString(host->url);
+		wHost.version = copyString(host->version);
+		auto hostPtr = scoped.copyAcross(wHost);
 		// The Plugin exists (and `host_data` routes to it) before `create_plugin()`, because a WCLAP may call the host from inside it.  CLAP forbids that before init(), but native hosts answer anyway, so we do too.
 		auto *plugin = new Plugin(module, host, hostPtr, scoped.commit(), desc);
 		plugin->ptr = module.mainThread->call(ptr[&wclap_plugin_factory::create_plugin], ptr, hostPtr, strPtr);
