@@ -205,42 +205,43 @@ int main(int argc, char **argv) {
 		}
 	} sever{link};
 
+	nch::AppHandlers &handlers = nch::appHandlers();
 	// Cmd-Q and the Quit menu item take the same path as the `quit` command.
-	nch::setQuitHandler([&session] { session.requestQuit(); });
+	handlers.quit = [&session] { session.requestQuit(); };
 	// Loading from the File menu or a drop replaces whatever is loaded, then
 	// shows the new plug-in's interface, because that is plainly what choosing
 	// a plug-in from a menu is asking for.
-	nch::setLoadPluginHandler([&session](const std::string &path) {
+	handlers.loadPlugin = [&session](const std::string &path) {
 		session.postLine("load \"" + path + "\"");
 		session.postLine("gui.open");
-	});
+	};
 
 	// A .wav or .mid dropped on a window plays into the plug-in, round and
 	// round, which is what auditioning on a loop wants.
-	nch::setPlayFileHandler([&session](const std::string &path) {
+	handlers.playFile = [&session](const std::string &path) {
 		std::string extension = std::filesystem::path(path).extension().string();
 		std::transform(extension.begin(), extension.end(), extension.begin(),
 		               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 		const bool midi = extension == ".mid" || extension == ".midi";
 		session.postLine(std::string(midi ? "midi.file" : "audio.input") + " \"" + path + "\" --loop");
-	});
+	};
 
 	// File > Open Recent reads the same list `plugins.recent` does, and its
 	// Clear Menu is that command.
-	nch::setRecentPluginsHandlers([&session] { return session.recentPlugins().list(); },
-	                              [&session] { session.postLine("plugins.recent clear"); });
+	handlers.recentPlugins = [&session] { return session.recentPlugins().list(); };
+	handlers.clearRecentPlugins = [&session] { session.postLine("plugins.recent clear"); };
 
-	nch::setSettingsHandler([&session] {
+	handlers.openSettings = [&session] {
 		std::string settingsError;
 		if (!session.settings().open(settingsError))
 			std::fprintf(stderr, "error: %s\n", settingsError.c_str());
-	});
+	};
 
-	nch::setPanelHandler([&session] {
+	handlers.openPanel = [&session] {
 		std::string panelError;
 		if (!session.panel().open(panelError))
 			std::fprintf(stderr, "error: %s\n", panelError.c_str());
-	});
+	};
 
 	// The platform owns the loop; the host's own work is a timer on it. The
 	// interval sets the ceiling on how often a plug-in's own timers can fire,

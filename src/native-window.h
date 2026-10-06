@@ -71,35 +71,35 @@ std::unique_ptr<NativeWindow> createNativeWindow(uint32_t width, uint32_t height
 // The clap.gui API name for this platform.
 const char *nativeWindowApi();
 
-// Runs when a plug-in is chosen from the File menu or dropped on a window.
-// Called on the main thread with the path to a .clap.
-void setLoadPluginHandler(std::function<void(const std::string &)> handler);
+// What the application's menus and drops do. main fills these in before the
+// loop starts; the window layer calls them on the main thread, and one left
+// alone does nothing.
+struct AppHandlers {
+	// A plug-in chosen from the File menu, Open Recent, or dropped on a window.
+	std::function<void(const std::string &path)> loadPlugin = [](const std::string &) {};
+	// A .wav or .mid dropped on a host window: a file to play into the plug-in.
+	std::function<void(const std::string &path)> playFile = [](const std::string &) {};
+	// What File > Open Recent lists, asked each time the menu opens, and what
+	// its Clear Menu item does.
+	std::function<std::vector<std::string>()> recentPlugins = [] { return std::vector<std::string>(); };
+	std::function<void()> clearRecentPlugins = [] {};
+	// The Audio/MIDI Settings and Parameters & Presets menu items.
+	std::function<void()> openSettings = [] {};
+	std::function<void()> openPanel = [] {};
+	// Cmd-Q or a Quit menu item. The loop then unwinds normally so the
+	// plug-in is destroyed the same way `quit` destroys it.
+	std::function<void()> quit = [] {};
+};
 
-// Runs when a .wav or .mid is dropped on a host window, on the main thread,
-// with its path: a file to play into the plug-in.
-void setPlayFileHandler(std::function<void(const std::string &)> handler);
-
-// What File > Open Recent lists, asked each time the menu opens, and what its
-// Clear Menu item does. Both run on the main thread; choosing an entry goes
-// through the load-plug-in handler, the same as the File menu's dialog.
-void setRecentPluginsHandlers(std::function<std::vector<std::string>()> list, std::function<void()> clear);
+inline AppHandlers &appHandlers() {
+	static AppHandlers handlers;
+	return handlers;
+}
 
 // Asks the user for one file with one of `extensions`, in the platform's own
 // open dialog. Blocks until it closes; empty if cancelled, or where this
 // platform has no dialog.
 std::string chooseFile(const std::string &message, const std::vector<std::string> &extensions);
-
-// Runs when the Audio/MIDI Settings menu item is chosen. Called on the main
-// thread, like every other menu action.
-void setSettingsHandler(std::function<void()> handler);
-
-// Runs when the Parameters & Presets menu item is chosen, on the main thread.
-void setPanelHandler(std::function<void()> handler);
-
-// Asks the application to stop, as Cmd-Q or a Quit menu item would. The
-// handler runs on the main thread; the loop then unwinds normally so the
-// plug-in is destroyed the same way `quit` destroys it.
-void setQuitHandler(std::function<void()> handler);
 
 // Runs the platform's own application loop until `tick` returns false,
 // calling it roughly every `intervalMs`.

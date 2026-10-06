@@ -14,14 +14,7 @@
 #import <WebKit/WebKit.h>
 
 namespace nch {
-// Defined below; the application delegate and the content view need them
-// before either exists.
-void requestQuit();
-void openSettings();
-void openPanel();
-void loadPlugin(const std::string &path);
-std::vector<std::string> recentPlugins();
-void clearRecentPlugins();
+// Defined below; the content view needs them before it exists.
 // The dragged plug-in (see pluginSuffixes()), .wav or .mid, or an empty
 // string when the drag carries none of them.
 // Shared by the content view and the drop target, which both take a drop.
@@ -141,9 +134,6 @@ void openDropped(NSString *path);
 }
 @end
 
-// Cmd-Q would otherwise call -terminate: and kill the process where it stands,
-// leaving the plug-in undestroyed. Cancelling the termination and asking the
-// host to quit takes the ordinary shutdown path instead.
 // Lets the Load Plug-in panel pick exactly what Bundle::open takes. A .wclap
 // is a plain directory, so a fixed list of file types cannot say it; asking
 // isPluginPath can, and keeps every other folder open for browsing into.
@@ -169,27 +159,30 @@ void openDropped(NSString *path);
 @end
 
 @implementation NchAppDelegate
+// Cmd-Q would otherwise call -terminate: and kill the process where it stands,
+// leaving the plug-in undestroyed. Cancelling the termination and asking the
+// host to quit takes the ordinary shutdown path instead.
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender {
 	(void)sender;
-	nch::requestQuit();
+	nch::appHandlers().quit();
 	return NSTerminateCancel;
 }
 
 - (void)showAudioMidiSettings:(id)sender {
 	(void)sender;
-	nch::openSettings();
+	nch::appHandlers().openSettings();
 }
 
 - (void)showPluginPanel:(id)sender {
 	(void)sender;
-	nch::openPanel();
+	nch::appHandlers().openPanel();
 }
 
 // File > Open Recent is filled in as it opens, so it always matches the
 // list `plugins.recent` reads, whoever changed it last.
 - (void)menuNeedsUpdate:(NSMenu *)menu {
 	[menu removeAllItems];
-	const std::vector<std::string> paths = nch::recentPlugins();
+	const std::vector<std::string> paths = nch::appHandlers().recentPlugins();
 	for (const auto &path : paths) {
 		NSString *full = [NSString stringWithUTF8String:path.c_str()];
 		NSMenuItem *item = [menu addItemWithTitle:[[full lastPathComponent] stringByDeletingPathExtension]
@@ -207,12 +200,12 @@ void openDropped(NSString *path);
 }
 
 - (void)openRecentPlugin:(NSMenuItem *)sender {
-	nch::loadPlugin(std::string([[sender representedObject] UTF8String]));
+	nch::appHandlers().loadPlugin(std::string([[sender representedObject] UTF8String]));
 }
 
 - (void)clearRecentPlugins:(id)sender {
 	(void)sender;
-	nch::clearRecentPlugins();
+	nch::appHandlers().clearRecentPlugins();
 }
 
 - (void)loadPlugin:(id)sender {
@@ -235,47 +228,12 @@ void openDropped(NSString *path);
 		return;
 	NSURL *url = [[panel URLs] firstObject];
 	if (url != nil)
-		nch::loadPlugin(std::string([[url path] UTF8String]));
+		nch::appHandlers().loadPlugin(std::string([[url path] UTF8String]));
 }
 @end
 
 namespace nch {
 namespace {
-
-std::function<void()> &quitHandler() {
-	static std::function<void()> handler;
-	return handler;
-}
-
-std::function<void()> &settingsHandler() {
-	static std::function<void()> handler;
-	return handler;
-}
-
-std::function<void()> &panelHandler() {
-	static std::function<void()> handler;
-	return handler;
-}
-
-std::function<void(const std::string &)> &loadPluginHandler() {
-	static std::function<void(const std::string &)> handler;
-	return handler;
-}
-
-std::function<void(const std::string &)> &playFileHandler() {
-	static std::function<void(const std::string &)> handler;
-	return handler;
-}
-
-std::function<std::vector<std::string>()> &recentPluginsList() {
-	static std::function<std::vector<std::string>()> handler;
-	return handler;
-}
-
-std::function<void()> &recentPluginsClear() {
-	static std::function<void()> handler;
-	return handler;
-}
 
 NchAppDelegate *applicationDelegate() {
 	static NchAppDelegate *delegate = [[NchAppDelegate alloc] init];
@@ -444,9 +402,9 @@ NSString *droppedPath(id<NSDraggingInfo> sender) {
 void openDropped(NSString *path) {
 	const std::string text([path UTF8String]);
 	if (isPluginPath(text))
-		loadPlugin(text);
-	else if (playFileHandler())
-		playFileHandler()(text);
+		appHandlers().loadPlugin(text);
+	else
+		appHandlers().playFile(text);
 }
 
 namespace {
@@ -694,31 +652,6 @@ private:
 
 } // namespace
 
-void setQuitHandler(std::function<void()> handler) {
-	quitHandler() = std::move(handler);
-}
-
-void requestQuit() {
-	if (quitHandler())
-		quitHandler()();
-}
-
-void setSettingsHandler(std::function<void()> handler) {
-	settingsHandler() = std::move(handler);
-}
-
-void setPanelHandler(std::function<void()> handler) {
-	panelHandler() = std::move(handler);
-}
-
-void setLoadPluginHandler(std::function<void(const std::string &)> handler) {
-	loadPluginHandler() = std::move(handler);
-}
-
-void setPlayFileHandler(std::function<void(const std::string &)> handler) {
-	playFileHandler() = std::move(handler);
-}
-
 std::string chooseFile(const std::string &message, const std::vector<std::string> &extensions) {
 	prepareApplication();
 	NSOpenPanel *panel = [NSOpenPanel openPanel];
@@ -734,35 +667,6 @@ std::string chooseFile(const std::string &message, const std::vector<std::string
 		return {};
 	NSURL *url = [[panel URLs] firstObject];
 	return url != nil ? std::string([[url path] UTF8String]) : std::string();
-}
-
-void setRecentPluginsHandlers(std::function<std::vector<std::string>()> list, std::function<void()> clear) {
-	recentPluginsList() = std::move(list);
-	recentPluginsClear() = std::move(clear);
-}
-
-std::vector<std::string> recentPlugins() {
-	return recentPluginsList() ? recentPluginsList()() : std::vector<std::string>();
-}
-
-void clearRecentPlugins() {
-	if (recentPluginsClear())
-		recentPluginsClear()();
-}
-
-void loadPlugin(const std::string &path) {
-	if (loadPluginHandler())
-		loadPluginHandler()(path);
-}
-
-void openSettings() {
-	if (settingsHandler())
-		settingsHandler()();
-}
-
-void openPanel() {
-	if (panelHandler())
-		panelHandler()();
 }
 
 void prepareApplication() {

@@ -27,26 +27,6 @@
 namespace nch {
 namespace {
 
-std::function<void()> &quitHandler() {
-	static std::function<void()> handler;
-	return handler;
-}
-
-std::function<void(const std::string &)> &loadPluginHandler() {
-	static std::function<void(const std::string &)> handler;
-	return handler;
-}
-
-std::function<void()> &settingsHandler() {
-	static std::function<void()> handler;
-	return handler;
-}
-
-std::function<void()> &panelHandler() {
-	static std::function<void()> handler;
-	return handler;
-}
-
 class ChocWindow : public NativeWindow {
 public:
 	ChocWindow(uint32_t width, uint32_t height, const std::string &title)
@@ -154,20 +134,9 @@ private:
 		static_cast<ChocWindow *>(data)->choosePlugin();
 	}
 
-	static void settingsClicked(GtkWidget *, gpointer) {
-		if (settingsHandler())
-			settingsHandler()();
-	}
-
-	static void panelClicked(GtkWidget *, gpointer) {
-		if (panelHandler())
-			panelHandler()();
-	}
-
-	static void quitClicked(GtkWidget *, gpointer) {
-		if (quitHandler())
-			quitHandler()();
-	}
+	static void settingsClicked(GtkWidget *, gpointer) { appHandlers().openSettings(); }
+	static void panelClicked(GtkWidget *, gpointer) { appHandlers().openPanel(); }
+	static void quitClicked(GtkWidget *, gpointer) { appHandlers().quit(); }
 
 	GtkWidget *addMenuItem(GtkWidget *menu, const char *label, guint key, GCallback callback) {
 		auto *item = gtk_menu_item_new_with_mnemonic(label);
@@ -187,8 +156,7 @@ private:
 			for (const auto *uri = uris; *uri != nullptr && !accepted; ++uri) {
 				if (char *path = g_filename_from_uri(*uri, nullptr, nullptr)) {
 					if (isPluginPath(path)) {
-						if (loadPluginHandler())
-							loadPluginHandler()(path);
+						appHandlers().loadPlugin(path);
 						accepted = true;
 					}
 					g_free(path);
@@ -237,8 +205,8 @@ private:
 	static void fileChooserResponse(GtkNativeDialog *dialog, gint response, gpointer) {
 		if (response == GTK_RESPONSE_ACCEPT) {
 			char *path = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
-			if (path != nullptr && loadPluginHandler())
-				loadPluginHandler()(path);
+			if (path != nullptr)
+				appHandlers().loadPlugin(path);
 			g_free(path);
 		}
 		g_object_unref(dialog);
@@ -276,33 +244,13 @@ private:
 
 } // namespace
 
-void setLoadPluginHandler(std::function<void(const std::string &)> handler) {
-	loadPluginHandler() = std::move(handler);
-}
-
-void setSettingsHandler(std::function<void()> handler) {
-	settingsHandler() = std::move(handler);
-}
-
-void setPanelHandler(std::function<void()> handler) {
-	panelHandler() = std::move(handler);
-}
-
-void setPlayFileHandler(std::function<void(const std::string &)>) {
-	// No .wav or .mid drops here yet; `audio.input` and `midi.file` do the same.
-}
-
-void setRecentPluginsHandlers(std::function<std::vector<std::string>()>, std::function<void()>) {
-	// No Open Recent menu here yet; `plugins.recent` lists them.
-}
+// No .wav or .mid drops and no Open Recent menu here yet, so playFile and the
+// recent-plug-in handlers go unused; `audio.input`, `midi.file` and
+// `plugins.recent` do the same from the prompt.
 
 std::string chooseFile(const std::string &, const std::vector<std::string> &) {
 	// No open dialog on this window layer yet; `audio.input` takes a path.
 	return {};
-}
-
-void setQuitHandler(std::function<void()> handler) {
-	quitHandler() = std::move(handler);
 }
 
 void prepareApplication() {
