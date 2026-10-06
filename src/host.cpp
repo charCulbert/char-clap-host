@@ -70,13 +70,7 @@ void paramsClear(const clap_host_t *host, clap_id paramId, clap_param_clear_flag
 }
 
 void paramsRequestFlush(const clap_host_t *host) {
-	Host::from(host).noteCall("clap_host_params.request_flush");
-	// [thread-safe, !audio-thread]: the plug-in is already inside process() or
-	// flush() on that thread, so asking for another is a contradiction.
-	if (currentThreadRole() == ThreadRole::Audio)
-		Host::from(host).validator().error("clap_host_params.request_flush",
-		                                   "called from the audio thread, where the plug-in is already inside "
-		                                   "process() or flush()");
+	Host::from(host).noteFlushRequest("clap_host_params.request_flush");
 	sessionOf(host).onParamsRequestFlush();
 }
 
@@ -300,6 +294,15 @@ void Host::noteAudioThreadCall(const char *where) {
 	if (currentThreadRole() != ThreadRole::Audio)
 		validator_.error(where, std::string("called from the ") + threadRoleName(currentThreadRole()) +
 		                            " thread; this call is audio-thread only");
+}
+
+void Host::noteFlushRequest(const char *where) {
+	noteCall(where);
+	// [thread-safe, !audio-thread]: the plug-in is already inside process() or
+	// flush() on that thread, so asking for another is a contradiction.
+	if (currentThreadRole() == ThreadRole::Audio)
+		validator_.error(where,
+		                 "called from the audio thread, where the plug-in is already inside process() or flush()");
 }
 
 void Host::noteCall(const char *where) {

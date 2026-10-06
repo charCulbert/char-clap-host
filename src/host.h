@@ -39,6 +39,9 @@ public:
 	// still serviced: the host stays permissive and only reports.
 	void noteMainThreadCall(const char *where);
 	void noteAudioThreadCall(const char *where);
+	// Records a request to flush, which may come from any thread but the
+	// audio one: there the plug-in is already inside process() or flush().
+	void noteFlushRequest(const char *where);
 	// Records a call with no thread requirement of its own.
 	void noteCall(const char *where);
 

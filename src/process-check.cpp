@@ -101,7 +101,7 @@ std::vector<std::string> ProcessCheck::after(ProcessBuffers &buffers, uint32_t f
 					problems.push_back(std::string("the plug-in produced a ") +
 					                   (std::isnan(sample) ? "NaN" : "an infinity") + at(port, channel, frame));
 					reported = true;
-				} else if (!allowDenormals_ && sample != 0.0f && std::fabs(sample) < 1.1754944e-38f) {
+				} else if (sample != 0.0f && std::fabs(sample) < 1.1754944e-38f) {
 					problems.push_back("the plug-in produced a subnormal, which usually means no flush-to-zero" +
 					                   at(port, channel, frame));
 					reported = true;

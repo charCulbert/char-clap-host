@@ -30,10 +30,8 @@ public:
 	~HostServices();
 
 	// --- clap.track-info --------------------------------------------------
-	bool trackInfo(clap_track_info_t &out) const;
+	void trackInfo(clap_track_info_t &out) const { out = trackInfo_; }
 	void setTrackInfo(const clap_track_info_t &info) { trackInfo_ = info; }
-	void setTrackInfoAvailable(bool available) { trackInfoAvailable_ = available; }
-	bool trackInfoAvailable() const { return trackInfoAvailable_; }
 	Value trackInfoReport() const;
 
 	// --- clap.resource-directory ------------------------------------------
@@ -83,17 +81,13 @@ public:
 	void setBackgroundProgress(double progress, const std::string &message);
 	double backgroundProgress() const { return backgroundProgress_; }
 	const std::string &backgroundMessage() const { return backgroundMessage_; }
-	void setCancelBackground(bool cancel) { cancelBackground_ = cancel; }
-	bool cancelBackground() const { return cancelBackground_; }
 	void setSuggestedRemotePage(clap_id page) { suggestedRemotePage_ = page; }
 	clap_id suggestedRemotePage() const { return suggestedRemotePage_; }
 	void noteLoadedPreset(uint32_t locationKind, const char *location, const char *loadKey);
 	Value loadedPresetReport() const;
-	void setMiniCurveDynamic(bool dynamic) { miniCurveDynamic_ = dynamic; }
 
 private:
 	clap_track_info_t trackInfo_{};
-	bool trackInfoAvailable_ = true;
 
 	std::string sharedResourceDirectory_;
 	std::string privateResourceDirectory_;
@@ -116,9 +110,7 @@ private:
 	clap_id hoveredParam_ = CLAP_INVALID_ID;
 	double backgroundProgress_ = 0.0;
 	std::string backgroundMessage_;
-	bool cancelBackground_ = false;
 	clap_id suggestedRemotePage_ = CLAP_INVALID_ID;
-	bool miniCurveDynamic_ = false;
 	std::string loadedPresetLocation_;
 	std::string loadedPresetLoadKey_;
 	uint32_t loadedPresetKind_ = 0;

@@ -16,11 +16,6 @@ namespace nch {
 
 class ProcessCheck {
 public:
-	// Subnormals are legal but usually mean a plug-in has no flush-to-zero,
-	// which costs a great deal of CPU; a test that deliberately feeds them
-	// turns this off.
-	void setAllowDenormals(bool allow) { allowDenormals_ = allow; }
-
 	// Fills every output with a value no plug-in would produce and copies the
 	// inputs, so afterwards the host can tell "written" from "left alone".
 	void before(ProcessBuffers &buffers, uint32_t frames);
@@ -29,7 +24,6 @@ public:
 	std::vector<std::string> after(ProcessBuffers &buffers, uint32_t frames, const EventList &output);
 
 private:
-	bool allowDenormals_ = false;
 	std::vector<std::vector<float>> inputCopy_;
 	std::vector<std::vector<float>> outputCopy_;
 };

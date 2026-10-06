@@ -32,16 +32,9 @@ HostServices::~HostServices() {
 	releaseResourceDirectory(false);
 }
 
-bool HostServices::trackInfo(clap_track_info_t &out) const {
-	if (!trackInfoAvailable_)
-		return false;
-	out = trackInfo_;
-	return true;
-}
-
 Value HostServices::trackInfoReport() const {
 	Object out;
-	out["available"] = Value(trackInfoAvailable_);
+	out["available"] = Value(true);
 	out["name"] = Value(trackInfo_.name);
 	out["channels"] = Value(trackInfo_.audio_channel_count);
 	out["portType"] = Value(trackInfo_.audio_port_type != nullptr ? trackInfo_.audio_port_type : "");
