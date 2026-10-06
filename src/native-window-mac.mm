@@ -23,32 +23,18 @@ NSString *droppedPath(id<NSDraggingInfo> sender);
 void openDropped(NSString *path);
 } // namespace nch
 
-// Takes the drop on behalf of a window whose content is a webview.
-//
-// A WKWebView swallows a drag before AppKit's search reaches the view beneath
-// it, and unregistering its dragged types does not give it back -- the web
-// content process handles the drag out of band. Registering the window itself
-// does not help either, for the same reason. What does work is a view in front
-// of the webview: AppKit finds it first, and returning nil from -hitTest: keeps
-// every other event flowing through to the page underneath.
-@interface NchDropOverlay : NSView
+// A window that accepts a plug-in dropped onto it. Dropping is the quickest way
+// to try a plug-in, and it costs one view subclass.
+@interface NchContentView : NSView
 @end
 
-@implementation NchDropOverlay {
-	BOOL highlighted_;
-}
+@implementation NchContentView
 
 - (instancetype)initWithFrame:(NSRect)frame {
 	self = [super initWithFrame:frame];
 	if (self != nil)
 		[self registerForDraggedTypes:@[ NSPasteboardTypeFileURL ]];
 	return self;
-}
-
-// Invisible to the mouse: clicks, scrolls and hovers belong to the page.
-- (NSView *)hitTest:(NSPoint)point {
-	(void)point;
-	return nil;
 }
 
 - (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
@@ -81,6 +67,33 @@ void openDropped(NSString *path);
 	return wanted ? NSDragOperationCopy : NSDragOperationNone;
 }
 
+// The plug-in's own view shows nothing extra while a drag is over it.
+- (void)setHighlighted:(BOOL)highlighted {
+	(void)highlighted;
+}
+@end
+
+// Takes the drop on behalf of a window whose content is a webview.
+//
+// A WKWebView swallows a drag before AppKit's search reaches the view beneath
+// it, and unregistering its dragged types does not give it back -- the web
+// content process handles the drag out of band. Registering the window itself
+// does not help either, for the same reason. What does work is a view in front
+// of the webview: AppKit finds it first, and returning nil from -hitTest: keeps
+// every other event flowing through to the page underneath.
+@interface NchDropOverlay : NchContentView
+@end
+
+@implementation NchDropOverlay {
+	BOOL highlighted_;
+}
+
+// Invisible to the mouse: clicks, scrolls and hovers belong to the page.
+- (NSView *)hitTest:(NSPoint)point {
+	(void)point;
+	return nil;
+}
+
 - (void)setHighlighted:(BOOL)highlighted {
 	if (highlighted_ == highlighted)
 		return;
@@ -98,39 +111,6 @@ void openDropped(NSString *path);
 	NSBezierPath *border = [NSBezierPath bezierPathWithRect:NSInsetRect([self bounds], 2, 2)];
 	[border setLineWidth:4];
 	[border stroke];
-}
-@end
-
-// A window that accepts a plug-in dropped onto it. Dropping is the quickest way
-// to try a plug-in, and it costs one view subclass.
-@interface NchContentView : NSView
-@end
-
-@implementation NchContentView
-
-- (instancetype)initWithFrame:(NSRect)frame {
-	self = [super initWithFrame:frame];
-	if (self != nil)
-		[self registerForDraggedTypes:@[ NSPasteboardTypeFileURL ]];
-	return self;
-}
-
-- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
-	return nch::droppedPath(sender).length != 0 ? NSDragOperationCopy : NSDragOperationNone;
-}
-
-// Without this AppKit asks again on every mouse move and takes the answer, so
-// the copy badge would go as soon as the pointer moved.
-- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)sender {
-	return nch::droppedPath(sender).length != 0 ? NSDragOperationCopy : NSDragOperationNone;
-}
-
-- (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
-	NSString *path = nch::droppedPath(sender);
-	if (path.length == 0)
-		return NO;
-	nch::openDropped(path);
-	return YES;
 }
 @end
 
