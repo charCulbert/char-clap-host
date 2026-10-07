@@ -448,8 +448,8 @@ code nobody has compiled.
 | Platform | Audio and MIDI | Window | Webview |
 | --- | --- | --- | --- |
 | macOS | working | Cocoa, working | WebKit, working |
-| Linux | RtAudio/RtMidi, unexercised | choc/GTK, builds and runs on macOS, unexercised on Linux | needs gtk and webkit2gtk; off by default |
-| Windows | RtAudio/RtMidi, unexercised | choc/Win32, same code path | choc supports it |
+| Linux | RtAudio/RtMidi, unexercised | choc/GTK, builds and runs on macOS, unexercised on Linux | webkit2gtk (`libwebkit2gtk-4.1-dev`), unexercised |
+| Windows | RtAudio/RtMidi, unexercised | choc/Win32, builds and runs | WebView2, builds |
 
 macOS keeps a window file of its own because the application bundle, menu bar,
 activation policy and quit handling live there.

@@ -114,14 +114,9 @@ elseif(UNIX)
     endif()
 endif()
 
-# choc's WebView needs WebKit on macOS and gtk+webkit2gtk on Linux, so the
-# webview path is opt-out where it is cheap and opt-in where it is not.
-if(APPLE)
-    set(nch_webview_default ON)
-else()
-    set(nch_webview_default OFF)
-endif()
-option(NCH_WITH_WEBVIEW "Display clap.webview interfaces with choc" ${nch_webview_default})
+# choc's WebView uses WebKit on macOS, WebView2 on Windows and webkit2gtk on
+# Linux (libwebkit2gtk-4.1-dev); the host's own windows are webviews too.
+option(NCH_WITH_WEBVIEW "Display clap.webview interfaces with choc" ON)
 # Compost provides the components the host's own windows are built from. The
 # path is a fact about the source tree whether or not a webview shows it, so
 # the code that serves it compiles either way.
