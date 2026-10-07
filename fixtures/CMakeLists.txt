@@ -21,7 +21,8 @@ function(add_fixture name)
     target_include_directories(${target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/${name}")
     set_target_properties(${target} PROPERTIES
         OUTPUT_NAME "${name}"
-        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/fixtures"
+        # The generator expression keeps Visual Studio from adding a Release/ folder.
+        LIBRARY_OUTPUT_DIRECTORY "$<1:${CMAKE_BINARY_DIR}/fixtures>"
         CXX_VISIBILITY_PRESET hidden
     )
     if(APPLE)

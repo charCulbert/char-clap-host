@@ -24,7 +24,9 @@ TEST(rejects_trailing_content) {
 TEST(round_trips_numbers_and_escapes) {
 	Value value;
 	std::string error;
-	CHECK(Value::parse(R"({"a":1,"b":-2.5,"c":"line\nbreak \"q\""})", value, error));
+	// Outside CHECK: MSVC's preprocessor misreads a raw string in a macro argument.
+	const char *json = R"({"a":1,"b":-2.5,"c":"line\nbreak \"q\""})";
+	CHECK(Value::parse(json, value, error));
 	Value again;
 	CHECK(Value::parse(value.toJson(), again, error));
 	CHECK_EQ(again["a"].asNumber(), 1.0);

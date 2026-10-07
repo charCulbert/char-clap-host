@@ -14,23 +14,34 @@ std::string outputPath(const std::string &name) {
 	return std::string(NCH_TEST_OUTPUT_DIR) + "/" + name;
 }
 
+#if defined(_WIN32)
+constexpr const char *kDataRoot = "APPDATA";
+void setVariable(const char *name, const char *value) { _putenv_s(name, value); }
+void unsetVariable(const char *name) { _putenv_s(name, ""); }
+#else
+constexpr const char *kDataRoot = "HOME";
+void setVariable(const char *name, const char *value) { setenv(name, value, 1); }
+void unsetVariable(const char *name) { unsetenv(name); }
+#endif
+
 // WCLAPs get data directories under the host's own, so tests that open one
-// point HOME at the build tree rather than at the user's Library.
+// point HOME (APPDATA on Windows) at the build tree rather than at the
+// user's own.
 struct TemporaryHome {
 	std::string previous;
 	bool hadPrevious = false;
 	TemporaryHome() {
-		if (const char *home = std::getenv("HOME")) {
+		if (const char *home = std::getenv(kDataRoot)) {
 			previous = home;
 			hadPrevious = true;
 		}
-		setenv("HOME", NCH_TEST_OUTPUT_DIR, 1);
+		setVariable(kDataRoot, NCH_TEST_OUTPUT_DIR);
 	}
 	~TemporaryHome() {
 		if (hadPrevious)
-			setenv("HOME", previous.c_str(), 1);
+			setVariable(kDataRoot, previous.c_str());
 		else
-			unsetenv("HOME");
+			unsetVariable(kDataRoot);
 	}
 };
 
