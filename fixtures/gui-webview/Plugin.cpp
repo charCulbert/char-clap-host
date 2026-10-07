@@ -523,7 +523,12 @@ const clap_plugin_descriptor_t& descriptor() noexcept
 bool entryInit(const char* path)
 {
     if (!path) return false;
+#if defined(__APPLE__) || defined(__wasi__)
     resourceRoot = path;
+#else
+    // On Windows and Linux a .clap is one file; its resources sit beside it.
+    resourceRoot = std::string(path) + ".resources";
+#endif
     return true;
 }
 void entryDeinit() { resourceRoot.clear(); }
