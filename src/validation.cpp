@@ -8,7 +8,12 @@
 #include <cstdio>
 #include <cstdlib>
 
+#if defined(_WIN32)
+#define popen _popen
+#define pclose _pclose
+#else
 #include <sys/wait.h>
+#endif
 
 namespace nch {
 
@@ -86,6 +91,10 @@ Value SuiteReport::describe(bool onlyFailures) const {
 namespace {
 
 std::string shellQuote(const std::string &text) {
+#if defined(_WIN32)
+	// cmd.exe has no single quotes, and Windows paths cannot contain '"'.
+	return "\"" + text + "\"";
+#else
 	std::string out = "'";
 	for (const char c : text) {
 		if (c == '\'')
@@ -94,6 +103,7 @@ std::string shellQuote(const std::string &text) {
 			out += c;
 	}
 	return out + "'";
+#endif
 }
 
 // Runs one test in a child and reads back its verdict.
@@ -107,8 +117,13 @@ TestResult runIsolated(const std::string &hostPath, const std::string &pluginPat
 
 	const std::string command = shellQuote(hostPath) + " --quiet --json " + shellQuote(pluginPath) +
 	                            " -- validate.run " + shellQuote(testId) +
-	                            " --seed=" + formatSeed(options.seed) + " </dev/null 2>/dev/null";
-	std::FILE *child = popen(command.c_str(), "r");
+	                            " --seed=" + formatSeed(options.seed);
+#if defined(_WIN32)
+	// cmd /c strips the outer pair of quotes, so wrap the quoted command in one more.
+	std::FILE *child = popen(("\"" + command + " <NUL 2>NUL\"").c_str(), "r");
+#else
+	std::FILE *child = popen((command + " </dev/null 2>/dev/null").c_str(), "r");
+#endif
 	if (child == nullptr) {
 		result.status = TestStatus::Crashed;
 		result.details = "could not start a child process to run this test";
@@ -157,12 +172,19 @@ TestResult runIsolated(const std::string &hostPath, const std::string &pluginPat
 
 	// No verdict came back, so the child did not survive to give one.
 	result.status = TestStatus::Crashed;
+#if defined(_WIN32)
+	// A crash shows up as the exception code, e.g. 0xC0000005 for an access violation.
+	char code[16];
+	std::snprintf(code, sizeof code, "0x%08X", static_cast<unsigned>(status));
+	result.details = std::string("the test produced no verdict; the host exited with status ") + code;
+#else
 	if (WIFSIGNALED(status))
 		result.details = std::string("the plug-in took the host down with signal ") +
 		                 std::to_string(WTERMSIG(status));
 	else
 		result.details = "the test produced no verdict; the host exited with status " +
 		                 std::to_string(WEXITSTATUS(status));
+#endif
 	return result;
 }
 

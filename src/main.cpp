@@ -36,6 +36,18 @@ int exitStatus(Session &session, const Options &options) {
 	return options.strict && session.validator().hasErrors() ? 1 : 0;
 }
 
+// A `load` command for a path, escaped for the tokenizer so Windows
+// backslashes survive.
+std::string loadLine(const std::string &path) {
+	std::string line = "load \"";
+	for (const char c : path) {
+		if (c == '\\' || c == '"')
+			line += '\\';
+		line += c;
+	}
+	return line + "\"";
+}
+
 void printUsage() {
 	std::puts(R"(clap-host — a single-plugin native CLAP host
 
@@ -129,7 +141,7 @@ int main(int argc, char **argv) {
 	session.validator().setLive(options.strict);
 
 	if (!options.pluginPath.empty()) {
-		std::string line = "load \"" + options.pluginPath + "\"";
+		std::string line = loadLine(options.pluginPath);
 		if (!pluginId.empty())
 			line += " --id=" + pluginId;
 		if (pluginIndex != 0)
@@ -212,7 +224,7 @@ int main(int argc, char **argv) {
 	// shows the new plug-in's interface, because that is plainly what choosing
 	// a plug-in from a menu is asking for.
 	handlers.loadPlugin = [&session](const std::string &path) {
-		session.postLine("load \"" + path + "\"");
+		session.postLine(loadLine(path));
 		session.postLine("gui.open");
 	};
 

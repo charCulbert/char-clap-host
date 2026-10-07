@@ -9,6 +9,7 @@ namespace {
 constexpr uint32_t kWidth = 620;
 constexpr uint32_t kHeight = 680;
 
+// Several adjacent literals, because MSVC caps a single one at 16 KB.
 const char *kPage = R"(<!doctype html>
 <meta charset="utf-8">
 <title>plug-in</title>
@@ -263,7 +264,7 @@ const char *kPage = R"(<!doctype html>
 			// Gone between the event and the question: the next refresh redraws it.
 		}
 	};
-
+)" R"(
 	async function showParams() {
 		const generation = ++paramGeneration;
 		const container = document.getElementById("params");
@@ -490,7 +491,7 @@ const char *kPage = R"(<!doctype html>
 	}
 	const showOutput = levelMeter("meter");
 	const showInput = levelMeter("inputMeter");
-
+)" R"(
 	function showLevels(meter, holds, peaks) {
 		meter.setState({
 			primaryLabel: "Peak",
