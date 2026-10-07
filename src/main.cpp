@@ -16,6 +16,8 @@
 #include <vector>
 
 #if defined(_WIN32)
+#define NOMINMAX
+#include <windows.h>
 #include <io.h>
 #define isatty _isatty
 #define fileno _fileno
@@ -130,9 +132,19 @@ int main(int argc, char **argv) {
 		options.hostPath = argv[0];
 	// With no terminal, no plug-in, no script and no commands, there is
 	// nothing this run could be except a launch from the Finder.
-	const bool interactive = isatty(fileno(stdin)) != 0;
-	options.openWindowWhenIdle =
-	    !interactive && options.pluginPath.empty() && scriptPath.empty() && immediateCommands.empty();
+	const bool nothingToDo = options.pluginPath.empty() && scriptPath.empty() && immediateCommands.empty();
+	bool interactive = isatty(fileno(stdin)) != 0;
+#if defined(_WIN32)
+	// From Explorer or the Start menu Windows gives a console program a console
+	// of its own; from a shell it shares the shell's. Alone in it, with nothing
+	// to do, is the Finder launch: drop the console and open the home window.
+	DWORD consoleProcesses[2];
+	if (nothingToDo && GetConsoleProcessList(consoleProcesses, 2) == 1) {
+		FreeConsole();
+		interactive = false;
+	}
+#endif
+	options.openWindowWhenIdle = !interactive && nothingToDo;
 
 	options.recentFilesOnDisk = true;
 	options.interactive = interactive && scriptPath.empty();

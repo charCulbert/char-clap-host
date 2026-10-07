@@ -449,7 +449,7 @@ code nobody has compiled.
 | --- | --- | --- | --- |
 | macOS | working | Cocoa, working | WebKit, working |
 | Linux | RtAudio/RtMidi, unexercised | choc/GTK, builds and runs on macOS, unexercised on Linux | webkit2gtk (`libwebkit2gtk-4.1-dev`), unexercised |
-| Windows | RtAudio/RtMidi, unexercised | choc/Win32, builds and runs | WebView2, builds |
+| Windows | RtAudio/RtMidi, unexercised | choc/Win32 with a native menu bar, working | WebView2, working |
 
 macOS keeps a window file of its own because the application bundle, menu bar,
 activation policy and quit handling live there.

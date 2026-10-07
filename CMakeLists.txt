@@ -181,6 +181,10 @@ if(APPLE)
         COMMAND ${CMAKE_COMMAND} -E create_symlink
                 "$<TARGET_FILE:clap-host>" "${CMAKE_BINARY_DIR}/clap-host-cli"
         COMMENT "Linking build/clap-host-cli to the bundled executable")
+elseif(WIN32)
+    target_sources(clap-host PRIVATE resources/clap-host.rc)
+    # The window layer's menu bar and open dialog.
+    target_link_libraries(nch-core PUBLIC comctl32 comdlg32)
 endif()
 
 add_subdirectory(fixtures)

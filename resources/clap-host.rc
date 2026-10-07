@@ -1,0 +1,5 @@
+// The executable's icon, for Explorer and the Start menu. 32512 is
+// IDI_APPLICATION, which choc's window class loads from the module, so every
+// host window shows it too. clap-host.ico holds the .icns's 16, 32, 48 and
+// 256 pixel images.
+32512 ICON "clap-host.ico"

@@ -18,24 +18,53 @@
 #include <choc/gui/choc_DesktopWindow.h>
 #include <choc/gui/choc_MessageLoop.h>
 
+#if defined(_WIN32)
+#include <commctrl.h>
+#include <commdlg.h>
+#endif
+
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <string>
+#include <vector>
 
 namespace nch {
 namespace {
+
+#if defined(_WIN32)
+std::wstring widen(const std::string &text) {
+	std::wstring out(MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0), L'\0');
+	MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), out.data(), static_cast<int>(out.size()));
+	return out;
+}
+
+std::string narrow(const std::wstring &text) {
+	std::string out(WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr), '\0');
+	WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), out.data(), static_cast<int>(out.size()),
+	                    nullptr, nullptr);
+	return out;
+}
+#endif
 
 class ChocWindow : public NativeWindow {
 public:
 	ChocWindow(uint32_t width, uint32_t height, const std::string &title)
 	    : window_({0, 0, static_cast<int>(width), static_cast<int>(height)}) {
+		// Bounds are the content area, so at (0, 0) a Win32 title bar sits off screen.
+		window_.centreWithSize(static_cast<int>(width), static_cast<int>(height));
 		window_.setWindowTitle(title);
 		window_.setResizable(true);
 		window_.windowClosed = [this] { closed_ = true; };
 #if defined(__linux__)
 		installMenu();
+#elif defined(_WIN32)
+		installMenu();
+		// The menu bar took its height from the content area; give it back.
+		setSize(width, height);
 #endif
 	}
 
@@ -106,7 +135,20 @@ public:
 	void setTitle(const std::string &title) override { window_.setWindowTitle(title); }
 
 	void setSize(uint32_t width, uint32_t height) override {
+#if defined(_WIN32)
+		// choc's own sizing leaves out the menu bar, so size the frame here and
+		// keep the window where it is.
+		auto *hwnd = static_cast<HWND>(window_.getWindowHandle());
+		const UINT dpi = GetDpiForWindow(hwnd);
+		RECT frame{0, 0, static_cast<LONG>(std::lround(width * dpi / 96.0)),
+		           static_cast<LONG>(std::lround(height * dpi / 96.0))};
+		AdjustWindowRectExForDpi(&frame, static_cast<DWORD>(GetWindowLongPtrW(hwnd, GWL_STYLE)), GetMenu(hwnd) != nullptr,
+		                         static_cast<DWORD>(GetWindowLongPtrW(hwnd, GWL_EXSTYLE)), dpi);
+		SetWindowPos(hwnd, nullptr, 0, 0, frame.right - frame.left, frame.bottom - frame.top,
+		             SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+#else
 		window_.setBounds({0, 0, static_cast<int>(width), static_cast<int>(height)});
+#endif
 	}
 
 	void show() override {
@@ -237,6 +279,88 @@ private:
 	GtkWidget *contentRoot_ = nullptr;
 	GtkAccelGroup *accelerators_ = nullptr;
 	bool dropsInstalled_ = false;
+#elif defined(_WIN32)
+	// The same menus as macOS and Linux. No keyboard shortcuts: the webview
+	// child has the focus, so keys never reach this window to be translated.
+	enum MenuId : UINT { kLoad = 1, kExit, kSettings, kPanel, kClose, kClearRecent, kFirstRecent = 100 };
+
+	void installMenu() {
+		auto *hwnd = static_cast<HWND>(window_.getWindowHandle());
+		const auto popup = [](HMENU parent, HMENU menu, const wchar_t *label) {
+			AppendMenuW(parent, MF_POPUP, reinterpret_cast<UINT_PTR>(menu), label);
+		};
+		HMENU bar = CreateMenu();
+
+		HMENU file = CreatePopupMenu();
+		AppendMenuW(file, MF_STRING, kLoad, L"&Load Plug-in…");
+		recentMenu_ = CreatePopupMenu();
+		popup(file, recentMenu_, L"Open &Recent");
+		AppendMenuW(file, MF_SEPARATOR, 0, nullptr);
+		AppendMenuW(file, MF_STRING, kExit, L"E&xit");
+		popup(bar, file, L"&File");
+
+		HMENU settings = CreatePopupMenu();
+		AppendMenuW(settings, MF_STRING, kSettings, L"Audio/&MIDI Settings…");
+		popup(bar, settings, L"&Settings");
+
+		HMENU window = CreatePopupMenu();
+		AppendMenuW(window, MF_STRING, kPanel, L"&Parameters && Presets");
+		AppendMenuW(window, MF_SEPARATOR, 0, nullptr);
+		AppendMenuW(window, MF_STRING, kClose, L"&Close");
+		popup(bar, window, L"&Window");
+
+		SetMenu(hwnd, bar);
+		SetWindowSubclass(hwnd, &ChocWindow::menuProc, 0, reinterpret_cast<DWORD_PTR>(this));
+	}
+
+	static LRESULT CALLBACK menuProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR,
+	                                 DWORD_PTR data) {
+		auto &owner = *reinterpret_cast<ChocWindow *>(data);
+		if (message == WM_INITMENUPOPUP && reinterpret_cast<HMENU>(wParam) == owner.recentMenu_) {
+			owner.fillRecentMenu();
+			return 0;
+		}
+		if (message == WM_COMMAND && HIWORD(wParam) == 0) {
+			owner.menuCommand(LOWORD(wParam));
+			return 0;
+		}
+		if (message == WM_NCDESTROY)
+			RemoveWindowSubclass(hwnd, &ChocWindow::menuProc, 0);
+		return DefSubclassProc(hwnd, message, wParam, lParam);
+	}
+
+	// Asked each time the submenu opens, as on macOS.
+	void fillRecentMenu() {
+		while (GetMenuItemCount(recentMenu_) > 0)
+			DeleteMenu(recentMenu_, 0, MF_BYPOSITION);
+		recent_ = appHandlers().recentPlugins();
+		for (size_t i = 0; i < recent_.size(); ++i)
+			AppendMenuW(recentMenu_, MF_STRING, kFirstRecent + i,
+			            std::filesystem::u8path(recent_[i]).stem().wstring().c_str());
+		if (!recent_.empty())
+			AppendMenuW(recentMenu_, MF_SEPARATOR, 0, nullptr);
+		AppendMenuW(recentMenu_, MF_STRING | (recent_.empty() ? MF_GRAYED : 0), kClearRecent, L"Clear Menu");
+	}
+
+	void menuCommand(UINT id) {
+		switch (id) {
+		case kLoad:
+			if (const std::string path = chooseFile("Load Plug-in", pluginSuffixes()); !path.empty())
+				appHandlers().loadPlugin(path);
+			break;
+		case kExit: appHandlers().quit(); break;
+		case kSettings: appHandlers().openSettings(); break;
+		case kPanel: appHandlers().openPanel(); break;
+		case kClose: PostMessageW(static_cast<HWND>(window_.getWindowHandle()), WM_CLOSE, 0, 0); break;
+		case kClearRecent: appHandlers().clearRecentPlugins(); break;
+		default:
+			if (id >= kFirstRecent && id - kFirstRecent < recent_.size())
+				appHandlers().loadPlugin(recent_[id - kFirstRecent]);
+		}
+	}
+
+	HMENU recentMenu_ = nullptr;
+	std::vector<std::string> recent_;
 #endif
 	choc::ui::DesktopWindow window_;
 	std::atomic<bool> closed_{false};
@@ -244,14 +368,35 @@ private:
 
 } // namespace
 
-// No .wav or .mid drops and no Open Recent menu here yet, so playFile and the
-// recent-plug-in handlers go unused; `audio.input`, `midi.file` and
-// `plugins.recent` do the same from the prompt.
+// No .wav or .mid drops here yet, so playFile goes unused, and Open Recent is
+// Windows-only; `audio.input`, `midi.file` and `plugins.recent` do the same
+// from the prompt.
 
+#if defined(_WIN32)
+std::string chooseFile(const std::string &message, const std::vector<std::string> &extensions) {
+	// Extensions arrive with or without their dot ("wav", ".clap").
+	std::wstring patterns;
+	for (const auto &extension : extensions)
+		patterns += (patterns.empty() ? L"*" : L";*") + widen(extension.front() == '.' ? extension : "." + extension);
+	std::wstring filter = patterns + L'\0' + patterns + L'\0';
+	wchar_t path[4096] = {};
+	const std::wstring title = widen(message);
+	OPENFILENAMEW dialog{};
+	dialog.lStructSize = sizeof dialog;
+	dialog.hwndOwner = GetActiveWindow();
+	dialog.lpstrFilter = filter.c_str();
+	dialog.lpstrFile = path;
+	dialog.nMaxFile = static_cast<DWORD>(std::size(path));
+	dialog.lpstrTitle = title.c_str();
+	dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+	return GetOpenFileNameW(&dialog) ? narrow(path) : std::string();
+}
+#else
 std::string chooseFile(const std::string &, const std::vector<std::string> &) {
 	// No open dialog on this window layer yet; `audio.input` takes a path.
 	return {};
 }
+#endif
 
 void prepareApplication() {
 #if defined(__linux__)
