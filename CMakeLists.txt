@@ -208,6 +208,19 @@ if(APPLE)
         execute_process(COMMAND chmod +x \"${NCH_BIN_DIR}/clap-host\")
         message(STATUS \"Installed ${NCH_APP_DIR}/clap-host.app and ${NCH_BIN_DIR}/clap-host\")
     ")
+elseif(WIN32)
+    file(TO_CMAKE_PATH "$ENV{LOCALAPPDATA}/Programs/clap-host" nch_default_app_dir)
+    set(NCH_APP_DIR "${nch_default_app_dir}" CACHE PATH "Where clap-host.exe is installed")
+
+    install(TARGETS clap-host RUNTIME DESTINATION "${NCH_APP_DIR}")
+    # The Start menu and PATH stand in for /Applications and ~/.local/bin.
+    install(CODE "
+        file(TO_NATIVE_PATH \"${NCH_APP_DIR}\" app_dir)
+        execute_process(COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+                                -File \"${CMAKE_CURRENT_SOURCE_DIR}/cmake/install-windows.ps1\" \"\${app_dir}\"
+                        COMMAND_ERROR_IS_FATAL ANY)
+        message(STATUS \"Installed ${NCH_APP_DIR}/clap-host.exe, a Start menu shortcut, and the folder on PATH\")
+    ")
 else()
     install(TARGETS clap-host RUNTIME DESTINATION bin)
 endif()

@@ -62,6 +62,11 @@ the same program. Point them elsewhere with `-DNCH_APP_DIR=` and
 `-DNCH_BIN_DIR=`. Installing rather than symlinking into `build/` means a clean
 rebuild does not take the command away.
 
+On Windows, `cmake --install build --config Release` copies `clap-host.exe`
+to `%LOCALAPPDATA%\Programs\clap-host`, adds a Start menu shortcut, and puts
+that folder on your user `PATH` (open a new terminal to pick it up). Point it
+elsewhere with `-DNCH_APP_DIR=`.
+
 Opened from the Finder, with no plug-in and no script, the host has no input to
 read, so it opens its home window instead of exiting. Given anything to do it
 behaves exactly as it does from a shell.
