@@ -27,7 +27,12 @@ public:
 	// swallows a drag whatever the view beneath it says, and a plug-in's view
 	// keeps its own drops, since a sampler may want them.
 	virtual void acceptDropsAboveChild() = 0;
+	// The content size in points, the unit the window's own platform sizes in.
 	virtual void setSize(uint32_t width, uint32_t height) = 0;
+	// How many pixels make a point on this window's display. Only Win32 sizes
+	// in points over pixels: Cocoa and X11 plug-in views already share the
+	// window's unit.
+	virtual float pixelsPerPoint() { return 1.0f; }
 
 	// Who decides what sizes the user may drag the window to, and hears the
 	// one they landed on. `adjust` runs while the drag is happening, so the

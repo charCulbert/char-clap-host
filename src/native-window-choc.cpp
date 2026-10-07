@@ -151,6 +151,12 @@ public:
 #endif
 	}
 
+#if defined(_WIN32)
+	float pixelsPerPoint() override {
+		return GetDpiForWindow(static_cast<HWND>(window_.getWindowHandle())) / 96.0f;
+	}
+#endif
+
 	void show() override {
 		window_.setVisible(true);
 		window_.toFront();

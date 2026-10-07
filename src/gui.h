@@ -65,6 +65,9 @@ private:
 	// Constrains a dragged size the way the plug-in's hints ask.
 	void applyResizeHints(uint32_t &width, uint32_t &height) const;
 	bool openWebview(std::string &error);
+	// Sizes the window to a native interface's clap.gui size, which is in
+	// physical pixels on Windows.
+	void sizeWindowForNative(uint32_t width, uint32_t height);
 
 	PluginInstance &instance_;
 	std::unique_ptr<NativeWindow> window_;

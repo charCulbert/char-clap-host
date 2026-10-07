@@ -3,6 +3,7 @@
 #include "native-window.h"
 #include "state-stream.h"
 
+#include <cmath>
 #include <cstring>
 
 #include <clap/ext/draft/webview.h>
@@ -146,7 +147,7 @@ bool PluginGui::openNative(bool floating, std::string &error) {
 		// The window goes on screen before the plug-in is told about it. A
 		// WebKit view added to a window that is not yet visible never starts
 		// compositing and stays blank, and it does not retry.
-		window_->setSize(width, height);
+		sizeWindowForNative(width, height);
 		window_->show();
 
 		// The user's drag is answered by the plug-in as it happens: adjust_size
@@ -283,6 +284,12 @@ bool PluginGui::openWebview(std::string &error) {
 	return true;
 }
 
+void PluginGui::sizeWindowForNative(uint32_t width, uint32_t height) {
+	// Rounded up, so the plug-in's view is never clipped by a pixel.
+	const float scale = window_->pixelsPerPoint();
+	window_->setSize(static_cast<uint32_t>(std::ceil(width / scale)), static_cast<uint32_t>(std::ceil(height / scale)));
+}
+
 void PluginGui::close() {
 	if (api_ == GuiApi::None)
 		return;
@@ -361,7 +368,7 @@ bool PluginGui::resize(uint32_t width, uint32_t height, std::string &error) {
 	width_ = adjustedWidth;
 	height_ = adjustedHeight;
 	if (window_ != nullptr)
-		window_->setSize(adjustedWidth, adjustedHeight);
+		sizeWindowForNative(adjustedWidth, adjustedHeight);
 	return true;
 }
 
@@ -374,7 +381,7 @@ bool PluginGui::requestResize(uint32_t width, uint32_t height) {
 	// reports would call set_size from inside the plug-in's own request.
 	width_ = width;
 	height_ = height;
-	window_->setSize(width, height);
+	sizeWindowForNative(width, height);
 	return true;
 }
 
