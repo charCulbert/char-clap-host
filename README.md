@@ -66,8 +66,7 @@ To run the tests after building: `ctest --test-dir build`.
 
 ## More
 
-[Using it](docs/usage.md) · [Commands](docs/commands.md) ·
-[What it checks](docs/architecture.md) · [Testing](docs/testing.md)
+[Using it](docs/usage.md) · [What it checks](docs/checks.md)
 
 MIT licence. Third-party code and its licences are listed in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
