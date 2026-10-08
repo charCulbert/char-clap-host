@@ -5,7 +5,7 @@ the CLAP spec while it runs, and `validate.run` runs a set of conformance tests.
 
 <p>
   <img alt="A clap-host session on MNO: load, activate, play a note, render a second to WAV, then run the validation suite" src="docs/images/terminal.png" width="58%">
-  <img alt="The host's panel for MNO: power, bypass, input files, presets and the plug-in's parameters" src="docs/images/panel.png" width="38%">
+  <img alt="The host's panel for Slide, a WCLAP: power, bypass, input files, presets and every parameter" src="docs/images/panel.png" width="38%">
 </p>
 
 ## Host extensions
