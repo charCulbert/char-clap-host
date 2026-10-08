@@ -60,7 +60,9 @@ def main():
             rendered = pathlib.Path(tmp) / f"{name}.wav"
             source = pathlib.Path(tmp) / f"{name}-source.wav"
             script = "\n".join(
-                line.format(fixtures=arguments.fixtures, out=rendered, source=source)
+                # Forward slashes, since the host reads a backslash as an escape.
+                line.format(fixtures=pathlib.Path(arguments.fixtures).as_posix(),
+                            out=rendered.as_posix(), source=source.as_posix())
                 for line in lines
             )
             result = subprocess.run(

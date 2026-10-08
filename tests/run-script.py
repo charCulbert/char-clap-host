@@ -59,8 +59,11 @@ def main():
     arguments = parser.parse_args()
 
     expected_path = arguments.script.with_suffix(".expected")
-    fixtures = str(pathlib.Path(arguments.fixtures).resolve())
-    tmp = tempfile.mkdtemp(prefix="nch-script-")
+    # Forward slashes even on Windows: the host's command line reads a
+    # backslash as an escape, so C:\dev\x would arrive as C:devx.
+    fixtures = pathlib.Path(arguments.fixtures).resolve().as_posix()
+    scratch = tempfile.mkdtemp(prefix="nch-script-")
+    tmp = pathlib.Path(scratch).as_posix()
     try:
         script = substitute(arguments.script.read_text(), fixtures, tmp)
         result = subprocess.run(
@@ -72,7 +75,7 @@ def main():
         )
         actual = normalise(result.stdout, fixtures, tmp)
     finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+        shutil.rmtree(scratch, ignore_errors=True)
 
     if arguments.accept:
         expected_path.write_text(actual)

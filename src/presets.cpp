@@ -168,8 +168,10 @@ std::vector<std::string> presetFilesUnder(const std::string &path, const std::ve
 	     it != end && !code; it.increment(code)) {
 		if (!it->is_regular_file(code))
 			continue;
+		// Forward slashes on every platform, so a listed path can be typed back
+		// into preset.load, whose command line reads a backslash as an escape.
 		if (matches(it->path()))
-			files.push_back(it->path().string());
+			files.push_back(it->path().generic_string());
 	}
 	return files;
 }
