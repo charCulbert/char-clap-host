@@ -1,11 +1,11 @@
 # char-clap-host
 
-A CLAP host for one plug-in at a time, built as a `clap-host` binary. It checks what the plug-in does against
+A cross platform CLAP host that I built to use to validate / test my plugins. It checks what the plug-in does against
 the CLAP spec while it runs, and `validate.run` runs a set of conformance tests.
 
 ## Host extensions
 
-It answers for all 34 host-side extensions in the CLAP SDK, drafts included.
+It supports all 34 host-side extensions in the CLAP SDK, drafts included.
 
 | Area | Extensions |
 |---|---|
@@ -31,7 +31,7 @@ files. They run in [Wasmtime](https://wasmtime.dev) through a vendored copy of
 
 ## Use
 
-A person can type commands at a prompt or use the window, which covers
+A person can type commands at a prompt or use the GUI, which covers
 parameters, presets, devices and the plug-in's own interface. A script or an
 agent can pipe the same commands in, as text or JSON, and add `--json` to get
 one JSON reply per line. `help` lists the commands.
@@ -44,7 +44,7 @@ $ clap-host MySynth.clap
 > validate.run
 ```
 
-`skills/clap-host/SKILL.md` explains how to drive it to coding agents.
+`skills/clap-host/SKILL.md` explains how to drive it for coding agents.
 
 ## Build
 
