@@ -1,4 +1,14 @@
-# Preset discovery indexes the bundle, and preset-load applies one.
+# Preset discovery indexes the plug-in's built-in presets and a preset file
+# beside it, and preset.load applies each one: the gain parameter shows which.
 load @FIXTURES@/presets.clap
 presets.list
+params.list
+preset.load internal loud
+params.list
+preset.load internal soft
+params.list
+preset.load @FIXTURES@/presets@BUNDLE@/presets/medium.wclap-preset
+params.list
+# A key the plug-in doesn't know is refused, and the gain stays where it was.
+preset.load internal missing
 params.list

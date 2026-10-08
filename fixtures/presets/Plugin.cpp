@@ -301,8 +301,8 @@ const clap_plugin_descriptor_t& descriptor() noexcept
         CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEATURE_STEREO, nullptr
     };
     static const clap_plugin_descriptor_t value {
-        CLAP_VERSION, pluginId, "WCLAP Runtime Presets Example", "Charlie Culbert",
-        "", "", "", "0.1.0", "Complete CLAP preset example", features
+        CLAP_VERSION, pluginId, "Presets Fixture", "Charlie Culbert",
+        "", "", "", "0.1.0", "Preset discovery and preset-load test plug-in", features
     };
     return value;
 }
@@ -310,6 +310,10 @@ const clap_plugin_descriptor_t& descriptor() noexcept
 bool entryInit(const char* path)
 {
     pluginPath = path ? path : ".";
+#if !defined(__APPLE__) && !defined(__wasi__)
+    // On Windows and Linux a .clap is one file; its resources sit beside it.
+    pluginPath += ".resources";
+#endif
     return true;
 }
 

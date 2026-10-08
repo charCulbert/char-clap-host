@@ -1,8 +1,8 @@
 id: com.charlieculbert.wclap-runtime-presets-example
-name: WCLAP Runtime Presets Example
+name: Presets Fixture
 vendor: Charlie Culbert
 version: 0.1.0
-description: Complete CLAP preset example
+description: Preset discovery and preset-load test plug-in
 features:
   audio-effect
   stereo
@@ -25,3 +25,16 @@ supported: true
 params:
   id  name  module  value  text  min  max  default  flags
   0  Preset gain  0.25  25 %  0  1  0.25  readonly
+params:
+  id  name  module  value  text  min  max  default  flags
+  0  Preset gain  1  100 %  0  1  0.25  readonly
+params:
+  id  name  module  value  text  min  max  default  flags
+  0  Preset gain  0.25  25 %  0  1  0.25  readonly
+params:
+  id  name  module  value  text  min  max  default  flags
+  0  Preset gain  0.5  50 %  0  1  0.25  readonly
+error: the plug-in refused to load that preset
+params:
+  id  name  module  value  text  min  max  default  flags
+  0  Preset gain  0.5  50 %  0  1  0.25  readonly

@@ -7,6 +7,8 @@ machines, so scripts and transcripts use placeholders:
 
     @FIXTURES@   the directory holding the built fixture plug-ins
     @TMP@        a scratch directory, empty at the start of every run
+    @BUNDLE@     where a fixture's resources sit: inside <name>.clap on macOS,
+                 beside it in <name>.clap.resources elsewhere
 
 Run with --accept to write the transcript from what the host actually printed.
 """
@@ -22,7 +24,9 @@ import tempfile
 
 
 def substitute(text, fixtures, tmp):
-    return text.replace("@FIXTURES@", fixtures).replace("@TMP@", tmp)
+    bundle = ".clap" if sys.platform == "darwin" else ".clap.resources"
+    return (text.replace("@FIXTURES@", fixtures).replace("@TMP@", tmp)
+            .replace("@BUNDLE@", bundle))
 
 
 def normalise(text, fixtures, tmp):
@@ -31,6 +35,11 @@ def normalise(text, fixtures, tmp):
     Paths become placeholders, and elapsed times become @TIME@ -- a duration is
     never reproducible, so leaving it in would make every transcript a
     flake."""
+    # Off macOS a .clap is one file with its resources in <name>.clap.resources
+    # beside it; write those paths as the macOS bundle path so one transcript
+    # serves every platform.
+    text = re.sub(re.escape(fixtures) + r"([/\\][^/\\\s]+\.clap)\.resources",
+                  lambda m: fixtures + m.group(1), text)
     text = text.replace(fixtures, "@FIXTURES@").replace(tmp, "@TMP@")
     # An elapsed time: a decimal with more precision than anything meaningful
     # the host reports.
