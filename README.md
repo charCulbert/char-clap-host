@@ -1,6 +1,6 @@
-# clap-host
+# char-clap-host
 
-A CLAP host for one plug-in at a time. It checks what the plug-in does against
+A CLAP host for one plug-in at a time, built as a `clap-host` binary. It checks what the plug-in does against
 the CLAP spec while it runs, and `validate.run` runs a set of conformance tests.
 
 ## Host extensions
@@ -49,8 +49,8 @@ $ clap-host MySynth.clap
 ## Build
 
 ```sh
-git clone --recursive https://github.com/charCulbert/nativeClapHost.git
-cd nativeClapHost
+git clone --recursive https://github.com/charCulbert/char-clap-host.git
+cd char-clap-host
 cmake -B build
 cmake --build build
 ```

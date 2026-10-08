@@ -9,7 +9,7 @@ A native CLAP host for one plug-in at a time, driven from stdin. It implements
 every host-side extension in the CLAP SDK and checks the plug-in against the
 specification while it runs. It loads WCLAPs (CLAP compiled to WebAssembly) as
 well as `.clap` bundles; see [WCLAP plug-ins](#wclap-plug-ins). Source:
-<https://github.com/charCulbert/nativeClapHost>.
+<https://github.com/charCulbert/char-clap-host>.
 
 ## Is it installed?
 
@@ -20,7 +20,7 @@ which clap-host || ls ~/.local/bin/clap-host
 If missing, build and install from the local checkout:
 
 ```sh
-cd ~/Development/nativeClapHost
+cd ~/Development/char-clap-host
 git submodule update --init --recursive
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
