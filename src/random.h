@@ -1,8 +1,8 @@
 // A deterministic generator, so a failure can be reproduced exactly.
 //
-// The algorithm and the default seed match clap-validator's, so a stream of
-// generated events from this host and one from that tool line up where the
-// generators line up. std::mt19937 seeded from random_device would make every
+// The algorithm (xoshiro128++) and the default seed follow clap-validator's,
+// though the state is filled from the seed differently, so the two streams are
+// not the same numbers. std::mt19937 seeded from random_device would make every
 // failure a one-off story.
 #pragma once
 
@@ -15,7 +15,7 @@ namespace nch {
 // std::uniform_int_distribution is not.
 class Random {
 public:
-	// The seed clap-validator uses for every test, so runs are comparable.
+	// The seed clap-validator uses for every test.
 	static constexpr uint64_t kDefaultSeed = 0x13376767;
 
 	explicit Random(uint64_t seed = kDefaultSeed) { reseed(seed); }

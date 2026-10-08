@@ -8,8 +8,8 @@ description: Load, play, render, validate, and inspect a CLAP audio plug-in — 
 A native CLAP host for one plug-in at a time, driven from stdin. It implements
 every host-side extension in the CLAP SDK and checks the plug-in against the
 specification while it runs. It loads WCLAPs (CLAP compiled to WebAssembly) as
-well as `.clap` bundles; see [WCLAP plug-ins](#wclap-plug-ins). Source: `~/Development/nativeClapHost` (private
-repo, not on a public remote).
+well as `.clap` bundles; see [WCLAP plug-ins](#wclap-plug-ins). Source:
+<https://github.com/charCulbert/nativeClapHost>.
 
 ## Is it installed?
 
@@ -182,24 +182,6 @@ the real path.
   host.
 - A bridge problem (not a plug-in problem) is a host gap: report it as one.
   The bridge's changes from upstream are listed in `external/wclap-bridge/VENDORED.md`.
-
-## AudioUnits: use auhost, not clap-host
-
-clap-host loads CLAP and WCLAP only. To check an AUv2's GUI the way DAWs open it (view
-created before it is in a window), use the small separate utility
-`~/Development/AuHost` (local repo, not on GitHub):
-
-```sh
-cd ~/Development/AuHost && cmake -B build && cmake --build build   # once
-build/auhost.app/Contents/MacOS/auhost <type> <subtype> <manufacturer> shot.png [seconds]
-build/auhost.app/Contents/MacOS/auhost aufx GpAn ChCu shot.png 3
-```
-
-The AU must be installed (`~/Library/Audio/Plug-Ins/Components/`, then
-`killall -9 AudioComponentRegistrar`); codes as `auval -a` lists them. It
-prints the plugin's stderr and the view tree, and saves a PNG of the window.
-Read the PNG. For the AU spec itself use `auval -v <type> <subtype> <manufacturer>`
-(auval never opens the GUI). auhost has no audio, parameters or state yet.
 
 ## When something is missing
 
