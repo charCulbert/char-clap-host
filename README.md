@@ -3,6 +3,11 @@
 A cross platform CLAP host that I built to use to validate / test my plugins. It checks what the plug-in does against
 the CLAP spec while it runs, and `validate.run` runs a set of conformance tests.
 
+<p>
+  <img alt="The host's own view of Slide: power, bypass, input files, presets and every parameter" src="docs/images/host-panel.png" width="38%">
+  <img alt="Slide's interface, a WCLAP running in the host's webview" src="docs/images/plugin-interface.png" width="58%">
+</p>
+
 ## Host extensions
 
 It supports all 34 host-side extensions in the CLAP SDK, drafts included.
