@@ -24,11 +24,7 @@ It supports all 34 host-side extensions in the CLAP SDK, drafts included.
 
 ## Platforms
 
-| Platform | Window | Webview | Status |
-|---|---|---|---|
-| macOS | Cocoa | WebKit | Built and run |
-| Windows | Win32 (choc) | WebView2 | Built and run |
-| Linux | GTK (choc) | WebKitGTK | Built and run |
+macOS, Windows and Linux, with the tests passing on all three.
 
 WCLAP plug-ins (CLAP compiled to WebAssembly) load the same way as `.clap`
 files. They run in [Wasmtime](https://wasmtime.dev) through a vendored copy of
@@ -36,7 +32,7 @@ files. They run in [Wasmtime](https://wasmtime.dev) through a vendored copy of
 
 ## Use
 
-A person can type commands at a prompt or use the GUI, which covers
+You can type commands at a prompt or use the GUI, which covers
 parameters, presets, devices and the plug-in's own interface. A script or an
 agent can pipe the same commands in, as text or JSON, and add `--json` to get
 one JSON reply per line. `help` lists the commands.
