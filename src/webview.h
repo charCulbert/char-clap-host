@@ -12,6 +12,10 @@
 #include <string>
 #include <vector>
 
+namespace choc::ui {
+class WebView;
+}
+
 namespace nch {
 
 class WebviewHost {
@@ -58,6 +62,9 @@ public:
 	uint64_t messagesFromPage() const;
 
 private:
+	// Lets the page call nchFromPlugin; false while the view is still starting.
+	bool bindReceiver(choc::ui::WebView &view);
+
 	struct Impl;
 	std::unique_ptr<Impl> impl_;
 };

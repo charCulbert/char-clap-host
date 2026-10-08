@@ -70,6 +70,8 @@ struct WebviewHost::Impl {
 	WebviewHost::Receive receive;
 	std::unique_ptr<choc::ui::WebView> view;
 	bool ready = false;
+	bool created = false; // the constructor has returned
+	bool bound = false;   // the page can call nchFromPlugin
 	uint64_t resourcesServed = 0;
 	uint64_t messagesFromPage = 0;
 	std::vector<std::vector<uint8_t>> pending; // messages sent before the page was ready
@@ -118,7 +120,12 @@ bool WebviewHost::open(const std::string &uri, std::string &error) {
 		resource.mimeType = found->mimeType.empty() ? "application/octet-stream" : found->mimeType;
 		return resource;
 	};
-	options.webviewIsReady = [this](choc::ui::WebView &) {
+	options.webviewIsReady = [this](choc::ui::WebView &view) {
+		// WebView2 starts asynchronously, so on Windows the binding below fails
+		// because the view does not exist yet. Bind once it does, and reload so
+		// the page already showing gets the function too.
+		if (impl_->created && !impl_->bound && bindReceiver(view))
+			view.navigate({});
 		impl_->ready = true;
 		for (const auto &message : impl_->pending)
 			send(message.data(), static_cast<uint32_t>(message.size()));
@@ -131,10 +138,15 @@ bool WebviewHost::open(const std::string &uri, std::string &error) {
 		error = "the system webview failed to start";
 		return false;
 	}
+	impl_->created = true;
+	bindReceiver(*impl_->view);
+	return true;
+}
 
+bool WebviewHost::bindReceiver(choc::ui::WebView &view) {
 	// Messages arriving from the plug-in's page go straight back into the
 	// plug-in, which is the other half of clap.webview.
-	impl_->view->bind("nchFromPlugin", [this](const choc::value::ValueView &args) -> choc::value::Value {
+	impl_->bound = view.bind("nchFromPlugin", [this](const choc::value::ValueView &args) -> choc::value::Value {
 		if (!args.isArray() || args.size() == 0)
 			return {};
 		++impl_->messagesFromPage;
@@ -145,12 +157,14 @@ bool WebviewHost::open(const std::string &uri, std::string &error) {
 			impl_->receive(bytes.data(), static_cast<uint32_t>(bytes.size()));
 		return {};
 	});
-	return true;
+	return impl_->bound;
 }
 
 void WebviewHost::close() {
 	impl_->view.reset();
 	impl_->ready = false;
+	impl_->created = false;
+	impl_->bound = false;
 	impl_->pending.clear();
 }
 
