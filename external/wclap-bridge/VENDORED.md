@@ -1,20 +1,24 @@
 # wclap-bridge, vendored
 
-Copied from <https://github.com/WebCLAP/wclap-bridge> (BSL-1.0) rather than
-added as a submodule, because clap-host carries changes to it.
+Copied from <https://github.com/WebCLAP/wclap-bridge> rather than added as a
+submodule, because clap-host carries changes to it.
 
-| Source | Commit |
-| --- | --- |
-| wclap-bridge | `cd11d22` |
-| modules/wclap-cpp | `4ad3003` |
-| modules/webview-gui | `172164b` |
+| Source | Commit | Licence |
+| --- | --- | --- |
+| wclap-bridge | `cd11d22` | BSL-1.0 (`LICENSE.txt`) |
+| modules/wclap-cpp | `4ad3003` | MIT (`modules/wclap-cpp/LICENSE.txt`) |
 
-Upstream's own `modules/clap` and `modules/choc` are left out: the bridge
-builds against clap-host's CLAP SDK and choc, so one binary holds one version
-of each. `CMakeLists.txt` is rewritten for that; the bridge plug-in (`plugin/`)
+Upstream's own `modules/clap`, `modules/choc` and `modules/webview-gui` are
+left out: the bridge builds against clap-host's CLAP SDK, so one binary holds
+one version of it. `CMakeLists.txt` is rewritten for that; the bridge plug-in (`plugin/`)
 and the Rust bindings are not copied.
 
 ## Changes from upstream
+
+- **Interfaces.** A WCLAP's interface is offered only as `clap.webview`, with
+  its `clap.gui` limited to the webview window API, and clap-host shows the
+  page in its own webview. Upstream's `webview-gui` module, which put the page
+  in a native window of its own, is not used.
 
 - **Preset discovery.** `source/_generic/wclap-preset-discovery.h` is new: the
   `clap.preset-discovery-factory/2` factory (and its draft ID), with the

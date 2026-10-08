@@ -147,7 +147,6 @@ endif()
 # Configuring downloads the Wasmtime C API, so it can be turned off.
 option(NCH_WITH_WCLAP "Load .wclap plug-ins through wclap-bridge and Wasmtime" ON)
 if(NCH_WITH_WCLAP)
-    set(WCLAP_BRIDGE_CHOC_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/external/choc")
     add_subdirectory(external/wclap-bridge wclap-bridge EXCLUDE_FROM_ALL)
     # Designated initializers in wclap-bridge need C++20 on MSVC (Clang allows them in C++17).
     set_target_properties(wclap-bridge PROPERTIES CXX_STANDARD 20)
