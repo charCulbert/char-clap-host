@@ -15,4 +15,4 @@ clap-host is built with, and its binaries include, the following. The git submod
 
 Not included as code, but followed in design:
 
-- clap-validator: MIT. https://github.com/free-audio/clap-validator. The validation suite uses its test IDs, mirrors its `NoteGenerator` and `ParamFuzzer`, and uses the same xoshiro128++ generator and default seed, so results from the two tools can be compared. Copyright © 2022 Robbert van der Helm.
+- clap-validator: MIT. https://github.com/free-audio/clap-validator. The validation suite uses its test IDs, mirrors its `NoteGenerator` and `ParamFuzzer`, and uses the same xoshiro128++ generator and default seed (though it fills the generator's state differently, so the numbers differ). Copyright © 2022 Robbert van der Helm.
