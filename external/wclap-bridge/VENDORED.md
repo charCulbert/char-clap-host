@@ -47,3 +47,7 @@ and the Rust bindings are not copied.
 - **Logging.** Diagnostics go to stderr, never stdout, which clap-host keeps for
   replies; the per-call extension logging is gone.
 - Stored directories are made absolute, so mapped paths are too.
+- **wclap-cpp's arena pool on Windows.** `MemoryArenaPool::scoped()` took
+  `*arena` and `std::move(arena)` in one braced list; MSVC moved the pointer
+  into the by-value parameter first, so every WCLAP crashed on load. The
+  reference is now taken first.

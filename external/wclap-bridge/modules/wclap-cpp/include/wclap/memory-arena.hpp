@@ -166,7 +166,10 @@ struct MemoryArenaPool {
 	}
 	typename Arena::Scoped scoped() {
 		auto arena = getOrCreate();
-		return {*arena, std::move(arena)};
+		// Take the reference before the pointer is moved into the parameter: MSVC
+		// constructs that by-value parameter first, which left the reference null.
+		Arena &ref = *arena;
+		return {ref, std::move(arena)};
 	}
 private:
 	Instance *instance;
