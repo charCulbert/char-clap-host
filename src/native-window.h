@@ -29,16 +29,17 @@ public:
 	virtual void acceptDropsAboveChild() = 0;
 	// The content size in points, the unit the window's own platform sizes in.
 	virtual void setSize(uint32_t width, uint32_t height) = 0;
-	// How many pixels make a point on this window's display. Only Win32 sizes
-	// in points over pixels: Cocoa and X11 plug-in views already share the
-	// window's unit.
+	// How many pixels make a point on this window's display. Win32 and GTK
+	// size windows in points over pixels, while their plug-in views size in
+	// pixels; Cocoa views already share the window's unit.
 	virtual float pixelsPerPoint() { return 1.0f; }
 
 	// Who decides what sizes the user may drag the window to, and hears the
 	// one they landed on. `adjust` runs while the drag is happening, so the
 	// window snaps to a size the plug-in will accept rather than being
 	// corrected afterwards; `commit` runs once the window has taken it.
-	// Together they are CLAP's adjust_size and set_size.
+	// Together they are CLAP's adjust_size and set_size, so both take the
+	// plug-in's sizes: a window that sizes in points converts them first.
 	struct Resizer {
 		std::function<void(uint32_t &width, uint32_t &height)> adjust;
 		std::function<void(uint32_t width, uint32_t height)> commit;

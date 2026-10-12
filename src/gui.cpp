@@ -137,7 +137,10 @@ bool PluginGui::openNative(bool floating, std::string &error) {
 	if (!floating) {
 		const std::string title =
 		    instance_.descriptor()->name != nullptr ? instance_.descriptor()->name : "CLAP plug-in";
-		window_ = createNativeWindow(width, height, title, error);
+		// Made at the fallback size, which fits any screen, and sized once it
+		// can say how many pixels make a point. Made at the plug-in's pixel
+		// size, a GTK window at 200% maps twice too big and GNOME maximises it.
+		window_ = createNativeWindow(kFallbackWidth, kFallbackHeight, title, error);
 		if (window_ == nullptr) {
 			if (gui->destroy != nullptr)
 				gui->destroy(instance_.plugin());

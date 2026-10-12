@@ -114,9 +114,19 @@ public:
 		window_.setVisible(true);
 	}
 
+#if defined(__linux__)
+	void setResizer(Resizer resizer) override {
+		resizer_ = std::move(resizer);
+		auto *widget = static_cast<GtkWidget *>(window_.getWindowHandle());
+		if (widget != nullptr && configureHandler_ == 0)
+			configureHandler_ =
+			    g_signal_connect(widget, "configure-event", G_CALLBACK(&ChocWindow::configured), this);
+	}
+#else
 	void setResizer(Resizer) override {
 		// This window layer reports no resizes yet, so there is nobody to ask.
 	}
+#endif
 
 	void setUserResizable(bool) override {}
 
@@ -146,6 +156,13 @@ public:
 		                         static_cast<DWORD>(GetWindowLongPtrW(hwnd, GWL_EXSTYLE)), dpi);
 		SetWindowPos(hwnd, nullptr, 0, 0, frame.right - frame.left, frame.bottom - frame.top,
 		             SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+#elif defined(__linux__)
+		// The window reports this size back as it takes it, and that is not a
+		// resize for the plug-in to hear about. Resized in place: choc's
+		// setBounds would also move it to the corner of the screen.
+		lastWidth_ = static_cast<int>(width);
+		lastHeight_ = static_cast<int>(height);
+		gtk_window_resize(GTK_WINDOW(window_.getWindowHandle()), lastWidth_, lastHeight_);
 #else
 		window_.setBounds({0, 0, static_cast<int>(width), static_cast<int>(height)});
 #endif
@@ -154,6 +171,13 @@ public:
 #if defined(_WIN32)
 	float pixelsPerPoint() override {
 		return GetDpiForWindow(static_cast<HWND>(window_.getWindowHandle())) / 96.0f;
+	}
+#elif defined(__linux__)
+	float pixelsPerPoint() override {
+		// GTK sizes windows in its own units, which GDK_SCALE (200% in GNOME)
+		// multiplies into X11 pixels, the unit an embedded view sizes in.
+		auto *widget = static_cast<GtkWidget *>(window_.getWindowHandle());
+		return widget != nullptr ? static_cast<float>(gtk_widget_get_scale_factor(widget)) : 1.0f;
 	}
 #endif
 
@@ -180,6 +204,35 @@ private:
 #if defined(__linux__)
 	static void loadClicked(GtkWidget *, gpointer data) {
 		static_cast<ChocWindow *>(data)->choosePlugin();
+	}
+
+	// GTK has no hook while a drag is still under way, so the plug-in is asked
+	// once the window has moved, and the window is put right if it disagreed.
+	static gboolean configured(GtkWidget *, GdkEventConfigure *event, gpointer data) {
+		auto &owner = *static_cast<ChocWindow *>(data);
+		const bool asked = event->width == owner.lastWidth_ && event->height == owner.lastHeight_;
+		// choc shows the window at the size it was created with, before the
+		// host gives it the right one, and that first size arrives late.
+		if (!owner.settled_) {
+			owner.settled_ = asked;
+			return FALSE;
+		}
+		if (asked)
+			return FALSE;
+		owner.lastWidth_ = event->width;
+		owner.lastHeight_ = event->height;
+		const float scale = owner.pixelsPerPoint();
+		auto width = static_cast<uint32_t>(std::lround(event->width * scale));
+		auto height = static_cast<uint32_t>(std::lround(event->height * scale));
+		if (owner.resizer_.adjust)
+			owner.resizer_.adjust(width, height);
+		if (owner.resizer_.commit)
+			owner.resizer_.commit(width, height);
+		const auto fittedWidth = static_cast<int>(std::ceil(width / scale));
+		const auto fittedHeight = static_cast<int>(std::ceil(height / scale));
+		if (fittedWidth != event->width || fittedHeight != event->height)
+			owner.setSize(static_cast<uint32_t>(fittedWidth), static_cast<uint32_t>(fittedHeight));
+		return FALSE;
 	}
 
 	static void settingsClicked(GtkWidget *, gpointer) { appHandlers().openSettings(); }
@@ -285,6 +338,11 @@ private:
 	GtkWidget *contentRoot_ = nullptr;
 	GtkAccelGroup *accelerators_ = nullptr;
 	bool dropsInstalled_ = false;
+	Resizer resizer_;
+	gulong configureHandler_ = 0;
+	bool settled_ = false;
+	int lastWidth_ = 0;
+	int lastHeight_ = 0;
 #elif defined(_WIN32)
 	// The same menus as macOS and Linux. No keyboard shortcuts: the webview
 	// child has the focus, so keys never reach this window to be translated.
