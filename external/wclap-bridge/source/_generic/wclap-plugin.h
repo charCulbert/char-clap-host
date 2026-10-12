@@ -1152,7 +1152,9 @@ private:
 		auto result = mainThread->call(webviewExt[&wclap_plugin_webview::get_uri], ptr, uriPtr, uriCapacity);
 		if (result <= 0 || result > uriCapacity) return result;
 		if (uri) mainThread->getArray(uriPtr, uri, uriCapacity);
-		if (uri[result] == 0) {
+		if (!uri) return result;
+		// The length should count the terminator, so uri[result - 1] is it; a length without it leaves uri[result] as the terminator
+		if (uri[result - 1] != 0 && uint32_t(result) < uriCapacity && uri[result] == 0) {
 			// Complain, but also try to fix it
 			std::cerr << "WCLAP clap_plugin_webview.get_uri() length didn't include NULL terminator. Extending by 1 char." << std::endl;
 			++result;

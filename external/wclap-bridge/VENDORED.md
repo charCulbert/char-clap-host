@@ -51,3 +51,7 @@ and the Rust bindings are not copied.
   `*arena` and `std::move(arena)` in one braced list; MSVC moved the pointer
   into the by-value parameter first, so every WCLAP crashed on load. The
   reference is now taken first.
+- **get_uri's length check.** It looked at `uri[result]`, the byte after a
+  correctly counted terminator, so it warned about plug-ins that count it and
+  added one to their length. It now warns only when `uri[result - 1]` isn't
+  the terminator and `uri[result]` is.
