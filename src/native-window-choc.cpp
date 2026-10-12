@@ -64,6 +64,7 @@ public:
 		window_.windowClosed = [this] { closed_ = true; };
 #if defined(__linux__)
 		installMenu();
+		paintBackground();
 #elif defined(_WIN32)
 		installMenu();
 		// The menu bar took its height from the content area; give it back.
@@ -109,6 +110,9 @@ public:
 		gtk_box_pack_end(GTK_BOX(contentRoot_), content_, TRUE, TRUE, 0);
 		gtk_container_add(GTK_CONTAINER(window), contentRoot_);
 		gtk_widget_show_all(contentRoot_);
+		// The size asked for is the view's; the menu bar now comes on top.
+		if (lastWidth_ > 0)
+			gtk_window_resize(window, lastWidth_, lastHeight_ + menuHeight());
 #else
 		window_.setContent(view);
 #endif
@@ -166,7 +170,7 @@ public:
 		// setBounds would also move it to the corner of the screen.
 		lastWidth_ = static_cast<int>(width);
 		lastHeight_ = static_cast<int>(height);
-		gtk_window_resize(GTK_WINDOW(window_.getWindowHandle()), lastWidth_, lastHeight_);
+		gtk_window_resize(GTK_WINDOW(window_.getWindowHandle()), lastWidth_, lastHeight_ + menuHeight());
 #else
 		window_.setBounds({0, 0, static_cast<int>(width), static_cast<int>(height)});
 #endif
@@ -201,18 +205,99 @@ public:
 
 #if defined(__linux__)
 	bool writeSnapshot(const std::string &path, std::string &error) override {
+		Image image;
+		if (!capture(image, error))
+			return false;
+		const int width = static_cast<int>(image.width);
+		GdkPixbuf *pixbuf = gdk_pixbuf_new_from_data(image.rgb.data(), GDK_COLORSPACE_RGB, FALSE, 8, width,
+		                                             static_cast<int>(image.height), width * 3, nullptr, nullptr);
+		GError *failure = nullptr;
+		const bool saved = gdk_pixbuf_save(pixbuf, path.c_str(), "png", &failure, nullptr) != FALSE;
+		g_object_unref(pixbuf);
+		if (!saved) {
+			error = "could not write " + path + (failure != nullptr ? ": " + std::string(failure->message) : "");
+			g_clear_error(&failure);
+		}
+		return saved;
+	}
+
+	bool inspect(Inspection &out, std::string &error) override {
+		GdkWindow *gdkWindow = shownWindow(error);
+		if (gdkWindow == nullptr)
+			return false;
+		const int scale = gdk_window_get_scale_factor(gdkWindow);
+		const GtkAllocation area = contentArea(gdkWindow);
+		out.pixelsPerPoint = static_cast<float>(scale);
+		out.areaWidth = static_cast<uint32_t>(area.width * scale);
+		out.areaHeight = static_cast<uint32_t>(area.height * scale);
+		if (content_ != nullptr) {
+			// A webview draws into the host's own X window; GTK placed it.
+			GtkAllocation view;
+			gtk_widget_get_allocation(content_, &view);
+			out.childFound = true;
+			out.childX = (view.x - area.x) * scale;
+			out.childY = (view.y - area.y) * scale;
+			out.childWidth = static_cast<uint32_t>(view.width * scale);
+			out.childHeight = static_cast<uint32_t>(view.height * scale);
+			out.child = std::string("GTK widget ") + G_OBJECT_TYPE_NAME(content_);
+		} else {
+			// A native plug-in's view is an X window of its own, parented
+			// straight to the host's.
+			Display *display = GDK_WINDOW_XDISPLAY(gdkWindow);
+			::Window root = 0, parent = 0, *children = nullptr;
+			unsigned int count = 0;
+			if (XQueryTree(display, GDK_WINDOW_XID(gdkWindow), &root, &parent, &children, &count) != 0) {
+				for (unsigned int i = 0; i < count && !out.childFound; ++i) {
+					XWindowAttributes attributes{};
+					if (XGetWindowAttributes(display, children[i], &attributes) == 0 ||
+					    attributes.c_class != InputOutput || attributes.map_state != IsViewable)
+						continue;
+					out.childFound = true;
+					out.childX = attributes.x;
+					out.childY = attributes.y;
+					out.childWidth = static_cast<uint32_t>(attributes.width);
+					out.childHeight = static_cast<uint32_t>(attributes.height);
+					char name[64];
+					std::snprintf(name, sizeof name, "X11 window 0x%lx", static_cast<unsigned long>(children[i]));
+					out.child = name;
+				}
+				if (children != nullptr)
+					XFree(children);
+			}
+		}
+		return capture(out.image, error);
+	}
+
+private:
+	GdkWindow *shownWindow(std::string &error) const {
 		auto *widget = static_cast<GtkWidget *>(window_.getWindowHandle());
 		GdkWindow *gdkWindow = widget != nullptr ? gtk_widget_get_window(widget) : nullptr;
 		if (gdkWindow == nullptr || !gdk_window_is_viewable(gdkWindow)) {
 			error = "the window is not on screen";
-			return false;
+			return nullptr;
 		}
-		// The embedded view, below the menu bar; a native plug-in's own X
-		// window has the whole window to itself.
+		return gdkWindow;
+	}
+
+	// What the window has for the plug-in, in GTK's units: all of it, or
+	// for a webview the space below the menu bar.
+	GtkAllocation contentArea(GdkWindow *gdkWindow) const {
 		GtkAllocation area{0, 0, gdk_window_get_width(gdkWindow), gdk_window_get_height(gdkWindow)};
-		if (content_ != nullptr)
-			gtk_widget_get_allocation(content_, &area);
+		if (content_ != nullptr && contentRoot_ != nullptr) {
+			GtkAllocation menu;
+			gtk_widget_get_allocation(menuBar_, &menu);
+			area.y = menu.y + menu.height;
+			area.height -= area.y;
+		}
+		return area;
+	}
+
+	bool capture(Image &image, std::string &error) const {
+		GdkWindow *gdkWindow = shownWindow(error);
+		if (gdkWindow == nullptr)
+			return false;
 		const int scale = gdk_window_get_scale_factor(gdkWindow);
+		const GtkAllocation area = contentArea(gdkWindow);
 		const int width = area.width * scale;
 		const int height = area.height * scale;
 		if (width <= 0 || height <= 0) {
@@ -226,52 +311,82 @@ public:
 		// windows cover it.
 		GdkDisplay *gdkDisplay = gdk_window_get_display(gdkWindow);
 		gdk_x11_display_error_trap_push(gdkDisplay);
-		XImage *image = XGetImage(GDK_WINDOW_XDISPLAY(gdkWindow), GDK_WINDOW_XID(gdkWindow), area.x * scale,
-		                          area.y * scale, static_cast<unsigned>(width), static_cast<unsigned>(height),
-		                          AllPlanes, ZPixmap);
+		XImage *xImage = XGetImage(GDK_WINDOW_XDISPLAY(gdkWindow), GDK_WINDOW_XID(gdkWindow), area.x * scale,
+		                           area.y * scale, static_cast<unsigned>(width), static_cast<unsigned>(height),
+		                           AllPlanes, ZPixmap);
 		gdk_x11_display_error_trap_pop_ignored(gdkDisplay);
-		if (image == nullptr) {
+		if (xImage == nullptr) {
 			error = "could not read the window back from the X server";
 			return false;
 		}
 
-		GdkPixbuf *pixbuf = gdk_pixbuf_new(GDK_COLORSPACE_RGB, FALSE, 8, width, height);
-		guchar *pixels = gdk_pixbuf_get_pixels(pixbuf);
-		const int stride = gdk_pixbuf_get_rowstride(pixbuf);
 		// The visual's masks say where each channel sits in a pixel.
 		struct Channel {
 			unsigned long mask;
 			int shift = 0;
 			unsigned long top = 1;
 		};
-		Channel channels[3] = {{image->red_mask}, {image->green_mask}, {image->blue_mask}};
+		Channel channels[3] = {{xImage->red_mask}, {xImage->green_mask}, {xImage->blue_mask}};
 		for (auto &channel : channels) {
 			while (channel.mask != 0 && ((channel.mask >> channel.shift) & 1) == 0)
 				++channel.shift;
 			channel.top = std::max(1ul, channel.mask >> channel.shift);
 		}
+		image.width = static_cast<uint32_t>(width);
+		image.height = static_cast<uint32_t>(height);
+		image.rgb.resize(static_cast<size_t>(width) * height * 3);
+		uint8_t *to = image.rgb.data();
 		for (int y = 0; y < height; ++y) {
-			guchar *row = pixels + y * stride;
 			for (int x = 0; x < width; ++x) {
-				const unsigned long pixel = XGetPixel(image, x, y);
-				for (int c = 0; c < 3; ++c)
-					row[x * 3 + c] = static_cast<guchar>(((pixel & channels[c].mask) >> channels[c].shift) * 255 /
-					                                     channels[c].top);
+				const unsigned long pixel = XGetPixel(xImage, x, y);
+				for (const auto &channel : channels)
+					*to++ = static_cast<uint8_t>(((pixel & channel.mask) >> channel.shift) * 255 / channel.top);
 			}
 		}
-		XDestroyImage(image);
-
-		GError *failure = nullptr;
-		const bool saved = gdk_pixbuf_save(pixbuf, path.c_str(), "png", &failure, nullptr) != FALSE;
-		g_object_unref(pixbuf);
-		if (!saved) {
-			error = "could not write " + path + (failure != nullptr ? ": " + std::string(failure->message) : "");
-			g_clear_error(&failure);
-		}
-		return saved;
+		XDestroyImage(xImage);
+		return true;
 	}
+
+public:
 #elif defined(_WIN32)
 	bool writeSnapshot(const std::string &path, std::string &error) override {
+		Image image;
+		return capture(image, error) && writePng(path, image, error);
+	}
+
+	bool inspect(Inspection &out, std::string &error) override {
+		auto *hwnd = static_cast<HWND>(window_.getWindowHandle());
+		if (!capture(out.image, error))
+			return false;
+		RECT client{};
+		GetClientRect(hwnd, &client);
+		out.pixelsPerPoint = pixelsPerPoint();
+		out.areaWidth = static_cast<uint32_t>(client.right);
+		out.areaHeight = static_cast<uint32_t>(client.bottom);
+		// The plug-in's HWND, or the webview's, is the window's child.
+		for (HWND child = GetWindow(hwnd, GW_CHILD); child != nullptr && !out.childFound;
+		     child = GetWindow(child, GW_HWNDNEXT)) {
+			if (!IsWindowVisible(child))
+				continue;
+			RECT frame{};
+			GetWindowRect(child, &frame);
+			MapWindowPoints(nullptr, hwnd, reinterpret_cast<POINT *>(&frame), 2);
+			wchar_t className[128] = {};
+			GetClassNameW(child, className, static_cast<int>(std::size(className)));
+			char name[64];
+			std::snprintf(name, sizeof name, "HWND %p, ", static_cast<void *>(child));
+			out.childFound = true;
+			out.childX = frame.left;
+			out.childY = frame.top;
+			out.childWidth = static_cast<uint32_t>(frame.right - frame.left);
+			out.childHeight = static_cast<uint32_t>(frame.bottom - frame.top);
+			out.child = name + narrow(className);
+		}
+		return true;
+	}
+
+private:
+	bool capture(Image &image, std::string &error) const {
 		auto *hwnd = static_cast<HWND>(window_.getWindowHandle());
 		if (hwnd == nullptr || !IsWindowVisible(hwnd) || IsIconic(hwnd)) {
 			error = "the window is not on screen";
@@ -320,25 +435,35 @@ public:
 		SelectObject(memory, previous);
 		DeleteDC(memory);
 
-		// Rows of BGR, the layout the PNG encoder takes.
-		const UINT stride = (static_cast<UINT>(width) * 3 + 3) & ~3u;
-		std::vector<BYTE> pixels(static_cast<size_t>(stride) * height);
+		image.width = static_cast<uint32_t>(width);
+		image.height = static_cast<uint32_t>(height);
+		image.rgb.resize(static_cast<size_t>(width) * height * 3);
+		uint8_t *to = image.rgb.data();
 		for (int y = 0; y < height && printed; ++y) {
 			const auto *from = static_cast<const BYTE *>(bits) + (static_cast<size_t>(top + y) * frameWidth + left) * 4;
-			BYTE *to = pixels.data() + static_cast<size_t>(y) * stride;
-			for (int x = 0; x < width; ++x)
-				std::copy_n(from + x * 4, 3, to + x * 3);
+			for (int x = 0; x < width; ++x, from += 4) {
+				*to++ = from[2];
+				*to++ = from[1];
+				*to++ = from[0];
+			}
 		}
 		DeleteObject(bitmap);
 		if (!printed) {
 			error = "the window would not draw itself for the snapshot";
 			return false;
 		}
-		return writePng(path, pixels, static_cast<UINT>(width), static_cast<UINT>(height), stride, error);
+		return true;
 	}
+
+public:
 #else
 	bool writeSnapshot(const std::string &, std::string &error) override {
 		error = "snapshots are not implemented on this platform";
+		return false;
+	}
+
+	bool inspect(Inspection &, std::string &error) override {
+		error = "gui.check is not implemented on this platform";
 		return false;
 	}
 #endif
@@ -410,6 +535,39 @@ private:
 		}
 		gtk_drag_finish(context, accepted, FALSE, time);
 		(void)owner;
+	}
+
+	// Only a window with a webview packs the menu bar; a native plug-in's
+	// view is an X window that would cover it.
+	int menuHeight() const {
+		if (contentRoot_ == nullptr || menuBar_ == nullptr)
+			return 0;
+		int natural = 0;
+		gtk_widget_get_preferred_height(menuBar_, nullptr, &natural);
+		return natural;
+	}
+
+	static void addStyle(GtkWidget *widget, const std::string &css, guint priority) {
+		auto *provider = gtk_css_provider_new();
+		gtk_css_provider_load_from_data(provider, css.c_str(), -1, nullptr);
+		gtk_style_context_add_provider(gtk_widget_get_style_context(widget), GTK_STYLE_PROVIDER(provider), priority);
+		g_object_unref(provider);
+	}
+
+	// The host's colour behind the plug-in, above even the user's own
+	// gtk.css, which would otherwise win and hide a gap from gui.check. The
+	// menu bar has no background of its own, so it is given the theme's back.
+	void paintBackground() {
+		auto *window = static_cast<GtkWidget *>(window_.getWindowHandle());
+		if (window == nullptr)
+			return;
+		char css[64];
+		std::snprintf(css, sizeof css, "window { background-color: #%02x%02x%02x; }", kHostBackground[0],
+		              kHostBackground[1], kHostBackground[2]);
+		addStyle(window, css, GTK_STYLE_PROVIDER_PRIORITY_USER + 1);
+		if (menuBar_ != nullptr)
+			addStyle(menuBar_, "menubar { background-color: @theme_bg_color; }",
+			         GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
 	}
 
 	void installMenu() {
@@ -528,6 +686,10 @@ private:
 			owner.fillRecentMenu();
 			return 0;
 		}
+		if (message == WM_ERASEBKGND) {
+			owner.paintBackground(reinterpret_cast<HDC>(wParam));
+			return 1;
+		}
 		if (message == WM_COMMAND && HIWORD(wParam) == 0) {
 			owner.menuCommand(LOWORD(wParam));
 			return 0;
@@ -535,6 +697,28 @@ private:
 		if (message == WM_NCDESTROY)
 			RemoveWindowSubclass(hwnd, &ChocWindow::menuProc, 0);
 		return DefSubclassProc(hwnd, message, wParam, lParam);
+	}
+
+	// The host's colour behind the plug-in, around its view rather than over
+	// it: the window does not clip its children, so painting over one would
+	// leave a hole until it repainted.
+	void paintBackground(HDC dc) {
+		auto *hwnd = static_cast<HWND>(window_.getWindowHandle());
+		static const HBRUSH brush = CreateSolidBrush(RGB(kHostBackground[0], kHostBackground[1], kHostBackground[2]));
+		// The class keeps one device context for good, so the clipping is undone.
+		const int saved = SaveDC(dc);
+		for (HWND child = GetWindow(hwnd, GW_CHILD); child != nullptr; child = GetWindow(child, GW_HWNDNEXT)) {
+			if (!IsWindowVisible(child))
+				continue;
+			RECT frame{};
+			GetWindowRect(child, &frame);
+			MapWindowPoints(nullptr, hwnd, reinterpret_cast<POINT *>(&frame), 2);
+			ExcludeClipRect(dc, frame.left, frame.top, frame.right, frame.bottom);
+		}
+		RECT client{};
+		GetClientRect(hwnd, &client);
+		FillRect(dc, &client, brush);
+		RestoreDC(dc, saved);
 	}
 
 	// Asked each time the submenu opens, as on macOS.
@@ -567,9 +751,17 @@ private:
 		}
 	}
 
-	// Encodes rows of 24-bit BGR as a PNG with the system's own encoder.
-	static bool writePng(const std::string &path, std::vector<BYTE> &pixels, UINT width, UINT height, UINT stride,
-	                     std::string &error) {
+	// Encodes the image as a PNG with the system's own encoder.
+	static bool writePng(const std::string &path, const Image &image, std::string &error) {
+		// Rows of BGR, each padded to four bytes, the layout the encoder takes.
+		const UINT width = image.width;
+		const UINT height = image.height;
+		const UINT stride = (width * 3 + 3) & ~3u;
+		std::vector<BYTE> pixels(static_cast<size_t>(stride) * height);
+		for (UINT y = 0; y < height; ++y)
+			for (UINT x = 0; x < width; ++x)
+				for (UINT c = 0; c < 3; ++c)
+					pixels[y * stride + x * 3 + c] = image.rgb[(static_cast<size_t>(y) * width + x) * 3 + 2 - c];
 		// The webview has usually started COM on this thread already; if not,
 		// it is started here and stopped again afterwards.
 		const HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);

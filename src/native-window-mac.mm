@@ -4,10 +4,13 @@
 
 #include <clap/clap.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <dlfcn.h>
 #include <functional>
 #include <string>
+#include <vector>
 
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/QuartzCore.h>
@@ -459,6 +462,10 @@ public:
 		[window_ setReleasedWhenClosed:NO];
 		view_ = [[NchContentView alloc] initWithFrame:frame];
 		[view_ setWantsLayer:YES];
+		CGColorRef background = CGColorCreateSRGB(kHostBackground[0] / 255.0, kHostBackground[1] / 255.0,
+		                                          kHostBackground[2] / 255.0, 1.0);
+		[[view_ layer] setBackgroundColor:background];
+		CGColorRelease(background);
 		[window_ setContentView:view_];
 		pin_ = [[NchPinController alloc] init];
 		[window_ addTitlebarAccessoryViewController:makePinAccessory(window_, pin_)];
@@ -588,6 +595,57 @@ public:
 				error = "could not write " + path;
 				return false;
 			}
+			return true;
+		}
+	}
+
+	bool inspect(Inspection &out, std::string &error) override {
+		@autoreleasepool {
+			const CGFloat scale = [window_ backingScaleFactor];
+			const NSRect bounds = [view_ bounds];
+			out.pixelsPerPoint = static_cast<float>(scale);
+			out.areaWidth = static_cast<uint32_t>(std::lround(bounds.size.width * scale));
+			out.areaHeight = static_cast<uint32_t>(std::lround(bounds.size.height * scale));
+			for (NSView *child in [view_ subviews]) {
+				if (child == overlay_ || [child isHidden])
+					continue;
+				// Measured from the top left, as on the other platforms.
+				const NSRect frame = [child frame];
+				const CGFloat top = [view_ isFlipped] ? NSMinY(frame) : NSHeight(bounds) - NSMaxY(frame);
+				out.childFound = true;
+				out.childX = static_cast<int32_t>(std::lround(NSMinX(frame) * scale));
+				out.childY = static_cast<int32_t>(std::lround(top * scale));
+				out.childWidth = static_cast<uint32_t>(std::lround(NSWidth(frame) * scale));
+				out.childHeight = static_cast<uint32_t>(std::lround(NSHeight(frame) * scale));
+				out.child = std::string("NSView ") + [NSStringFromClass([child class]) UTF8String];
+				break;
+			}
+
+			NSBitmapImageRep *bitmap = screenBitmap();
+			if (bitmap == nil) {
+				error = "the window is not on screen";
+				return false;
+			}
+			// Drawn into sRGB, the space the host's background colour is in,
+			// rather than compared in the display's own.
+			const size_t width = static_cast<size_t>([bitmap pixelsWide]);
+			const size_t height = static_cast<size_t>([bitmap pixelsHigh]);
+			std::vector<uint8_t> rgba(width * height * 4);
+			CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+			CGContextRef context = CGBitmapContextCreate(rgba.data(), width, height, 8, width * 4, space,
+			                                             kCGImageAlphaNoneSkipLast | kCGBitmapByteOrder32Big);
+			CGColorSpaceRelease(space);
+			if (context == nullptr) {
+				error = "could not read the window's pixels";
+				return false;
+			}
+			CGContextDrawImage(context, CGRectMake(0, 0, width, height), [bitmap CGImage]);
+			CGContextRelease(context);
+			out.image.width = static_cast<uint32_t>(width);
+			out.image.height = static_cast<uint32_t>(height);
+			out.image.rgb.resize(width * height * 3);
+			for (size_t i = 0; i < width * height; ++i)
+				std::copy_n(&rgba[i * 4], 3, &out.image.rgb[i * 3]);
 			return true;
 		}
 	}

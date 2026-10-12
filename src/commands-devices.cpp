@@ -264,6 +264,22 @@ void Session::registerDeviceCommands() {
 		               return Response::success(Value(std::move(out)));
 	               }});
 
+	commands_.add({"gui.check", "",
+	               "Check the plug-in fills its window: sizes agree within 1 px and no host background at the edges.",
+	               [](Session &session, const Request &) -> Response {
+		               Value report;
+		               bool passed = false;
+		               std::string error;
+		               if (!session.gui().check(report, passed, error))
+			               return Response::failure(error);
+		               // Under --strict a failed check fails the command, so
+		               // the exit status says so too.
+		               if (!passed && session.options().strict)
+			               return {false, "gui.check failed: " + report["problems"].array().front().asString(),
+			                       std::move(report)};
+		               return Response::success(std::move(report));
+	               }});
+
 	commands_.add({"gui", "", "Report the state of the plug-in's interface.",
 	               [](Session &session, const Request &) -> Response {
 		               return Response::success(session.gui().report());

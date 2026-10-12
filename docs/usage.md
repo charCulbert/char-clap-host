@@ -95,7 +95,7 @@ For a coding agent, link the skill into its skills directory:
 | Ports | `ports` `ports.configs` `ports.select` `ports.activate` `surround` `ambisonic` |
 | Reported by the plug-in | `latency` `tail` `voices` `note.names` `remote.pages` `triggers` `render.mode` |
 | Devices | `audio.devices` `audio.start` `audio.settings` `audio.stop` `audio.status` `audio.test` `power` `output.gain` `input.mute` `meters` `midi.ports` `midi.open` `midi.close` `midi.outputs` `midi.out` |
-| Interface | `gui.open` `gui.close` `gui.resize` `gui` `gui.contents` `gui.snapshot` `panel` `panel.snapshot` `panel.close` `settings` `settings.close` |
+| Interface | `gui.open` `gui.close` `gui.resize` `gui` `gui.contents` `gui.snapshot` `gui.check` `panel` `panel.snapshot` `panel.close` `settings` `settings.close` |
 | Validation | `validate` `validate.clear` `validate.run` `validate.tests` |
 | Host behaviour | `track.info` `threadpool` `undo` `callbacks` |
 
@@ -108,6 +108,26 @@ server, on Windows with `PrintWindow`, on Linux from the X server with
 `XGetImage`. GPU-drawn and webview interfaces come out as they look on screen.
 The window must be open and not minimised. On Windows, write the path with
 forward slashes (`C:/tmp/shot.png`): a backslash escapes the next character.
+
+`gui.check` measures the open interface and passes or fails it:
+
+- **Geometry.** The window's content area, the plug-in's view inside it as
+  the OS reports it (an X11 window, an HWND or an NSView), and the plug-in's
+  `get_size` converted to pixels must agree within 1 px, with the view at the
+  top left. The reply gives all three in pixels and points, and the scale.
+- **Edges.** In the same capture `gui.snapshot` takes, no edge may have a strip
+  2 px or wider of the host's background. The host paints `#401038` behind
+  the plug-in for this, so a gap is also easy to see in a snapshot. The reply
+  gives each side's strip width.
+
+`pass` is false and `problems` lists what disagreed. Under `--strict` a failed
+check also fails the command, so the exit status is 1:
+
+```sh
+(echo gui.open; sleep 5; echo gui.check) | clap-host --json --quiet --strict MySynth.clap
+```
+
+It needs an embedded window: a floating interface is the plug-in's own.
 
 ## Tests
 

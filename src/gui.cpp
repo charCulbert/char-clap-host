@@ -4,7 +4,10 @@
 #include "state-stream.h"
 
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <utility>
 
 #include <clap/ext/draft/webview.h>
 
@@ -444,6 +447,171 @@ bool PluginGui::writeSnapshot(const std::string &path, std::string &error) {
 		return false;
 	}
 	return window_->writeSnapshot(path, error);
+}
+
+namespace {
+
+bool isBackground(const uint8_t *pixel, const uint8_t background[3]) {
+	// Loose enough for a colour taken through the display's colour space and
+	// back, tight enough that a dark interface is not mistaken for it.
+	constexpr int kTolerance = 4;
+	for (int c = 0; c < 3; ++c)
+		if (std::abs(static_cast<int>(pixel[c]) - background[c]) > kTolerance)
+			return false;
+	return true;
+}
+
+// A row or column of `count` pixels `step` bytes apart.
+bool lineIsBackground(const uint8_t *first, size_t step, uint32_t count, const uint8_t background[3]) {
+	uint32_t matching = 0;
+	for (uint32_t i = 0; i < count; ++i)
+		matching += isBackground(first + i * step, background) ? 1 : 0;
+	return count > 0 && matching * 10 >= count * 9;
+}
+
+Value size(double width, double height) {
+	const auto rounded = [](double value) { return Value(std::round(value * 100.0) / 100.0); };
+	Object out;
+	out["width"] = rounded(width);
+	out["height"] = rounded(height);
+	return Value(std::move(out));
+}
+
+Value pixelsAndPoints(double width, double height, double scale) {
+	Object out;
+	out["pixels"] = size(width, height);
+	out["points"] = size(width / scale, height / scale);
+	return Value(std::move(out));
+}
+
+} // namespace
+
+EdgeStrips findEdgeStrips(const Image &image, const uint8_t background[3]) {
+	EdgeStrips strips;
+	const uint32_t width = image.width;
+	const uint32_t height = image.height;
+	if (width == 0 || height == 0 || image.rgb.size() < static_cast<size_t>(width) * height * 3)
+		return strips;
+	const uint8_t *pixels = image.rgb.data();
+	const size_t row = static_cast<size_t>(width) * 3;
+	while (strips.top < height && lineIsBackground(pixels + strips.top * row, 3, width, background))
+		++strips.top;
+	if (strips.top == height) {
+		// All of it: the plug-in drew nothing at all.
+		strips.bottom = height;
+		strips.left = strips.right = width;
+		return strips;
+	}
+	while (strips.bottom < height &&
+	       lineIsBackground(pixels + (height - 1 - strips.bottom) * row, 3, width, background))
+		++strips.bottom;
+	while (strips.left < width && lineIsBackground(pixels + strips.left * 3, row, height, background))
+		++strips.left;
+	while (strips.right < width &&
+	       lineIsBackground(pixels + (width - 1 - strips.right) * 3, row, height, background))
+		++strips.right;
+	return strips;
+}
+
+bool PluginGui::check(Value &report, bool &passed, std::string &error) {
+	if (api_ == GuiApi::None) {
+		error = "no interface is open";
+		return false;
+	}
+	if (window_ == nullptr) {
+		error = "a floating interface is in the plug-in's own window, which the host cannot measure";
+		return false;
+	}
+	NativeWindow::Inspection seen;
+	if (!window_->inspect(seen, error))
+		return false;
+	const double scale = seen.pixelsPerPoint > 0.0f ? seen.pixelsPerPoint : 1.0;
+
+	// What the plug-in says now. clap.gui sizes are pixels except under
+	// Cocoa, and clap.webview's are logical, like points.
+	uint32_t width = width_;
+	uint32_t height = height_;
+	const clap_plugin_gui_t *gui = extension();
+	if (gui != nullptr && gui->get_size != nullptr && !gui->get_size(instance_.plugin(), &width, &height)) {
+		width = width_;
+		height = height_;
+	}
+	const bool inPoints = api_ == GuiApi::Webview || std::strcmp(nativeWindowApi(), CLAP_WINDOW_API_COCOA) == 0;
+	const double expectedWidth = inPoints ? width * scale : width;
+	const double expectedHeight = inPoints ? height * scale : height;
+
+	Array problems;
+	const auto compare = [&problems](const char *what, double a, double b, const char *against) {
+		if (std::fabs(a - b) > 1.0) {
+			char line[160];
+			std::snprintf(line, sizeof line, "%s is %.0f px, %s is %.0f px", what, a, against, b);
+			problems.push_back(Value(std::string(line)));
+		}
+	};
+	compare("window width", seen.areaWidth, expectedWidth, "the plug-in's width");
+	compare("window height", seen.areaHeight, expectedHeight, "the plug-in's height");
+	if (!seen.childFound) {
+		problems.push_back(Value("no view of the plug-in's was found in the window"));
+	} else {
+		compare("view width", seen.childWidth, expectedWidth, "the plug-in's width");
+		compare("view height", seen.childHeight, expectedHeight, "the plug-in's height");
+		compare("view width", seen.childWidth, seen.areaWidth, "the window's");
+		compare("view height", seen.childHeight, seen.areaHeight, "the window's");
+		compare("view left edge", seen.childX, 0, "the window's");
+		compare("view top edge", seen.childY, 0, "the window's");
+	}
+	const bool geometryPassed = problems.empty();
+
+	const EdgeStrips strips = findEdgeStrips(seen.image, kHostBackground);
+	const std::pair<const char *, uint32_t> sides[] = {
+	    {"top", strips.top}, {"bottom", strips.bottom}, {"left", strips.left}, {"right", strips.right}};
+	bool edgesPassed = seen.image.width > 0 && seen.image.height > 0;
+	if (!edgesPassed)
+		problems.push_back(Value("the window gave no pixels to look at"));
+	for (const auto &[side, strip] : sides) {
+		if (strip < 2)
+			continue;
+		edgesPassed = false;
+		char line[120];
+		std::snprintf(line, sizeof line, "a %u px strip of the host's background along the %s edge", strip, side);
+		problems.push_back(Value(std::string(line)));
+	}
+	passed = geometryPassed && edgesPassed;
+
+	Object out;
+	out["pass"] = Value(passed);
+	out["api"] = Value(api_ == GuiApi::Native ? nativeWindowApi() : "webview");
+	out["scale"] = Value(scale);
+	out["window"] = pixelsAndPoints(seen.areaWidth, seen.areaHeight, scale);
+	Object view;
+	view["found"] = Value(seen.childFound);
+	if (seen.childFound) {
+		view["what"] = Value(seen.child);
+		view["x"] = Value(static_cast<double>(seen.childX));
+		view["y"] = Value(static_cast<double>(seen.childY));
+		view["pixels"] = size(seen.childWidth, seen.childHeight);
+		view["points"] = size(seen.childWidth / scale, seen.childHeight / scale);
+	}
+	out["view"] = Value(std::move(view));
+	Object plugin;
+	plugin["getSize"] = size(width, height);
+	plugin["unit"] = Value(inPoints ? "points" : "pixels");
+	plugin["pixels"] = size(expectedWidth, expectedHeight);
+	plugin["points"] = size(expectedWidth / scale, expectedHeight / scale);
+	out["plugin"] = Value(std::move(plugin));
+	Object edges;
+	char colour[8];
+	std::snprintf(colour, sizeof colour, "#%02x%02x%02x", kHostBackground[0], kHostBackground[1], kHostBackground[2]);
+	edges["background"] = Value(std::string(colour));
+	edges["captured"] = size(seen.image.width, seen.image.height);
+	for (const auto &[side, strip] : sides)
+		edges[side] = Value(strip);
+	out["geometryPass"] = Value(geometryPassed);
+	out["edgesPass"] = Value(edgesPassed);
+	out["edges"] = Value(std::move(edges));
+	out["problems"] = Value(std::move(problems));
+	report = Value(std::move(out));
+	return true;
 }
 
 Value PluginGui::report() const {

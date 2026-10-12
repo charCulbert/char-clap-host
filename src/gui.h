@@ -19,6 +19,19 @@ namespace nch {
 class NativeWindow;
 class Session;
 
+struct Image;
+
+// How many rows or columns at each edge of an image are the host's
+// background, counting inwards until one is not. A row counts when nearly
+// all of it matches, so a rounded window corner does not hide a strip.
+struct EdgeStrips {
+	uint32_t top = 0;
+	uint32_t bottom = 0;
+	uint32_t left = 0;
+	uint32_t right = 0;
+};
+EdgeStrips findEdgeStrips(const Image &image, const uint8_t background[3]);
+
 // Which clap.gui API the window speaks.
 enum class GuiApi { None, Native, Webview };
 
@@ -57,6 +70,11 @@ public:
 	// What is actually inside the host's window, and a PNG of it.
 	std::string describeContents() const;
 	bool writeSnapshot(const std::string &path, std::string &error);
+	// Measures the open interface: whether the window, the plug-in's view
+	// and the plug-in's own idea of its size agree, and whether the host's
+	// background shows at any edge. False only when it cannot measure;
+	// `passed` says whether everything agreed.
+	bool check(Value &report, bool &passed, std::string &error);
 
 private:
 	const clap_plugin_gui_t *extension() const;

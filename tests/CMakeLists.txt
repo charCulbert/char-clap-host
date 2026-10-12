@@ -6,6 +6,7 @@ add_executable(nch-tests
     command.test.cpp
     device-settings.test.cpp
     event-list.test.cpp
+    gui-check.test.cpp
     midi-file.test.cpp
     midi-player.test.cpp
     note-encoding.test.cpp

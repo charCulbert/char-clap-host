@@ -36,7 +36,9 @@ You can type commands at a prompt or use the GUI, which covers
 parameters, presets, devices and the plug-in's own interface. A script or an
 agent can pipe the same commands in, as text or JSON, and add `--json` to get
 one JSON reply per line. `help` lists the commands. `gui.snapshot out.png`
-writes a PNG of the plug-in's window, so a script can see the interface too.
+writes a PNG of the plug-in's window, so a script can see the interface too,
+and `gui.check` says whether the interface fills its window, with the sizes
+in pixels and points.
 
 ```console
 $ clap-host MySynth.clap

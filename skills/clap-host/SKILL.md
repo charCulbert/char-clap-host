@@ -72,7 +72,7 @@ Areas: plug-in (`info` `extensions` `status`), parameters (`params.list`
 `audio.input` `audio.input.play` `audio.input.seek` `bypass`), notes (`note.on` `note.off` `midi` `cc` `midi.load` `midi.file`), transport
 (`tempo` `timesig` `transport`), state (`state.save` `state.load`
 `presets.list` `preset.load`), ports, devices (`audio.devices` `audio.start`
-`audio.settings` `power` `input.mute` `meters` `midi.ports`), interface (`gui.open` `gui.snapshot` `panel`
+`audio.settings` `power` `input.mute` `meters` `midi.ports`), interface (`gui.open` `gui.snapshot` `gui.check` `panel`
 `panel.snapshot`), validation (`validate` `validate.run` `validate.tests`),
 host behaviour (`callbacks` `events` `undo` `threadpool`).
 
@@ -144,6 +144,12 @@ yet: `(printf 'gui.open\n'; sleep 3; printf 'gui.snapshot shot.png\n') | clap-ho
 A PNG that stays blank after that is a real fault; read stderr. `panel snapshot`
 photographs the host's parameter window. Both work on macOS, Windows and Linux
 (X11); on Windows give the path with forward slashes.
+
+**Does the interface fit its window?** `gui.check` after `gui.open` (and the
+same few seconds' wait) gives `pass`, the window, view and `get_size` sizes in
+pixels and points, the strip of host background (`#401038`) found at each
+edge, and `problems` in words. Under `--strict` a failed check exits 1. Run it
+after any change to sizing or scaling, on each platform.
 
 **Round-trip state:** `state save a.state`, change a parameter,
 `state load a.state`, `param get <id>`.

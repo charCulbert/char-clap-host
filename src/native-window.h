@@ -12,6 +12,13 @@
 
 namespace nch {
 
+// Rows of 8-bit RGB, top to bottom, with no padding.
+struct Image {
+	uint32_t width = 0;
+	uint32_t height = 0;
+	std::vector<uint8_t> rgb;
+};
+
 class NativeWindow {
 public:
 	virtual ~NativeWindow() = default;
@@ -62,7 +69,30 @@ public:
 	// screen-recording permission, because the process is photographing its
 	// own view.
 	virtual bool writeSnapshot(const std::string &path, std::string &error) = 0;
+
+	// The window as gui.check sees it, all in pixels: the area the host gives
+	// the plug-in, the view the OS reports inside that area, and what is on
+	// screen there, from the same capture as writeSnapshot.
+	struct Inspection {
+		float pixelsPerPoint = 1.0f;
+		uint32_t areaWidth = 0;
+		uint32_t areaHeight = 0;
+		bool childFound = false;
+		int32_t childX = 0;
+		int32_t childY = 0;
+		uint32_t childWidth = 0;
+		uint32_t childHeight = 0;
+		// What the child is, e.g. "X11 window 0x2a00007".
+		std::string child;
+		Image image;
+	};
+	virtual bool inspect(Inspection &out, std::string &error) = 0;
 };
+
+// The colour every host window paints behind the plug-in, so a gap between
+// the window's edge and the plug-in's view shows, and gui.check can find it.
+// Chosen to be one no interface is likely to draw edge to edge.
+constexpr uint8_t kHostBackground[3] = {0x40, 0x10, 0x38};
 
 // Prepares the process to have a user interface at all, before any plug-in
 // code creates one. On macOS a WKWebView built before NSApplication exists
