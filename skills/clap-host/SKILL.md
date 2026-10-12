@@ -142,7 +142,8 @@ read the PNG. A webview interface loads asynchronously, so over a pipe wait a
 few seconds between the two, or the PNG is blank because the page has not drawn
 yet: `(printf 'gui.open\n'; sleep 3; printf 'gui.snapshot shot.png\n') | clap-host ...`.
 A PNG that stays blank after that is a real fault; read stderr. `panel snapshot`
-photographs the host's parameter window.
+photographs the host's parameter window. Both work on macOS, Windows and Linux
+(X11); on Windows give the path with forward slashes.
 
 **Round-trip state:** `state save a.state`, change a parameter,
 `state load a.state`, `param get <id>`.

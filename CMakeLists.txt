@@ -109,9 +109,9 @@ if(APPLE)
     target_link_libraries(nch-core PUBLIC "-framework CoreFoundation" "-framework Cocoa" "-framework QuartzCore")
 elseif(UNIX)
     target_link_libraries(nch-core PUBLIC ${CMAKE_DL_LIBS})
-    if(X11_FOUND)
-        target_link_libraries(nch-core PUBLIC X11::X11)
-    endif()
+    # gui.snapshot reads the window back with XGetImage.
+    find_package(X11 REQUIRED)
+    target_link_libraries(nch-core PUBLIC X11::X11)
 endif()
 
 # choc's WebView uses WebKit on macOS, WebView2 on Windows and webkit2gtk on
@@ -182,8 +182,9 @@ if(APPLE)
         COMMENT "Linking build/clap-host-cli to the bundled executable")
 elseif(WIN32)
     target_sources(clap-host PRIVATE resources/clap-host.rc)
-    # The window layer's menu bar and open dialog.
-    target_link_libraries(nch-core PUBLIC comctl32 comdlg32)
+    # The window layer's menu bar and open dialog, and the PNG encoder for
+    # gui.snapshot.
+    target_link_libraries(nch-core PUBLIC comctl32 comdlg32 windowscodecs)
 endif()
 
 add_subdirectory(fixtures)

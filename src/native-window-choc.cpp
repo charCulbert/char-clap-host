@@ -21,14 +21,17 @@
 #if defined(_WIN32)
 #include <commctrl.h>
 #include <commdlg.h>
+#include <wincodec.h>
 #endif
 
 #include <algorithm>
 #include <atomic>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <initializer_list>
 #include <string>
 #include <vector>
 
@@ -102,7 +105,8 @@ public:
 			return;
 		contentRoot_ = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 		gtk_box_pack_start(GTK_BOX(contentRoot_), menuBar_, FALSE, FALSE, 0);
-		gtk_box_pack_end(GTK_BOX(contentRoot_), GTK_WIDGET(view), TRUE, TRUE, 0);
+		content_ = GTK_WIDGET(view);
+		gtk_box_pack_end(GTK_BOX(contentRoot_), content_, TRUE, TRUE, 0);
 		gtk_container_add(GTK_CONTAINER(window), contentRoot_);
 		gtk_widget_show_all(contentRoot_);
 #else
@@ -195,10 +199,149 @@ public:
 		       (window_.getWindowHandle() != nullptr ? "present" : "missing") + "\n";
 	}
 
+#if defined(__linux__)
+	bool writeSnapshot(const std::string &path, std::string &error) override {
+		auto *widget = static_cast<GtkWidget *>(window_.getWindowHandle());
+		GdkWindow *gdkWindow = widget != nullptr ? gtk_widget_get_window(widget) : nullptr;
+		if (gdkWindow == nullptr || !gdk_window_is_viewable(gdkWindow)) {
+			error = "the window is not on screen";
+			return false;
+		}
+		// The embedded view, below the menu bar; a native plug-in's own X
+		// window has the whole window to itself.
+		GtkAllocation area{0, 0, gdk_window_get_width(gdkWindow), gdk_window_get_height(gdkWindow)};
+		if (content_ != nullptr)
+			gtk_widget_get_allocation(content_, &area);
+		const int scale = gdk_window_get_scale_factor(gdkWindow);
+		const int width = area.width * scale;
+		const int height = area.height * scale;
+		if (width <= 0 || height <= 0) {
+			error = "the window has no drawable contents";
+			return false;
+		}
+
+		// The X server's copy of the window, child windows included, so it
+		// holds what a GL or Vulkan view presented as well as what GTK drew.
+		// A compositing window manager keeps that copy whole even where other
+		// windows cover it.
+		GdkDisplay *gdkDisplay = gdk_window_get_display(gdkWindow);
+		gdk_x11_display_error_trap_push(gdkDisplay);
+		XImage *image = XGetImage(GDK_WINDOW_XDISPLAY(gdkWindow), GDK_WINDOW_XID(gdkWindow), area.x * scale,
+		                          area.y * scale, static_cast<unsigned>(width), static_cast<unsigned>(height),
+		                          AllPlanes, ZPixmap);
+		gdk_x11_display_error_trap_pop_ignored(gdkDisplay);
+		if (image == nullptr) {
+			error = "could not read the window back from the X server";
+			return false;
+		}
+
+		GdkPixbuf *pixbuf = gdk_pixbuf_new(GDK_COLORSPACE_RGB, FALSE, 8, width, height);
+		guchar *pixels = gdk_pixbuf_get_pixels(pixbuf);
+		const int stride = gdk_pixbuf_get_rowstride(pixbuf);
+		// The visual's masks say where each channel sits in a pixel.
+		struct Channel {
+			unsigned long mask;
+			int shift = 0;
+			unsigned long top = 1;
+		};
+		Channel channels[3] = {{image->red_mask}, {image->green_mask}, {image->blue_mask}};
+		for (auto &channel : channels) {
+			while (channel.mask != 0 && ((channel.mask >> channel.shift) & 1) == 0)
+				++channel.shift;
+			channel.top = std::max(1ul, channel.mask >> channel.shift);
+		}
+		for (int y = 0; y < height; ++y) {
+			guchar *row = pixels + y * stride;
+			for (int x = 0; x < width; ++x) {
+				const unsigned long pixel = XGetPixel(image, x, y);
+				for (int c = 0; c < 3; ++c)
+					row[x * 3 + c] = static_cast<guchar>(((pixel & channels[c].mask) >> channels[c].shift) * 255 /
+					                                     channels[c].top);
+			}
+		}
+		XDestroyImage(image);
+
+		GError *failure = nullptr;
+		const bool saved = gdk_pixbuf_save(pixbuf, path.c_str(), "png", &failure, nullptr) != FALSE;
+		g_object_unref(pixbuf);
+		if (!saved) {
+			error = "could not write " + path + (failure != nullptr ? ": " + std::string(failure->message) : "");
+			g_clear_error(&failure);
+		}
+		return saved;
+	}
+#elif defined(_WIN32)
+	bool writeSnapshot(const std::string &path, std::string &error) override {
+		auto *hwnd = static_cast<HWND>(window_.getWindowHandle());
+		if (hwnd == nullptr || !IsWindowVisible(hwnd) || IsIconic(hwnd)) {
+			error = "the window is not on screen";
+			return false;
+		}
+		// PrintWindow draws the whole window, frame and menu bar included, so
+		// the client area is cut out of it afterwards.
+		RECT frame{}, client{};
+		GetWindowRect(hwnd, &frame);
+		GetClientRect(hwnd, &client);
+		POINT origin{0, 0};
+		ClientToScreen(hwnd, &origin);
+		const int frameWidth = frame.right - frame.left;
+		const int frameHeight = frame.bottom - frame.top;
+		const int left = origin.x - frame.left;
+		const int top = origin.y - frame.top;
+		const int width = std::min<int>(client.right, frameWidth - left);
+		const int height = std::min<int>(client.bottom, frameHeight - top);
+		if (width <= 0 || height <= 0) {
+			error = "the window has no drawable contents";
+			return false;
+		}
+
+		BITMAPINFO info{};
+		info.bmiHeader.biSize = sizeof info.bmiHeader;
+		info.bmiHeader.biWidth = frameWidth;
+		info.bmiHeader.biHeight = -frameHeight;
+		info.bmiHeader.biPlanes = 1;
+		info.bmiHeader.biBitCount = 32;
+		info.bmiHeader.biCompression = BI_RGB;
+		void *bits = nullptr;
+		HDC screen = GetDC(nullptr);
+		HDC memory = CreateCompatibleDC(screen);
+		HBITMAP bitmap = CreateDIBSection(screen, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+		ReleaseDC(nullptr, screen);
+		if (bitmap == nullptr) {
+			DeleteDC(memory);
+			error = "could not make a bitmap the size of the window";
+			return false;
+		}
+		HGDIOBJ previous = SelectObject(memory, bitmap);
+		// PW_RENDERFULLCONTENT asks the compositor for what is on screen, which
+		// is the only way to get a webview's or a GPU view's pixels: they never
+		// draw into a device context.
+		const bool printed = PrintWindow(hwnd, memory, PW_RENDERFULLCONTENT) != FALSE;
+		SelectObject(memory, previous);
+		DeleteDC(memory);
+
+		// Rows of BGR, the layout the PNG encoder takes.
+		const UINT stride = (static_cast<UINT>(width) * 3 + 3) & ~3u;
+		std::vector<BYTE> pixels(static_cast<size_t>(stride) * height);
+		for (int y = 0; y < height && printed; ++y) {
+			const auto *from = static_cast<const BYTE *>(bits) + (static_cast<size_t>(top + y) * frameWidth + left) * 4;
+			BYTE *to = pixels.data() + static_cast<size_t>(y) * stride;
+			for (int x = 0; x < width; ++x)
+				std::copy_n(from + x * 4, 3, to + x * 3);
+		}
+		DeleteObject(bitmap);
+		if (!printed) {
+			error = "the window would not draw itself for the snapshot";
+			return false;
+		}
+		return writePng(path, pixels, static_cast<UINT>(width), static_cast<UINT>(height), stride, error);
+	}
+#else
 	bool writeSnapshot(const std::string &, std::string &error) override {
-		error = "snapshots are only implemented on macOS";
+		error = "snapshots are not implemented on this platform";
 		return false;
 	}
+#endif
 
 private:
 #if defined(__linux__)
@@ -336,6 +479,7 @@ private:
 
 	GtkWidget *menuBar_ = nullptr;
 	GtkWidget *contentRoot_ = nullptr;
+	GtkWidget *content_ = nullptr;
 	GtkAccelGroup *accelerators_ = nullptr;
 	bool dropsInstalled_ = false;
 	Resizer resizer_;
@@ -421,6 +565,57 @@ private:
 			if (id >= kFirstRecent && id - kFirstRecent < recent_.size())
 				appHandlers().loadPlugin(recent_[id - kFirstRecent]);
 		}
+	}
+
+	// Encodes rows of 24-bit BGR as a PNG with the system's own encoder.
+	static bool writePng(const std::string &path, std::vector<BYTE> &pixels, UINT width, UINT height, UINT stride,
+	                     std::string &error) {
+		// The webview has usually started COM on this thread already; if not,
+		// it is started here and stopped again afterwards.
+		const HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+		IWICImagingFactory *factory = nullptr;
+		IWICStream *stream = nullptr;
+		IWICBitmapEncoder *encoder = nullptr;
+		IWICBitmapFrameEncode *frame = nullptr;
+		WICPixelFormatGUID format = GUID_WICPixelFormat24bppBGR;
+		HRESULT result =
+		    CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory));
+		if (SUCCEEDED(result))
+			result = factory->CreateStream(&stream);
+		if (SUCCEEDED(result))
+			result = stream->InitializeFromFilename(widen(path).c_str(), GENERIC_WRITE);
+		if (SUCCEEDED(result))
+			result = factory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder);
+		if (SUCCEEDED(result))
+			result = encoder->Initialize(stream, WICBitmapEncoderNoCache);
+		if (SUCCEEDED(result))
+			result = encoder->CreateNewFrame(&frame, nullptr);
+		if (SUCCEEDED(result))
+			result = frame->Initialize(nullptr);
+		if (SUCCEEDED(result))
+			result = frame->SetSize(width, height);
+		if (SUCCEEDED(result))
+			result = frame->SetPixelFormat(&format);
+		if (SUCCEEDED(result) && format != GUID_WICPixelFormat24bppBGR)
+			result = WINCODEC_ERR_UNSUPPORTEDPIXELFORMAT;
+		if (SUCCEEDED(result))
+			result = frame->WritePixels(height, stride, static_cast<UINT>(pixels.size()), pixels.data());
+		if (SUCCEEDED(result))
+			result = frame->Commit();
+		if (SUCCEEDED(result))
+			result = encoder->Commit();
+		for (IUnknown *object : std::initializer_list<IUnknown *>{frame, encoder, stream, factory})
+			if (object != nullptr)
+				object->Release();
+		if (SUCCEEDED(com))
+			CoUninitialize();
+		if (FAILED(result)) {
+			char code[16];
+			std::snprintf(code, sizeof code, "0x%08lx", static_cast<unsigned long>(result));
+			error = "could not write " + path + " (" + code + ")";
+			return false;
+		}
+		return true;
 	}
 
 	HMENU recentMenu_ = nullptr;

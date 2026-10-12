@@ -225,7 +225,7 @@ void Session::registerDeviceCommands() {
 		               return Response::success();
 	               }});
 
-	commands_.add({"panel.snapshot", "<file.png>", "Write a PNG of the host's parameter view.",
+	commands_.add({"panel.snapshot", "<file.png>", "Write a PNG of the host's parameter view as it looks on screen.",
 	               [](Session &session, const Request &request) -> Response {
 		               const std::string path = request.arg(0, "file").asString();
 		               if (path.empty())
@@ -251,7 +251,7 @@ void Session::registerDeviceCommands() {
 		               return Response::success(Value(std::move(out)));
 	               }});
 
-	commands_.add({"gui.snapshot", "<file.png>", "Write a PNG of the plug-in's interface.",
+	commands_.add({"gui.snapshot", "<file.png>", "Write a PNG of the plug-in's interface as it looks on screen.",
 	               [](Session &session, const Request &request) -> Response {
 		               const std::string path = request.arg(0, "file").asString();
 		               if (path.empty())

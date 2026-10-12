@@ -99,7 +99,15 @@ For a coding agent, link the skill into its skills directory:
 | Validation | `validate` `validate.clear` `validate.run` `validate.tests` |
 | Host behaviour | `track.info` `threadpool` `undo` `callbacks` |
 
-`gui.snapshot` only works on macOS.
+`gui.snapshot <file.png>` writes a PNG of the plug-in's interface, at the
+display's pixel density, and `panel.snapshot` does the same for the parameter
+window. The host reads back its own window, so it needs no screen-recording
+permission and works with other windows in front (on Linux, under a
+compositing window manager): on macOS from the window
+server, on Windows with `PrintWindow`, on Linux from the X server with
+`XGetImage`. GPU-drawn and webview interfaces come out as they look on screen.
+The window must be open and not minimised. On Windows, write the path with
+forward slashes (`C:/tmp/shot.png`): a backslash escapes the next character.
 
 ## Tests
 

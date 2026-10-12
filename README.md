@@ -35,7 +35,8 @@ files. They run in [Wasmtime](https://wasmtime.dev) through a vendored copy of
 You can type commands at a prompt or use the GUI, which covers
 parameters, presets, devices and the plug-in's own interface. A script or an
 agent can pipe the same commands in, as text or JSON, and add `--json` to get
-one JSON reply per line. `help` lists the commands.
+one JSON reply per line. `help` lists the commands. `gui.snapshot out.png`
+writes a PNG of the plug-in's window, so a script can see the interface too.
 
 ```console
 $ clap-host MySynth.clap
