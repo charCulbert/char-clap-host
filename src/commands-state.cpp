@@ -151,10 +151,16 @@ void Session::registerStateCommands() {
 
 	commands_.add({"state.info", "", "Report the state the plug-in would save right now.",
 	               [](Session &session, const Request &) -> Response {
+		               // Whether the plug-in has called mark_dirty since the last
+		               // save: read first, since saving clears it, and kept, since
+		               // this only looks and nothing was saved.
+		               const bool dirty = session.stateDirty();
 		               Response saved = saveState(session, {}, {}, false);
+		               if (dirty)
+			               session.onStateMarkDirty();
 		               if (!saved.ok)
 			               return saved;
-		               saved.data.set("dirty", Value(session.stateDirty()));
+		               saved.data.set("dirty", Value(dirty));
 		               return saved;
 	               }});
 
