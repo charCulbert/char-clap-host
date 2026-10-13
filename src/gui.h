@@ -94,6 +94,10 @@ private:
 	bool floating_ = false;
 	uint32_t width_ = 0;
 	uint32_t height_ = 0;
+	// The size get_size gave when the interface opened: gui.check asks
+	// adjust_size whether the plug-in still fits it.
+	uint32_t openedWidth_ = 0;
+	uint32_t openedHeight_ = 0;
 	std::string webviewUri_;
 	bool resizable_ = false;
 	clap_gui_resize_hints_t hints_{};

@@ -268,7 +268,8 @@ void Session::registerDeviceCommands() {
 	               }});
 
 	commands_.add({"gui.check", "[--summary]",
-	               "Check the plug-in fills its window: sizes agree within 1 px and no host background at the edges. "
+	               "Check the plug-in fills its window: sizes agree within 1 px, no host background at the edges, and its "
+	               "adjust_size takes the size it opened at (else its content does not fit). "
 	               "--summary answers with one line instead of the report.",
 	               [](Session &session, const Request &request) -> Response {
 		               Value report;

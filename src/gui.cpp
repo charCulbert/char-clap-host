@@ -208,6 +208,8 @@ bool PluginGui::openNative(bool floating, std::string &error) {
 
 	width_ = width;
 	height_ = height;
+	openedWidth_ = width;
+	openedHeight_ = height;
 	if (gui->show != nullptr && !gui->show(instance_.plugin()))
 		instance_.validator().warn("clap_plugin_gui.show", "returned false");
 	return true;
@@ -310,6 +312,8 @@ void PluginGui::close() {
 	window_.reset();
 	api_ = GuiApi::None;
 	width_ = 0;
+	openedWidth_ = 0;
+	openedHeight_ = 0;
 	height_ = 0;
 	resizable_ = false;
 	floating_ = false;
@@ -422,6 +426,8 @@ void PluginGui::onPluginClosed(bool wasDestroyed) {
 	window_.reset();
 	api_ = GuiApi::None;
 	width_ = 0;
+	openedWidth_ = 0;
+	openedHeight_ = 0;
 	height_ = 0;
 }
 
@@ -560,6 +566,27 @@ bool PluginGui::check(Value &report, bool &passed, std::string &error) {
 		compare("view left edge", seen.childX, 0, "the window's");
 		compare("view top edge", seen.childY, 0, "the window's");
 	}
+
+	// Does the interface fit the size it opened at? A plug-in whose content
+	// sets its minimum size (as adjust_size answers) says so here: asked about
+	// the size it opened at, it answers with a bigger one. The pixels can't
+	// tell: content cut off at the window's edge leaves no host background.
+	Object fits;
+	if (resizable_ && gui != nullptr && gui->adjust_size != nullptr && openedWidth_ != 0 && openedHeight_ != 0) {
+		uint32_t minimumWidth = openedWidth_;
+		uint32_t minimumHeight = openedHeight_;
+		gui->adjust_size(instance_.plugin(), &minimumWidth, &minimumHeight);
+		fits["opened"] = size(openedWidth_, openedHeight_);
+		fits["adjusted"] = size(minimumWidth, minimumHeight);
+		if (minimumWidth > openedWidth_ || minimumHeight > openedHeight_) {
+			char line[200];
+			std::snprintf(line, sizeof line,
+			              "the plug-in opened at %ux%u but adjust_size asks for at least %ux%u: its content does not "
+			              "fit the size it opens at",
+			              openedWidth_, openedHeight_, minimumWidth, minimumHeight);
+			problems.push_back(Value(std::string(line)));
+		}
+	}
 	const bool geometryPassed = problems.empty();
 
 	const EdgeStrips strips = findEdgeStrips(seen.image, kHostBackground);
@@ -606,6 +633,7 @@ bool PluginGui::check(Value &report, bool &passed, std::string &error) {
 	edges["captured"] = size(seen.image.width, seen.image.height);
 	for (const auto &[side, strip] : sides)
 		edges[side] = Value(strip);
+	out["fits"] = Value(std::move(fits));
 	out["geometryPass"] = Value(geometryPassed);
 	out["edgesPass"] = Value(edgesPassed);
 	out["edges"] = Value(std::move(edges));

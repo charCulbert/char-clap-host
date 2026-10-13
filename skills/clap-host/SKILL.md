@@ -151,7 +151,9 @@ photographs the host's parameter window. Both work on macOS, Windows and Linux
 **Does the interface fit its window?** `gui.check` after `gui.open` (and the
 same few seconds' wait) gives `pass`, the window, view and `get_size` sizes in
 pixels and points, the strip of host background (`#401038`) found at each
-edge, and `problems` in words. `gui.check --summary` is one line:
+edge, whether the plug-in's `adjust_size` still takes the size it opened at
+(a plug-in whose content outgrows that size raises its minimum past it), and
+`problems` in words. `gui.check --summary` is one line:
 `PASS WebView Synth 840x360 px @2x edges 0/0/0/0` (edges are top/bottom/left/right)
 or `FAIL ...` with the reasons. Under `--strict` a failed check exits 1. Run it
 after any change to sizing or scaling, on each platform.

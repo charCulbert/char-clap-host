@@ -120,6 +120,10 @@ forward slashes (`C:/tmp/shot.png`): a backslash escapes the next character.
   2 px or wider of the host's background. The host paints `#401038` behind
   the plug-in for this, so a gap is also easy to see in a snapshot. The reply
   gives each side's strip width.
+- **Fit.** A resizable plug-in is asked, with `adjust_size`, about the size it
+  opened at. A bigger answer means its own minimum, which a plug-in can raise
+  to what its content needs, is past the size it opens at: its content is cut
+  off, though the edges look filled. `fits` gives both sizes.
 
 `pass` is false and `problems` lists what disagreed. Under `--strict` a failed
 check also fails the command, so the exit status is 1:
