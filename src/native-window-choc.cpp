@@ -164,6 +164,14 @@ public:
 		                         static_cast<DWORD>(GetWindowLongPtrW(hwnd, GWL_EXSTYLE)), dpi);
 		SetWindowPos(hwnd, nullptr, 0, 0, frame.right - frame.left, frame.bottom - frame.top,
 		             SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+		// AdjustWindowRectEx counts one line of menu bar, but in a window
+		// narrower than the menu the bar wraps onto more: grow by what's missing.
+		RECT client{};
+		GetClientRect(hwnd, &client);
+		const LONG missing = static_cast<LONG>(std::lround(height * dpi / 96.0)) - (client.bottom - client.top);
+		if (missing > 0)
+			SetWindowPos(hwnd, nullptr, 0, 0, frame.right - frame.left, frame.bottom - frame.top + missing,
+			             SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 #elif defined(__linux__)
 		// The window reports this size back as it takes it, and that is not a
 		// resize for the plug-in to hear about. Resized in place: choc's
