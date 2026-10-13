@@ -57,6 +57,12 @@ if(UNIX)
     set_tests_properties(cli.one-shot-tty PROPERTIES TIMEOUT 45)
 endif()
 
+# The host exits when stdin ends, even with a window open.
+add_test(NAME cli.eof-closes-window
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/eof-closes-window.py"
+            "$<TARGET_FILE:clap-host>" "${CMAKE_BINARY_DIR}/fixtures/gui-webview.clap")
+set_tests_properties(cli.eof-closes-window PROPERTIES TIMEOUT 45)
+
 # Golden audio: render a known performance and compare it sample by sample.
 add_test(NAME "audio.instrument"
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/render-and-compare.py"

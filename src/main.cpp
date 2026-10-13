@@ -64,6 +64,8 @@ options:
   --sample-rate <hz>     default sample rate (default 48000)
   --block-size <frames>  default block size (default 512)
   --script <file>        run commands from a file, then continue on stdin
+                         (`wait <seconds>` in it, or on stdin, pauses the lines
+                         after it; the host exits when stdin ends)
   --help                 this text
 
 Commands are read from stdin, one per line. A line starting with '{' is read
@@ -171,14 +173,24 @@ int main(int argc, char **argv) {
 			return 2;
 		}
 		std::string line;
-		while (std::getline(script, line))
+		while (std::getline(script, line)) {
+			// Queued like stdin, so the main loop runs them and a `wait` can
+			// keep a window drawing; a one-shot has no loop and runs them now.
+			if (immediateCommands.empty()) {
+				session.postLine(line);
+				continue;
+			}
 			if (!session.runLine(line))
 				return 0;
+			session.sleepOutWait();
+		}
 	}
 
-	for (const auto &command : immediateCommands)
+	for (const auto &command : immediateCommands) {
 		if (!session.runLine(command))
 			return 0;
+		session.sleepOutWait();
+	}
 
 	// A command after `--` is a one-shot invocation, regardless of whether
 	// stdin happens to be a terminal. In particular, validation children must

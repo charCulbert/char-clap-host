@@ -3,6 +3,9 @@
 #include "commands-common.h"
 #include "session.h"
 
+#include <cmath>
+#include <cstdio>
+
 namespace nch {
 
 void Session::registerDeviceCommands() {
@@ -264,20 +267,41 @@ void Session::registerDeviceCommands() {
 		               return Response::success(Value(std::move(out)));
 	               }});
 
-	commands_.add({"gui.check", "",
-	               "Check the plug-in fills its window: sizes agree within 1 px and no host background at the edges.",
-	               [](Session &session, const Request &) -> Response {
+	commands_.add({"gui.check", "[--summary]",
+	               "Check the plug-in fills its window: sizes agree within 1 px and no host background at the edges. "
+	               "--summary answers with one line instead of the report.",
+	               [](Session &session, const Request &request) -> Response {
 		               Value report;
 		               bool passed = false;
 		               std::string error;
 		               if (!session.gui().check(report, passed, error))
 			               return Response::failure(error);
+		               const bool summary = request.arg("summary").asBool(false);
+		               std::string line;
+		               if (summary) {
+			               const auto number = [](const Value &v) { return static_cast<long>(std::lround(v.asNumber())); };
+			               const Value &pixels = report["window"]["pixels"];
+			               const Value &edges = report["edges"];
+			               const char *name = session.descriptor() != nullptr ? session.descriptor()->name : nullptr;
+			               char text[256];
+			               std::snprintf(text, sizeof text, "%s %s %ldx%ld px @%gx edges %ld/%ld/%ld/%ld",
+			                             passed ? "PASS" : "FAIL", name != nullptr ? name : "plug-in",
+			                             number(pixels["width"]), number(pixels["height"]), report["scale"].asNumber(1),
+			                             number(edges["top"]), number(edges["bottom"]), number(edges["left"]),
+			                             number(edges["right"]));
+			               line = text;
+			               std::string reasons;
+			               for (const Value &problem : report["problems"].array())
+				               reasons += (reasons.empty() ? "" : "; ") + problem.asString();
+			               if (!passed)
+				               line += " " + reasons;
+		               }
 		               // Under --strict a failed check fails the command, so
 		               // the exit status says so too.
 		               if (!passed && session.options().strict)
-			               return {false, "gui.check failed: " + report["problems"].array().front().asString(),
+			               return {false, summary ? line : "gui.check failed: " + report["problems"].array().front().asString(),
 			                       std::move(report)};
-		               return Response::success(std::move(report));
+		               return Response::success(summary ? Value(line) : std::move(report));
 	               }});
 
 	commands_.add({"gui", "", "Report the state of the plug-in's interface.",

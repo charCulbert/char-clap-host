@@ -1,0 +1,33 @@
+id: com.charlieculbert.wclap-runtime-transport-example
+name: WCLAP Runtime Transport Example
+vendor: Charlie Culbert
+version: 0.1.0
+description: Transport-driven metronome and field proof
+features:
+  instrument
+  utility
+format: clap
+seconds: 0.2
+id: com.charlieculbert.wclap-runtime-transport-example
+name: WCLAP Runtime Transport Example
+vendor: Charlie Culbert
+version: 0.1.0
+description: Transport-driven metronome and field proof
+features:
+  instrument
+  utility
+path: @FIXTURES@/transport.clap
+format: clap
+audioPorts:
+  inputs:
+  outputs:
+  index  id  name  channels  type  main
+  0  1414680368  Metronome  1  mono  true
+  1  1414680369  Transport fields  1  mono  false
+notePorts:
+extensions:
+  audio-ports
+seconds: 0
+error: usage: wait <seconds>  (0 to 3600)
+error: usage: wait <seconds>  (0 to 3600)
+error: usage: wait <seconds>  (0 to 3600)

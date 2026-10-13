@@ -38,7 +38,11 @@ agent can pipe the same commands in, as text or JSON, and add `--json` to get
 one JSON reply per line. `help` lists the commands. `gui.snapshot out.png`
 writes a PNG of the plug-in's window, so a script can see the interface too,
 and `gui.check` says whether the interface fills its window, with the sizes
-in pixels and points.
+in pixels and points (`gui.check --summary` gives one line:
+`PASS WebView Synth 840x360 px @2x edges 0/0/0/0`). `wait 5` holds back the
+commands after it for 5 seconds, in a `--script` file or on stdin, so a
+webview can draw before `gui.snapshot`. The host exits when stdin ends, closing
+any window it has open.
 
 ```console
 $ clap-host MySynth.clap

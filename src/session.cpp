@@ -9,6 +9,7 @@
 #include <poll.h>
 #endif
 #include <chrono>
+#include <thread>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -947,15 +948,43 @@ void Session::closeInput() {
 	lineArrived_.notify_one();
 }
 
+void Session::startWait(double seconds) {
+	waitUntil_ = std::chrono::steady_clock::now() +
+	             std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(seconds));
+}
+
+bool Session::waiting() const {
+	return std::chrono::steady_clock::now() < waitUntil_;
+}
+
+void Session::sleepOutWait() {
+	while (waiting() && !quit_) {
+		runMainThreadWork();
+		std::this_thread::sleep_for(std::chrono::milliseconds(8));
+	}
+}
+
 bool Session::tick() {
 	// Everything queued runs before the loop goes back to waiting, so a burst
-	// of piped commands is not rationed one per tick.
-	std::vector<std::string> pending;
+	// of piped commands is not rationed one per tick. A `wait` holds back
+	// what follows it.
+	while (!waiting()) {
+		std::string line;
+		{
+			std::lock_guard<std::mutex> lock(lineMutex_);
+			if (lines_.empty())
+				break;
+			line = std::move(lines_.front());
+			lines_.pop_front();
+		}
+		++linesRun_;
+		if (!runLine(line))
+			return false;
+	}
 	bool finished = false;
 	{
 		std::lock_guard<std::mutex> lock(lineMutex_);
-		pending.swap(lines_);
-		finished = inputClosed_ && pending.empty();
+		finished = inputClosed_ && lines_.empty() && !waiting();
 	}
 	// Nothing was ever asked of it and there is no terminal to ask from, so
 	// this is a launch from the Finder: show a window rather than exiting
@@ -963,12 +992,6 @@ bool Session::tick() {
 	if (finished && options_.openWindowWhenIdle && linesRun_ == 0 && !panel_.isOpen()) {
 		std::string error;
 		panel_.open(error);
-	}
-
-	for (const auto &line : pending) {
-		++linesRun_;
-		if (!runLine(line))
-			return false;
 	}
 
 	// This runs whether or not there is more input to come: a window the user
@@ -983,7 +1006,17 @@ bool Session::tick() {
 		panel_.close();
 	if (quit_)
 		return false;
-	// Input is done, so the windows are all that is left to wait for.
+	if (finished && linesRun_ != 0) {
+		// Whoever piped the commands in is gone, and no one is at the window
+		// to close it: close it, so the run ends rather than hangs.
+		gui_.close();
+		settings_.close();
+		panel_.close();
+		unload();
+		return false;
+	}
+	// Input is done, so the windows are all that is left to wait for: a
+	// launch from the Finder, where the window's close button is the way out.
 	if (finished)
 		return settings_.isOpen() || panel_.isOpen() || gui_.isOpen();
 	return true;

@@ -97,6 +97,7 @@ For a coding agent, link the skill into its skills directory:
 | Devices | `audio.devices` `audio.start` `audio.settings` `audio.stop` `audio.status` `audio.test` `power` `output.gain` `input.mute` `meters` `midi.ports` `midi.open` `midi.close` `midi.outputs` `midi.out` |
 | Interface | `gui.open` `gui.close` `gui.resize` `gui` `gui.contents` `gui.snapshot` `gui.check` `panel` `panel.snapshot` `panel.close` `settings` `settings.close` |
 | Validation | `validate` `validate.clear` `validate.run` `validate.tests` |
+| Scripting | `wait` |
 | Host behaviour | `track.info` `threadpool` `undo` `callbacks` |
 
 `gui.snapshot <file.png>` writes a PNG of the plug-in's interface, at the
@@ -127,7 +128,28 @@ check also fails the command, so the exit status is 1:
 (echo gui.open; sleep 5; echo gui.check) | clap-host --json --quiet --strict MySynth.clap
 ```
 
+`gui.check --summary` answers with one line instead of the report:
+`PASS WebView Synth 840x360 px @2x edges 0/0/0/0` is the plug-in's name, the
+window in pixels, the scale, and the background strip along the top, bottom,
+left and right edges. A failure reads `FAIL ... ` followed by the reasons. As
+with the report, only `--strict` makes a failure exit 1.
+
 It needs an embedded window: a floating interface is the plug-in's own.
+
+### Waiting
+
+`wait <seconds>` (0 to 3600) holds back the commands after it, in a `--script`
+file or on stdin. The host keeps running meanwhile, so a window goes on
+drawing; a pipe needs no `sleep`:
+
+```sh
+printf 'gui.open\nwait 5\ngui.check --summary\ngui.snapshot shot.png\n' | clap-host --quiet MySynth.clap
+```
+
+When stdin ends and the commands before it are done, the host closes any window
+it has open, unloads the plug-in and exits. (Started without any commands, for
+example from the Finder, it stays while a window is open.) In a one-shot
+(`-- command`), `wait` simply pauses before the next command.
 
 ## Tests
 

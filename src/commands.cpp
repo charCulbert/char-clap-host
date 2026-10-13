@@ -263,6 +263,18 @@ void Session::registerCommands() {
 	commands_.add({"quit", "", "Leave the host.", quit});
 	commands_.add({"exit", "", "Leave the host.", quit});
 
+	commands_.add({"wait", "<seconds>", "Hold back the commands after this one for that long; windows keep running.",
+	               [](Session &session, const Request &request) -> Response {
+		               const Value &arg = request.arg(0, "seconds");
+		               const double seconds = arg.asNumber(-1);
+		               if (arg.isNull() || !(seconds >= 0) || seconds > 3600)
+			               return Response::failure("usage: wait <seconds>  (0 to 3600)");
+		               session.startWait(seconds);
+		               Object out;
+		               out["seconds"] = Value(seconds);
+		               return Response::success(Value(std::move(out)));
+	               }});
+
 	commands_.add({"load", "<path> [plugin-id]", "Load a .clap or .wclap and create a plug-in from it.",
 	               [](Session &session, const Request &request) -> Response {
 		               const std::string path = request.arg(0, "path").asString();

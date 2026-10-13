@@ -72,7 +72,7 @@ Areas: plug-in (`info` `extensions` `status`), parameters (`params.list`
 `audio.input` `audio.input.play` `audio.input.seek` `bypass`), notes (`note.on` `note.off` `midi` `cc` `midi.load` `midi.file`), transport
 (`tempo` `timesig` `transport`), state (`state.save` `state.load`
 `presets.list` `preset.load`), ports, devices (`audio.devices` `audio.start`
-`audio.settings` `power` `input.mute` `meters` `midi.ports`), interface (`gui.open` `gui.snapshot` `gui.check` `panel`
+`audio.settings` `power` `input.mute` `meters` `midi.ports`), interface (`gui.open` `gui.snapshot` `gui.check` `wait` `panel`
 `panel.snapshot`), validation (`validate` `validate.run` `validate.tests`),
 host behaviour (`callbacks` `events` `undo` `threadpool`).
 
@@ -138,9 +138,12 @@ shell is the graph.
 `midi.load`, then `render`.
 
 **See the plug-in's own UI:** `gui open` then `gui snapshot shot.png`, then
-read the PNG. A webview interface loads asynchronously, so over a pipe wait a
-few seconds between the two, or the PNG is blank because the page has not drawn
-yet: `(printf 'gui.open\n'; sleep 3; printf 'gui.snapshot shot.png\n') | clap-host ...`.
+read the PNG. A webview interface loads asynchronously, so wait a few seconds
+between the two, or the PNG is blank because the page has not drawn yet:
+`printf 'gui.open\nwait 3\ngui.snapshot shot.png\n' | clap-host ...`. `wait SECONDS`
+works on stdin and in `--script` files, and the window keeps drawing meanwhile.
+(Hosts older than `wait` need `(printf ...; sleep 3; printf ...)`.) The host
+exits when stdin ends, closing the window.
 A PNG that stays blank after that is a real fault; read stderr. `panel snapshot`
 photographs the host's parameter window. Both work on macOS, Windows and Linux
 (X11); on Windows give the path with forward slashes.
@@ -148,7 +151,9 @@ photographs the host's parameter window. Both work on macOS, Windows and Linux
 **Does the interface fit its window?** `gui.check` after `gui.open` (and the
 same few seconds' wait) gives `pass`, the window, view and `get_size` sizes in
 pixels and points, the strip of host background (`#401038`) found at each
-edge, and `problems` in words. Under `--strict` a failed check exits 1. Run it
+edge, and `problems` in words. `gui.check --summary` is one line:
+`PASS WebView Synth 840x360 px @2x edges 0/0/0/0` (edges are top/bottom/left/right)
+or `FAIL ...` with the reasons. Under `--strict` a failed check exits 1. Run it
 after any change to sizing or scaling, on each platform.
 
 **Round-trip state:** `state save a.state`, change a parameter,

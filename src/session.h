@@ -24,6 +24,7 @@
 #include <chrono>
 #include <functional>
 #include <condition_variable>
+#include <deque>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -240,6 +241,13 @@ public:
 	// having to parse the output.
 	bool anyCommandFailed() const { return commandFailures_ != 0; }
 	void requestQuit() { quit_ = true; }
+	// `wait`: the lines after it stay queued until the time is up. The main
+	// loop keeps running meanwhile, so a window goes on drawing.
+	void startWait(double seconds);
+	bool waiting() const;
+	// For a run that has no main loop (a one-shot): sits out a wait, doing the
+	// plug-in's main-thread work.
+	void sleepOutWait();
 	void writeResponse(const Request &request, const Response &response);
 
 	// Where replies go. Standard output by default; a test sets its own sink
@@ -350,7 +358,8 @@ private:
 
 	std::mutex lineMutex_;
 	std::condition_variable lineArrived_;
-	std::vector<std::string> lines_;
+	std::deque<std::string> lines_;
+	std::chrono::steady_clock::time_point waitUntil_{};
 	bool inputClosed_ = false;
 	std::atomic<bool> callbackRequested_{false};
 
