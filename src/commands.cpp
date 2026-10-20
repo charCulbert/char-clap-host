@@ -172,10 +172,13 @@ Response setParamValue(Session &session, clap_id id, double value) {
 		EventList out;
 		in.push(event);
 		params->flush(session.plugin(), in.input(), out.output());
-		const std::string display = paramDisplay(session, info, value);
-		if (!display.empty())
-			result["text"] = Value(display);
 	}
+	// CLAP: the host "should always use [value_to_text] to format parameter
+	// values before displaying it to the user", so the reply carries the text
+	// active or not; the panel's readout shows it.
+	const std::string display = paramDisplay(session, info, value);
+	if (!display.empty())
+		result["text"] = Value(display);
 	return Response::success(Value(std::move(result)));
 }
 
