@@ -231,7 +231,7 @@ const char *kPage = R"(<!doctype html>
 		<button class="opt" data-part="loop" aria-pressed="false" title="Loop the file" disabled>Loop</button>
 		<div class="track" data-part="transport" hidden>
 			<span data-part="name"></span>
-			<compost-slider data-part="seek" label="Position" min="0" max="1" value="0" aria-label="Position"></compost-slider>
+			<compost-slider data-part="seek" label="Position" min="0" max="1" value="0" reset-value="0" aria-label="Position"></compost-slider>
 			<span data-part="time">0:00.0 / 0:00.0</span>
 			<span data-part="badge" class="warn" hidden></span>
 			<compost-button class="bare" data-part="eject" title="Unload the file" aria-label="Unload the file">✕</compost-button>
@@ -248,7 +248,7 @@ const char *kPage = R"(<!doctype html>
 		<button class="opt" data-part="loop" aria-pressed="false" title="Loop the file" disabled>Loop</button>
 		<div class="track" data-part="transport" hidden>
 			<span data-part="name"></span>
-			<compost-slider data-part="seek" label="Position" min="0" max="1" value="0" aria-label="Position"></compost-slider>
+			<compost-slider data-part="seek" label="Position" min="0" max="1" value="0" reset-value="0" aria-label="Position"></compost-slider>
 			<span data-part="time">0:00.0 / 0:00.0</span>
 			<span data-part="badge" class="warn" hidden></span>
 			<compost-button class="bare" data-part="eject" title="Unload the file" aria-label="Unload the file">✕</compost-button>
@@ -436,7 +436,9 @@ const char *kPage = R"(<!doctype html>
 			} catch {
 				steps = [];
 			}
-			const indexOf = value => Math.max(0, steps.findIndex(step => step.value === value));
+			// Rounded, since a stepped value can arrive as 1.0000000000000002.
+			const indexOf = value =>
+				Math.max(0, steps.findIndex(step => Math.round(step.value) === Math.round(value)));
 			const words = steps.map(step => String(step.text || step.value));
 			// A few steps cycle on one button; more get a list. The cycle reads
 			// its words from one "|"-separated attribute, so a "|" in a step's
@@ -458,7 +460,9 @@ const char *kPage = R"(<!doctype html>
 				for (const step of steps)
 					control.append(new Option(step.text || String(step.value), String(step.value), false, step.value === param.value));
 				control.setAttribute("value", String(param.value));
-				control.addEventListener("parameter-edit", event => apply(event.detail.value));
+				// A compost-select without a parameter-id reports a choice as a
+				// plain change, not a parameter-edit.
+				control.addEventListener("change", () => apply(Number(control.value)));
 				show = update => setAttr(control, "value", String(update.value));
 			}
 		} else {
@@ -471,8 +475,14 @@ const char *kPage = R"(<!doctype html>
 			if (flags.includes("stepped"))
 				control.setAttribute("step", 1);
 			control.addEventListener("parameter-edit", event => apply(event.detail.value));
+			// A new value mid-drag would cancel the drag and snap the handle
+			// back, so one the plug-in sends while the hand is on it waits.
+			let dragging = false;
+			control.addEventListener("parameter-begin", () => { dragging = true; });
+			control.addEventListener("parameter-end", () => { dragging = false; });
 			show = update => {
-				control.setAttribute("value", String(update.value));
+				if (!dragging)
+					setAttr(control, "value", String(update.value));
 				reading.textContent = update.text || String(update.value);
 			};
 		}
@@ -521,11 +531,12 @@ const char *kPage = R"(<!doctype html>
 		const names = presets.map((preset, i) => preset.name || preset.loadKey || "Preset " + (i + 1));
 		const choice = document.createElement("compost-select");
 		choice.setAttribute("aria-label", "Preset");
+		choice.append(new Option("", ""));
 		names.forEach((name, i) => choice.append(new Option(name, String(i))));
 		const count = document.createElement("span");
 		count.className = "count";
-		// Nothing is loaded yet, so the list shows the first name without
-		// claiming the plug-in is on it. Stepping from here lands on the first.
+		// Nothing is loaded yet, so the list starts on a blank entry rather than
+		// claim the plug-in is on a preset. Stepping from here lands on the first.
 		let current = -1;
 
 		function showPosition() {
@@ -553,7 +564,9 @@ const char *kPage = R"(<!doctype html>
 			showPosition();
 		}
 
-		choice.addEventListener("change", () => loadAt(Number(choice.value)));
+		choice.addEventListener("change", () => {
+			if (choice.value !== "") loadAt(Number(choice.value));
+		});
 		previous.addEventListener("click", () => loadAt(Math.max(0, current - 1)));
 		next.addEventListener("click", () => loadAt(current + 1));
 		showPosition();
