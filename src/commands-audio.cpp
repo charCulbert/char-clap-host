@@ -4,6 +4,8 @@
 #include "session.h"
 #include "midi-file.h"
 #include "native-window.h"
+#include "profile.h"
+#include "state-stream.h"
 #include "wav.h"
 
 #include <algorithm>
@@ -343,7 +345,7 @@ void Session::registerAudioCommands() {
 		               return Response::success(Value(std::move(out)));
 	               }});
 
-	commands_.add({"midi", "<status> <data1> [data2] [port]", "Send one raw MIDI 1.0 message.",
+	commands_.add({"midi", "<status> <data1> [data2] [port] [--at=<seconds|Nf>]", "Send one raw MIDI 1.0 message.",
 	               [](Session &session, const Request &request) -> Response {
 		               if (!request.hasArg(0, "status") || !request.hasArg(1, "data1"))
 			               return Response::failure("usage: midi <status> <data1> [data2] [port]");
@@ -365,7 +367,7 @@ void Session::registerAudioCommands() {
 		               return Response::success(describeTranslation(translation));
 	               }, /* needsPlugin */ true});
 
-	commands_.add({"cc", "<controller> <value> [channel] [port]", "Send one MIDI control change.",
+	commands_.add({"cc", "<controller> <value> [channel] [port] [--at=<seconds|Nf>]", "Send one MIDI control change.",
 	               [](Session &session, const Request &request) -> Response {
 		               if (!request.hasArg(0, "controller") || !request.hasArg(1, "value"))
 			               return Response::failure("usage: cc <controller> <value> [channel] [port]");
@@ -437,7 +439,7 @@ void Session::registerAudioCommands() {
 	registerFilePlayer(commands_, audioFilePlayer());
 	registerFilePlayer(commands_, midiFilePlayer());
 
-	commands_.add({"render", "<seconds|Nf> [file.wav]", "Render audio offline and report its level.",
+	commands_.add({"render", "<seconds|Nf> [file.wav] [--format=float32|pcm24|pcm16]", "Render audio offline and report its level.",
 	               [](Session &session, const Request &request) -> Response {
 		               if (!request.hasArg(0, "duration"))
 			               return Response::failure("usage: render <seconds|Nf> [file.wav]");
@@ -486,6 +488,122 @@ void Session::registerAudioCommands() {
 		               out["blocks"] = Value(blocks);
 		               out["status"] = Value(status);
 		               out["outputEvents"] = Value(session.engine().lastOutputEvents().size());
+		               return Response::success(Value(std::move(out)));
+	               }, /* needsPlugin */ true});
+
+	commands_.add({"profile", "<seconds|Nf> [--compare=<other.clap>] [--rounds=<n>] [--warmup=<seconds|Nf>]",
+	               "Time the plug-in's process() over blocks run back to back, or two builds of it in turn.",
+	               [](Session &session, const Request &request) -> Response {
+		               if (!request.hasArg(0, "duration"))
+			               return Response::failure(
+			                   "usage: profile <seconds|Nf> [--compare=<other.clap>] [--rounds=<n>] [--warmup=<seconds|Nf>]");
+		               // The device thread would be calling process() between the
+		               // blocks being timed, and the guard would refuse half of them.
+		               if (session.audioDevice().isRunning())
+			               return Response::failure("the audio is on; `power off` first");
+		               const double rate = session.sampleRate();
+		               const uint32_t blockSize = session.blockSize();
+		               const uint64_t frames = framesFromArgument(request.arg(0, "duration"), rate, 0);
+		               if (frames == 0)
+			               return Response::failure("nothing to profile");
+		               // Long enough for lazy allocation, caches and the CPU's clock
+		               // to settle before anything is counted.
+		               const uint64_t warmup = framesFromArgument(request.arg("warmup"), rate,
+		                                                          static_cast<uint64_t>(rate / 2));
+		               std::string error;
+
+		               const std::string other = request.arg("compare").asString();
+		               if (other.empty()) {
+			               ProfileRun run;
+			               if (!runProfile(session, warmup, frames, run, error))
+				               return Response::failure(error);
+			               return Response::success(describeProfile(run, rate, blockSize));
+		               }
+
+		               // Two builds take turns, ABBA, each from a fresh load holding the
+		               // state the plug-in had when this started, so heat and clock
+		               // drift land on both and neither runs warmer or in other state.
+		               // Only one is loaded at a time: two builds of one plug-in share
+		               // their symbols' names, and a process holding both may call
+		               // one's code for the other.
+		               const std::string paths[2] = {session.bundle().path(), other};
+		               const std::string id = session.descriptor()->id;
+		               OutputStream saved;
+		               const auto *state = session.pluginExtension<clap_plugin_state_t>(CLAP_EXT_STATE);
+		               const bool haveState = state != nullptr && state->save != nullptr &&
+		                                      state->save(session.plugin(), saved.stream());
+		               bool stateCarried[2] = {haveState, haveState};
+		               auto loadBuild = [&](int which) {
+			               if (!session.load(paths[which], id, 0, error) || !session.activate(rate, 1, blockSize, error))
+				               return false;
+			               if (haveState) {
+				               const auto *loadState = session.pluginExtension<clap_plugin_state_t>(CLAP_EXT_STATE);
+				               InputStream in(saved.bytes());
+				               if (loadState == nullptr || loadState->load == nullptr ||
+				                   !loadState->load(session.plugin(), in.stream()))
+					               stateCarried[which] = false;
+			               }
+			               return true;
+		               };
+
+		               const auto rounds = static_cast<uint64_t>(std::max(1.0, request.arg("rounds").asNumber(4)));
+		               const uint64_t chunk = std::max<uint64_t>(blockSize, frames / rounds);
+		               ProfileRun runs[2];
+		               std::vector<Value> medians[2];
+		               bool ok = true;
+		               for (uint64_t round = 0; ok && round < rounds; ++round) {
+			               for (const int which : round % 2 == 0 ? std::vector<int>{0, 1} : std::vector<int>{1, 0}) {
+				               ProfileRun one;
+				               ok = loadBuild(which) && runProfile(session, warmup, chunk, one, error);
+				               if (!ok)
+					               break;
+				               std::vector<uint64_t> sorted = one.blockNanos;
+				               std::sort(sorted.begin(), sorted.end());
+				               medians[which].push_back(
+				                   Value(sorted.empty() ? 0.0 : static_cast<double>(sorted[sorted.size() / 2]) / 1000.0));
+				               runs[which].blockNanos.insert(runs[which].blockNanos.end(), one.blockNanos.begin(),
+				                                             one.blockNanos.end());
+				               runs[which].blocks += one.blocks;
+				               runs[which].frames += one.frames;
+				               runs[which].wallNanos += one.wallNanos;
+				               runs[which].threadCpuNanos += one.threadCpuNanos;
+				               runs[which].processCpuNanos += one.processCpuNanos;
+				               runs[which].startMs += one.startMs / static_cast<double>(rounds);
+			               }
+		               }
+		               // Leave the first build loaded, as it was.
+		               std::string restoreError;
+		               std::swap(error, restoreError);
+		               const bool restored = loadBuild(0);
+		               std::swap(error, restoreError);
+		               if (!ok)
+			               return Response::failure(error);
+		               if (!restored)
+			               return Response::failure("profiled, but reloading " + paths[0] + " failed: " + restoreError);
+
+		               Object out;
+		               Value builds[2];
+		               for (int which = 0; which < 2; ++which) {
+			               builds[which] = describeProfile(runs[which], rate, blockSize);
+			               builds[which].set("path", Value(paths[which]));
+			               // Each round's median, so a reader can see whether the
+			               // difference holds round after round or is one round's noise.
+			               builds[which].set("roundP50Us", Value(std::move(medians[which])));
+			               builds[which].set("stateRestored", Value(stateCarried[which]));
+		               }
+		               const Value &perA = static_cast<const Value &>(builds[0])["perBlock"];
+		               const Value &perB = static_cast<const Value &>(builds[1])["perBlock"];
+		               if (perA.has("p50Us") && perB.has("p50Us")) {
+			               // Above 1, the second build takes longer.
+			               Object ratio;
+			               ratio["mean"] = Value(perB["meanUs"].asNumber() / perA["meanUs"].asNumber());
+			               ratio["p50"] = Value(perB["p50Us"].asNumber() / perA["p50Us"].asNumber());
+			               ratio["p99"] = Value(perB["p99Us"].asNumber() / perA["p99Us"].asNumber());
+			               out["bOverA"] = Value(std::move(ratio));
+		               }
+		               out["rounds"] = Value(rounds);
+		               out["a"] = std::move(builds[0]);
+		               out["b"] = std::move(builds[1]);
 		               return Response::success(Value(std::move(out)));
 	               }, /* needsPlugin */ true});
 

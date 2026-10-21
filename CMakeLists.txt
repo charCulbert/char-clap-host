@@ -73,6 +73,7 @@ add_library(nch-core STATIC
     src/state-stream.cpp
     src/process-buffers.cpp
     src/process-check.cpp
+    src/profile.cpp
     src/wav.cpp
     src/webview.cpp
     src/event-generator.cpp

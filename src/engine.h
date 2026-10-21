@@ -181,6 +181,12 @@ public:
 	// validation suite turns it on.
 	void setProcessChecking(bool enabled) { checkBlocks_ = enabled; }
 
+	// While set, the wall time of each process() call is appended to it, in
+	// nanoseconds: the plug-in's own time, without the host's work around it.
+	// Only for blocks run on the calling thread, as `profile` runs them; a
+	// device callback would need a buffer it can write without allocating.
+	void setProcessTimes(std::vector<uint64_t> *times) { processTimes_ = times; }
+
 	// How many interleaved channels the device callback writes. Set once the
 	// stream's layout is known.
 	void setDeviceOutputChannels(uint32_t channels) { deviceOutputChannels_ = channels; }
@@ -310,6 +316,7 @@ private:
 	uint64_t tailRemaining_ = 0;
 	ProcessCheck check_;
 	bool checkBlocks_ = false;
+	std::vector<uint64_t> *processTimes_ = nullptr;
 	std::atomic<bool> running_{false};
 
 	// The schedule is written by the main thread and by device threads, and
