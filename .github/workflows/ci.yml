@@ -40,7 +40,8 @@ jobs:
         run: |
           host=$(find build \( -name clap-host -o -name clap-host.exe \) -type f -perm -u+x -not -path '*/CMakeFiles/*' -print -quit)
           plugin=$(find build/fixtures -name instrument.clap -print -quit)
-          test -n "$host" && test -n "$plugin"
+          test -n "$host"
+          test -n "$plugin"
           if [ "$RUNNER_OS" = Linux ]; then run="xvfb-run -a"; fi
           $run "$host" --strict --json --quiet "$plugin" -- "profile 1"
           $run "$host" --strict --json --quiet "$plugin" -- "validate.run --isolate"
