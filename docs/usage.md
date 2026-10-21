@@ -187,12 +187,17 @@ printf 'activate 48000 128\nmidi.file take.mid --loop\nprofile 20 --compare=new/
   | clap-host --json --quiet old/Synth.clap
 ```
 
-The builds take turns over `--rounds` rounds (4 by default) in ABBA order, so
-heat and clock drift land on both. Each turn loads the build fresh, restores
-the state the first build had when `profile` started, and plays the first
-`<seconds>` divided by `<rounds>` of the material. Only one build is loaded at
-a time. The other build must offer a plug-in with the same id. When it is done
-the first build is loaded again.
+The builds take turns over `--rounds` rounds (4 by default, rounded up to an
+even number) in ABBA order, so heat and clock drift land on both. Each turn
+loads the build fresh, restores the state the first build had when `profile`
+started, plays the warmup, then times `<seconds>` divided by `<rounds>` of the
+material. Only one build is loaded at a time. The other build must offer a
+plug-in with the same id.
+
+When it is done the first build is loaded again, fresh, with its saved state.
+Anything else about the session goes: the plug-in's window closes, ports
+opened with `midi.open` close, and a plug-in without `clap.state` comes back
+with its defaults (`stateRestored` is then `false`).
 
 The reply gives, per build:
 
@@ -204,8 +209,12 @@ The reply gives, per build:
 - `threadCpuPercent` and `processCpuPercent`: CPU time over the timed loop as a
   share of wall time, for this thread and for the whole process. Under 100% on
   the thread, `process()` spent time waiting. Over 100% for the process, the
-  plug-in's own threads were busy too.
-- `startMs`: how long `activate()` and `start_processing()` took.
+  plug-in's own threads were busy too. Both cover the whole timed loop, the
+  host's work included, and on a short run clock granularity can push the
+  thread figure past 100%.
+- `startMs`: how long starting to process took: `start_processing()`, plus
+  `activate()` if the plug-in was not active yet. Near 0 when it was already
+  processing.
 - `blocks` and `processCalls`: blocks run, and blocks the plug-in was called
   for. A plug-in that returns `CLAP_PROCESS_SLEEP` is not called again until it
   has input, so a silent effect has few calls.
