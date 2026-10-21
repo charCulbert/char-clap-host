@@ -526,6 +526,9 @@ void Session::registerAudioCommands() {
 		               // Only one is loaded at a time: two builds of one plug-in share
 		               // their symbols' names, and a process holding both may call
 		               // one's code for the other.
+		               // Checked before the loaded build is touched: comparing unloads it.
+		               if (!std::filesystem::exists(other))
+			               return Response::failure("no such file: " + other);
 		               const std::string paths[2] = {session.bundle().path(), other};
 		               const std::string id = session.descriptor()->id;
 		               OutputStream saved;
@@ -546,7 +549,9 @@ void Session::registerAudioCommands() {
 			               return true;
 		               };
 
-		               const auto rounds = static_cast<uint64_t>(std::max(1.0, request.arg("rounds").asNumber(4)));
+		               // Even, so each build goes first as often as second.
+		               const auto asked = static_cast<uint64_t>(std::max(1.0, request.arg("rounds").asNumber(4)));
+		               const uint64_t rounds = asked + asked % 2;
 		               const uint64_t chunk = std::max<uint64_t>(blockSize, frames / rounds);
 		               ProfileRun runs[2];
 		               std::vector<Value> medians[2];
