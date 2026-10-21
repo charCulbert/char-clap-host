@@ -102,7 +102,7 @@ Response saveState(Session &session, const std::string &path, const std::string 
 } // namespace
 
 void Session::registerStateCommands() {
-	commands_.add({"state.save", "<file> [preset|duplicate|project]", "Write the plug-in's state to a file.",
+	commands_.add({"state.save", "<file> [preset|duplicate|project] [--no-sidecar]", "Write the plug-in's state to a file.",
 	               [](Session &session, const Request &request) -> Response {
 		               const std::string path = request.arg(0, "file").asString();
 		               if (path.empty())

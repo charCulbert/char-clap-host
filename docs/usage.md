@@ -40,8 +40,13 @@ With `--json` every reply is one JSON object per line:
 status, which is what I use in CI. Durations are seconds, or frames with an `f`
 suffix (`480f`). Lines starting with `#` are comments.
 
-`panel` opens the host's window: parameters, presets, devices, power, bypass,
-and file players for WAV and MIDI input. It sends the same commands you'd type.
+`panel` opens the host's window. The header has the plug-in's name and a
+preset list. A strip on the left has Power, Bypass, Interface and Mute input,
+the input and output meters, a master fader and the audio device. Each
+parameter is a row with the plug-in's own value text. A stepped parameter with
+two steps is a switch, three or four steps cycle on a button, and up to 24 make
+a list. Every other parameter is a slider. File players for WAV and MIDI input
+run along the bottom. It sends the same commands you'd type.
 `gui.open` opens the plug-in's own interface. Validation and the event log are
 command line only.
 
@@ -88,7 +93,7 @@ For a coding agent, link the skill into its skills directory:
 | --- | --- |
 | Plug-in | `load` `unload` `plugins` `plugins.recent` `info` `extensions` `status` |
 | Parameters | `params.list` `param.get` `param.set` `param.steps` `params.dump` `param.indication` `param.mod` |
-| Audio | `activate` `deactivate` `render` `process` `engine.start` `engine.stop` `audio.input` `audio.input.play` `audio.input.loop` `audio.input.seek` `audio.input.recent` `playhead` `bypass` |
+| Audio | `activate` `deactivate` `render` `process` `profile` `engine.start` `engine.stop` `audio.input` `audio.input.play` `audio.input.loop` `audio.input.seek` `audio.input.recent` `playhead` `bypass` |
 | Notes and MIDI | `note.on` `note.off` `notes` `midi` `cc` `midi.load` `midi.file` `midi.file.play` `midi.file.loop` `midi.file.seek` `midi.file.recent` `events` |
 | Transport | `tempo` `timesig` `transport` |
 | State and presets | `state.save` `state.load` `state.info` `presets.list` `preset.load` |
@@ -154,6 +159,67 @@ When stdin ends and the commands before it are done, the host closes any window
 it has open, unloads the plug-in and exits. (Started without any commands, for
 example from the Finder, it stays while a window is open.) In a one-shot
 (`-- command`), `wait` simply pauses before the next command.
+
+## Timing process()
+
+`profile <seconds|Nf>` times each call to the plug-in's `process()` and reports
+the numbers per block. The blocks run back to back on the calling thread, at
+the sample rate and block size of the current activation:
+
+```text
+activate 48000 128
+audio.input drums.wav --loop
+profile 10
+```
+
+Without `activate` it uses the defaults, 48000 Hz and 512 frames, or the
+`--sample-rate` and `--block-size` given at startup. The plug-in hears the file
+that `audio.input` or `midi.file` has loaded, rewound to the start. A paused
+file is silence, and a file without `--loop` goes silent at its end. Before the
+timed blocks the host runs `--warmup` untimed, half a second by default, so
+lazy allocation, caches and the CPU's clock settle first. The audio device must
+be off: `power off` first.
+
+To compare two builds of one plug-in, load one and pass the other:
+
+```sh
+printf 'activate 48000 128\nmidi.file take.mid --loop\nprofile 20 --compare=new/Synth.clap\n' \
+  | clap-host --json --quiet old/Synth.clap
+```
+
+The builds take turns over `--rounds` rounds (4 by default) in ABBA order, so
+heat and clock drift land on both. Each turn loads the build fresh, restores
+the state the first build had when `profile` started, and plays the first
+`<seconds>` divided by `<rounds>` of the material. Only one build is loaded at
+a time. The other build must offer a plug-in with the same id. When it is done
+the first build is loaded again.
+
+The reply gives, per build:
+
+- `perBlock`: the time budget of one block (`budgetUs`), and the mean, median
+  (`p50Us`), 99th percentile and maximum time of `process()` in microseconds.
+  The `...Percent` fields give the same times as a share of the budget. At
+  100% the plug-in takes as long as the audio lasts.
+- `realtimeFactor`: how many times faster than real time `process()` ran.
+- `threadCpuPercent` and `processCpuPercent`: CPU time over the timed loop as a
+  share of wall time, for this thread and for the whole process. Under 100% on
+  the thread, `process()` spent time waiting. Over 100% for the process, the
+  plug-in's own threads were busy too.
+- `startMs`: how long `activate()` and `start_processing()` took.
+- `blocks` and `processCalls`: blocks run, and blocks the plug-in was called
+  for. A plug-in that returns `CLAP_PROCESS_SLEEP` is not called again until it
+  has input, so a silent effect has few calls.
+
+With `--compare` the reply has `a` and `b` (each with its `path`, each round's
+median in `roundP50Us`, and `stateRestored`) and `bOverA`, the ratio of
+`b`'s mean, median and 99th percentile to `a`'s. Above 1, `b` is slower. Check
+`roundP50Us` before you trust a small ratio: a real difference shows in every
+round.
+
+The numbers say how fast the plug-in is and how much a change moved it. They
+don't predict dropouts. A device calls `process()` once per period on a
+realtime thread, with the cache state and clock speed that brings. Here the
+blocks run back to back at normal priority.
 
 ## Tests
 

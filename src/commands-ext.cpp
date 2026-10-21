@@ -376,7 +376,7 @@ void Session::registerExtensionCommands() {
 		               return Response::success(session.services().undoReport());
 	               }});
 
-	commands_.add({"validate.run", "[test-fragment] [--seed=<n>] [--only-failures]",
+	commands_.add({"validate.run", "[test-fragment] [--seed=<n>] [--only-failures] [--isolate]",
 	               "Run the validation suite against the loaded plug-in.",
 	               [](Session &session, const Request &request) -> Response {
 		               if (!session.isLoaded())
