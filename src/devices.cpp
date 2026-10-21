@@ -70,12 +70,25 @@ void midiCallback(double, std::vector<unsigned char> *message, void *userData) {
 }
 
 // Inputs and outputs enumerate the same way; these work on either.
-std::vector<DeviceChoice> midiPorts(RtMidi &midi) {
+// RtMidi throws from its constructor when the system's MIDI service can't be
+// reached: no ALSA sequencer in a container or a CI runner, a CoreMIDI client
+// refused. The host then runs with no MIDI ports rather than not at all, and
+// every helper below takes null as "no ports".
+template <typename Midi>
+std::unique_ptr<Midi> makeMidi() {
+	try {
+		return std::make_unique<Midi>();
+	} catch (const RtMidiError &) {
+		return nullptr;
+	}
+}
+
+std::vector<DeviceChoice> midiPorts(RtMidi *midi) {
 	std::vector<DeviceChoice> found;
-	const unsigned int count = midi.getPortCount();
+	const unsigned int count = midi != nullptr ? midi->getPortCount() : 0;
 	for (unsigned int i = 0; i < count; ++i) {
 		DeviceChoice choice;
-		choice.name = midi.getPortName(i);
+		choice.name = midi->getPortName(i);
 		choice.id = choice.name;
 		found.push_back(std::move(choice));
 	}
@@ -83,19 +96,19 @@ std::vector<DeviceChoice> midiPorts(RtMidi &midi) {
 }
 
 // The index of the port with exactly this name, or false.
-bool findMidiPort(RtMidi &midi, const std::string &name, unsigned int &index) {
-	const unsigned int count = midi.getPortCount();
+bool findMidiPort(RtMidi *midi, const std::string &name, unsigned int &index) {
+	const unsigned int count = midi != nullptr ? midi->getPortCount() : 0;
 	for (index = 0; index < count; ++index)
-		if (midi.getPortName(index) == name)
+		if (midi->getPortName(index) == name)
 			return true;
 	return false;
 }
 
-Value midiPortReport(RtMidi &midi, const std::vector<std::string> &openNames, uint64_t messages) {
+Value midiPortReport(RtMidi *midi, const std::vector<std::string> &openNames, uint64_t messages) {
 	Array rows;
-	const unsigned int count = midi.getPortCount();
+	const unsigned int count = midi != nullptr ? midi->getPortCount() : 0;
 	for (unsigned int i = 0; i < count; ++i) {
-		const std::string name = midi.getPortName(i);
+		const std::string name = midi->getPortName(i);
 		Object row;
 		row["index"] = Value(i);
 		row["name"] = Value(name);
@@ -356,7 +369,7 @@ Value AudioDevice::statusReport() const {
 }
 
 struct MidiOutput::Impl {
-	RtMidiOut enumerator;
+	std::unique_ptr<RtMidiOut> enumerator = makeMidi<RtMidiOut>();
 	std::vector<std::unique_ptr<RtMidiOut>> connections;
 	std::vector<std::string> openNames;
 	std::atomic<uint64_t> messages{0};
@@ -373,7 +386,7 @@ bool MidiOutput::isOpen() const {
 }
 
 std::vector<DeviceChoice> MidiOutput::ports() const {
-	return midiPorts(impl_->enumerator);
+	return midiPorts(impl_->enumerator.get());
 }
 
 std::vector<std::string> MidiOutput::openPortIds() const {
@@ -384,11 +397,15 @@ bool MidiOutput::setOpenPorts(const std::vector<std::string> &ids, std::string &
 	close();
 	for (const auto &id : ids) {
 		unsigned int chosen = 0;
-		if (!findMidiPort(impl_->enumerator, id, chosen)) {
+		if (!findMidiPort(impl_->enumerator.get(), id, chosen)) {
 			error = "no MIDI output port called \"" + id + "\"";
 			return false;
 		}
-		auto connection = std::make_unique<RtMidiOut>();
+		auto connection = makeMidi<RtMidiOut>();
+		if (connection == nullptr) {
+			error = "the system's MIDI service is unavailable";
+			return false;
+		}
 		try {
 			connection->openPort(chosen, "nativeClapHost");
 		} catch (const RtMidiError &failure) {
@@ -427,13 +444,13 @@ uint64_t MidiOutput::messageCount() const {
 }
 
 Value MidiOutput::portReport() const {
-	return midiPortReport(impl_->enumerator, impl_->openNames, messageCount());
+	return midiPortReport(impl_->enumerator.get(), impl_->openNames, messageCount());
 }
 
 struct MidiInput::Impl {
 	// One connection per open port, plus a spare used only to enumerate, so
 	// listing ports never disturbs what is already open.
-	RtMidiIn enumerator;
+	std::unique_ptr<RtMidiIn> enumerator = makeMidi<RtMidiIn>();
 	std::vector<std::unique_ptr<RtMidiIn>> connections;
 	std::vector<std::string> openNames;
 };
@@ -453,7 +470,7 @@ std::string MidiInput::openPortName() const {
 }
 
 std::vector<DeviceChoice> MidiInput::ports() const {
-	return midiPorts(impl_->enumerator);
+	return midiPorts(impl_->enumerator.get());
 }
 
 std::vector<std::string> MidiInput::openPortIds() const {
@@ -464,11 +481,15 @@ bool MidiInput::setOpenPorts(const std::vector<std::string> &ids, std::string &e
 	close();
 	for (const auto &id : ids) {
 		unsigned int chosen = 0;
-		if (!findMidiPort(impl_->enumerator, id, chosen)) {
+		if (!findMidiPort(impl_->enumerator.get(), id, chosen)) {
 			error = "no MIDI input port called \"" + id + "\"";
 			return false;
 		}
-		auto connection = std::make_unique<RtMidiIn>();
+		auto connection = makeMidi<RtMidiIn>();
+		if (connection == nullptr) {
+			error = "the system's MIDI service is unavailable";
+			return false;
+		}
 		try {
 			connection->openPort(chosen, "nativeClapHost");
 		} catch (const RtMidiError &failure) {
@@ -484,7 +505,7 @@ bool MidiInput::setOpenPorts(const std::vector<std::string> &ids, std::string &e
 }
 
 bool MidiInput::open(const std::string &portName, std::string &error) {
-	const unsigned int count = impl_->enumerator.getPortCount();
+	const unsigned int count = impl_->enumerator != nullptr ? impl_->enumerator->getPortCount() : 0;
 	if (count == 0) {
 		error = "no MIDI input ports available";
 		return false;
@@ -492,7 +513,7 @@ bool MidiInput::open(const std::string &portName, std::string &error) {
 	// A partial name is enough at the prompt; the settings interface passes a
 	// whole one.
 	for (unsigned int i = 0; i < count; ++i) {
-		const std::string name = impl_->enumerator.getPortName(i);
+		const std::string name = impl_->enumerator->getPortName(i);
 		if (portName.empty() || name.find(portName) != std::string::npos)
 			return setOpenPorts({name}, error);
 	}
@@ -510,7 +531,7 @@ void MidiInput::close() {
 }
 
 Value MidiInput::portReport() const {
-	return midiPortReport(impl_->enumerator, impl_->openNames, session_.midiMessageCount());
+	return midiPortReport(impl_->enumerator.get(), impl_->openNames, session_.midiMessageCount());
 }
 
 } // namespace nch
