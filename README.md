@@ -5,7 +5,7 @@ the CLAP spec while it runs, and `validate.run` runs a set of conformance tests.
 
 <p>
   <img alt="A clap-host session on MNO: load, activate, play a note, render a second to WAV, then run the validation suite" src="docs/images/terminal.png" width="58%">
-  <img alt="The host's panel for Slide, a WCLAP: power, bypass, input files, presets and every parameter" src="docs/images/panel.png" width="38%">
+  <img alt="The host's panel for Slide, a WCLAP, in dark mode: a preset list in the header, Power, Bypass, Interface, Mute input and a master fader on the left, a slider or switch for each parameter with its value text, and the audio and MIDI file players at the bottom" src="docs/images/panel.png" width="38%">
 </p>
 
 ## Host extensions
@@ -43,6 +43,8 @@ in pixels and points (`gui.check --summary` gives one line:
 commands after it for 5 seconds, in a `--script` file or on stdin, so a
 webview can draw before `gui.snapshot`. The host exits when stdin ends, closing
 any window it has open.
+`profile 10` times the plug-in's `process()` per block, and
+`profile 10 --compare=other.clap` compares two builds of it.
 
 ```console
 $ clap-host MySynth.clap

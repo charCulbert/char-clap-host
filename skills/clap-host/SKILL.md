@@ -74,7 +74,7 @@ Areas: plug-in (`info` `extensions` `status`), parameters (`params.list`
 `presets.list` `preset.load`), ports, devices (`audio.devices` `audio.start`
 `audio.settings` `power` `input.mute` `meters` `midi.ports`), interface (`gui.open` `gui.snapshot` `gui.check` `wait` `panel`
 `panel.snapshot`), validation (`validate` `validate.run` `validate.tests`),
-host behaviour (`callbacks` `events` `undo` `threadpool`).
+host behaviour (`callbacks` `events` `undo` `threadpool`), timing (`profile`).
 
 ## Recipes
 
@@ -157,6 +157,20 @@ edge, whether the plug-in's `adjust_size` still takes the size it opened at
 `PASS WebView Synth 840x360 px @2x edges 0/0/0/0` (edges are top/bottom/left/right)
 or `FAIL ...` with the reasons. Under `--strict` a failed check exits 1. Run it
 after any change to sizing or scaling, on each platform.
+
+**Is a change faster or slower?** `profile <seconds>` times the plug-in's
+`process()` per block at the current activation's rate and block size, with
+whatever `audio.input` or `midi.file` has loaded. `--compare=<other.clap>`
+takes turns between two builds (ABBA over `--rounds`, state carried) and
+reports `bOverA` ratios and each round's median in `roundP50Us`; trust a ratio
+only if every round agrees. Turn the audio device off first. The blocks run
+back to back at normal priority, so this measures speed, not dropouts.
+
+```text
+activate 48000 128
+audio.input drums.wav --loop
+profile 20 --compare=new/Effect.clap
+```
 
 **Round-trip state:** `state save a.state`, change a parameter,
 `state load a.state`, `param get <id>`.

@@ -278,7 +278,7 @@ void Session::registerCommands() {
 		               return Response::success(Value(std::move(out)));
 	               }});
 
-	commands_.add({"load", "<path> [plugin-id]", "Load a .clap or .wclap and create a plug-in from it.",
+	commands_.add({"load", "<path> [plugin-id] [--index=<n>]", "Load a .clap or .wclap and create a plug-in from it.",
 	               [](Session &session, const Request &request) -> Response {
 		               const std::string path = request.arg(0, "path").asString();
 		               if (path.empty())
@@ -453,7 +453,7 @@ void Session::registerCommands() {
 		               return Response::success(Value(std::move(out)));
 	               }, /* needsPlugin */ true});
 
-	commands_.add({"param.mod", "<id> <amount> [key] [channel] [port]",
+	commands_.add({"param.mod", "<id> <amount> [key] [channel] [port] [--at=<seconds|Nf>]",
 	               "Modulate a parameter, without changing its value.",
 	               [](Session &session, const Request &request) -> Response {
 		               if (!request.hasArg(0, "id") || !request.hasArg(1, "amount"))
