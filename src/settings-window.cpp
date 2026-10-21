@@ -15,48 +15,59 @@ const char *kPage = R"(<!doctype html>
 <meta charset="utf-8">
 <title>clap-host settings</title>
 <style>
-	/* The window follows the system appearance: Canvas and CanvasText are the
-	   platform's own colours, so light and dark need no palette of our own. */
-	:root { color-scheme: light dark; }
+	/* Slide's palette, light and dark as the system is, the same as the
+	   parameter window's. */
+	:root {
+		--panel: #cdcdcd; --ink: #1c1c1c; --ink2: #4f4f4f; --dim: #5d5d5d;
+		--hair: #a9a9a9; --acc: #75540a; --lineb: #767676; --over: #a94118;
+		color-scheme: light;
+	}
+	@media (prefers-color-scheme: dark) {
+		:root {
+			--panel: #2f2f2f; --ink: #dedede; --ink2: #bdbdbd; --dim: #909090;
+			--hair: #555; --acc: #ddc07e; --lineb: #9a9a9a; --over: #d98a4a;
+			color-scheme: dark;
+		}
+	}
 	html, body { height: 100%; }
 	body {
 		box-sizing: border-box;
 		margin: 0;
 		padding: 18px 20px;
-		background: Canvas;
-		color: CanvasText;
-		font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+		background: var(--panel);
+		color: var(--ink);
+		font: 12px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 		overflow-x: hidden;
 		overflow-y: auto;
 	}
 	*, *::before, *::after { box-sizing: border-box; }
-	p.hint { margin: 0 0 14px; color: GrayText; }
-	#status { margin-top: 12px; color: GrayText; min-height: 1.5em; }
+	p.hint { margin: 0 0 14px; color: var(--dim); }
+	#status { margin-top: 12px; color: var(--dim); min-height: 1.5em; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; }
 	p.actions { margin: 14px 0 0; }
 	button {
 		box-sizing: border-box;
 		min-height: 2em;
 		padding: 0 0.9em;
-		border: 1px solid GrayText;
+		border: 1px solid var(--lineb);
 		border-radius: 0;
-		background: ButtonFace;
-		color: ButtonText;
+		background: transparent;
+		color: var(--ink2);
 		font: inherit;
 		cursor: pointer;
 	}
 	button:disabled { opacity: 0.5; cursor: default; }
 	compost-device-selector {
 		display: block;
-		--compost-device-selector-bg: Canvas;
-		--compost-device-selector-text: CanvasText;
-		--compost-device-selector-muted: GrayText;
-		--compost-device-selector-border: GrayText;
-		--compost-device-selector-control-bg: Field;
-		--compost-device-selector-control-border: GrayText;
-		--compost-device-selector-button-bg: ButtonFace;
-		--compost-device-selector-button-text: ButtonText;
-		--compost-device-selector-focus-color: Highlight;
-		--compost-device-selector-error: LinkText;
+		--compost-device-selector-bg: var(--panel);
+		--compost-device-selector-text: var(--ink);
+		--compost-device-selector-muted: var(--dim);
+		--compost-device-selector-border: var(--hair);
+		--compost-device-selector-control-bg: transparent;
+		--compost-device-selector-control-border: var(--lineb);
+		--compost-device-selector-button-bg: transparent;
+		--compost-device-selector-button-text: var(--ink2);
+		--compost-device-selector-focus-color: var(--acc);
+		--compost-device-selector-error: var(--over);
 	}
 </style>
 <p class="hint" id="plugin">&nbsp;</p>
