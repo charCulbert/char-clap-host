@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libgtk-3-dev libwebkit2gtk-4.1-dev xvfb xauth
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+
+      # Some tests open a window; Linux runners have no display without xvfb.
+      - name: Test
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then run="xvfb-run -a"; fi
+          $run ctest --test-dir build -C Release --output-on-failure
+
+      # The host as a user runs it: one-shot commands against a fixture.
+      - name: Smoke test
+        shell: bash
+        run: |
+          host=$(find build \( -name clap-host -o -name clap-host.exe \) -type f -perm -u+x -not -path '*/CMakeFiles/*' -print -quit)
+          plugin=$(find build/fixtures -name instrument.clap -print -quit)
+          test -n "$host" && test -n "$plugin"
+          if [ "$RUNNER_OS" = Linux ]; then run="xvfb-run -a"; fi
+          $run "$host" --strict --json --quiet "$plugin" -- "profile 1"
+          $run "$host" --strict --json --quiet "$plugin" -- "validate.run --isolate"
