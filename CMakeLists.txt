@@ -118,11 +118,13 @@ endif()
 # choc's WebView uses WebKit on macOS, WebView2 on Windows and webkit2gtk on
 # Linux (libwebkit2gtk-4.1-dev); the host's own windows are webviews too.
 option(NCH_WITH_WEBVIEW "Display clap.webview interfaces with choc" ON)
-# Compost provides the components the host's own windows are built from. The
-# path is a fact about the source tree whether or not a webview shows it, so
-# the code that serves it compiles either way.
+# Compost provides the components the host's own windows are built from. Its
+# modules are built into the binary, so a build runs without the checkout; the
+# code that serves them compiles whether or not a webview shows them.
 set(COMPOST_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/external/compost" CACHE PATH "compost")
-target_compile_definitions(nch-core PUBLIC NCH_COMPOST_ROOT="${COMPOST_ROOT}")
+include(cmake/embed-compost.cmake)
+nch_embed_compost("${COMPOST_ROOT}" "${CMAKE_CURRENT_BINARY_DIR}/compost-files.cpp")
+target_sources(nch-core PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/compost-files.cpp")
 # choc is header-only and used beyond the webview (files, MIDI, WAV, base64).
 set(CHOC_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/external/choc" CACHE PATH "choc")
 target_include_directories(nch-core PUBLIC "${CHOC_ROOT}")

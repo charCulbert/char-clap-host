@@ -45,3 +45,23 @@ jobs:
           if [ "$RUNNER_OS" = Linux ]; then run="xvfb-run -a"; fi
           $run "$host" --strict --json --quiet "$plugin" -- "profile 1"
           $run "$host" --strict --json --quiet "$plugin" -- "validate.run --isolate"
+
+      # One file per platform: a tar keeps the executable bit and the app
+      # bundle's layout, which the artifact's own zip would drop. The Mac app
+      # must not load anything from Homebrew or /usr/local that a user lacks.
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p dist
+          case "$RUNNER_OS" in
+            macOS)
+              ! otool -L build/clap-host.app/Contents/MacOS/clap-host | grep -E '/usr/local/|/opt/homebrew/'
+              tar -czf dist/clap-host-macOS.tar.gz -C build clap-host.app ;;
+            Linux) tar -czf dist/clap-host-Linux.tar.gz -C build clap-host ;;
+            Windows) cp build/Release/clap-host.exe dist/ ;;
+          esac
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clap-host-${{ runner.os }}
+          path: dist/*

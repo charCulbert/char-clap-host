@@ -12,6 +12,11 @@ folder on your `PATH`.
 Started from the Finder or Explorer with no plug-in, it opens its own window
 instead of a prompt.
 
+Each CI run also keeps a build per platform as an artifact: `clap-host.app`
+(Apple silicon) and a Linux `clap-host` in tar files, and `clap-host.exe`.
+None is signed. The Linux build needs GTK 3 and WebKitGTK 4.1, and a glibc as
+new as the Ubuntu it was built on.
+
 ## Running it
 
 ```sh
