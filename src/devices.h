@@ -53,7 +53,10 @@ public:
 	// with no error if nothing has been asked for yet.
 	bool restart(std::string &error);
 	bool hasRequest() const;
-	void stop();
+	// Stops and closes the stream. A device that doesn't let go within a few
+	// seconds is given up on: false, with why on stderr and in `error`. It is
+	// stopped as far as the host is concerned either way.
+	bool stop(std::string &error);
 	bool isRunning() const;
 
 	std::vector<DeviceChoice> outputDevices() const;

@@ -13,14 +13,54 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <cstdio>
 #include <cstring>
+#include <functional>
+#include <mutex>
+#include <thread>
 
 namespace nch {
 
 const char *const kNoAudioInput = "__none__";
 
+namespace {
+
+// How long a stream gets to open, start or stop before the host gives up on it.
+constexpr auto kDeviceTimeout = std::chrono::seconds(3);
+
+// What the device thread calls through. A stream the host gave up on may
+// still wake and call back; once the gate is closed it gets silence and never
+// reaches the session or the plug-in.
+struct CallbackGate {
+	explicit CallbackGate(Session &owner) : session(owner) {}
+
+	Session &session;
+	uint32_t outputChannels = 0;
+	std::atomic<bool> closed{false};
+	std::atomic<int> inside{0};
+
+	// Returns once no callback is inside the session and none can enter it.
+	void close() {
+		closed.store(true);
+		while (inside.load() != 0)
+			std::this_thread::yield();
+	}
+};
+
+} // namespace
+
 struct AudioDevice::Impl {
-	RtAudio audio;
+	explicit Impl(Session &session)
+	    : audio(std::make_unique<RtAudio>()), gate(std::make_shared<CallbackGate>(session)) {}
+
+	// Runs a step on the stream from its own thread. False when it took longer
+	// than kDeviceTimeout: the stream was given up on, and a fresh RtAudio
+	// stands in its place.
+	bool within(std::function<void(RtAudio &)> step);
+
+	std::unique_ptr<RtAudio> audio;
+	std::shared_ptr<CallbackGate> gate;
 	bool running = false;
 	uint32_t outputChannels = 2;
 	uint32_t inputChannels = 0;
@@ -56,10 +96,18 @@ namespace {
 
 int audioCallback(void *outputBuffer, void *inputBuffer, unsigned int frames, double, RtAudioStreamStatus status,
                   void *userData) {
-	auto *session = static_cast<Session *>(userData);
-	ScopedThreadRole role(ThreadRole::Audio);
-	session->onAudioCallback(static_cast<const float *>(inputBuffer), static_cast<float *>(outputBuffer), frames,
-	                         status != 0);
+	auto *gate = static_cast<CallbackGate *>(userData);
+	// Counted in before the check, so close() either sees this callback or
+	// this callback sees the gate closed.
+	gate->inside.fetch_add(1);
+	if (!gate->closed.load()) {
+		ScopedThreadRole role(ThreadRole::Audio);
+		gate->session.onAudioCallback(static_cast<const float *>(inputBuffer), static_cast<float *>(outputBuffer),
+		                              frames, status != 0);
+	} else if (outputBuffer != nullptr) {
+		std::memset(outputBuffer, 0, sizeof(float) * frames * gate->outputChannels);
+	}
+	gate->inside.fetch_sub(1);
 	return 0;
 }
 
@@ -137,10 +185,11 @@ Value midiPortReport(RtMidi *midi, const std::vector<std::string> &openNames, ui
 
 } // namespace
 
-AudioDevice::AudioDevice(Session &session) : session_(session), impl_(std::make_unique<Impl>()) {}
+AudioDevice::AudioDevice(Session &session) : session_(session), impl_(std::make_unique<Impl>(session)) {}
 
 AudioDevice::~AudioDevice() {
-	stop();
+	std::string ignored;
+	stop(ignored);
 }
 
 bool AudioDevice::isRunning() const {
@@ -148,7 +197,10 @@ bool AudioDevice::isRunning() const {
 }
 
 bool AudioDevice::start(const std::string &deviceName, uint32_t inputChannels, std::string &error) {
-	stop();
+	// Giving up on the old stream is already on stderr; the new one opens on
+	// a fresh RtAudio either way.
+	std::string stopError;
+	stop(stopError);
 	impl_->requested = true;
 	impl_->requestedOutput = deviceName;
 	impl_->requestedInputChannels = inputChannels;
@@ -161,16 +213,16 @@ bool AudioDevice::start(const std::string &deviceName, uint32_t inputChannels, s
 	impl_->inputChannels = 0;
 	impl_->inputDeviceName.clear();
 
-	const std::vector<unsigned int> ids = impl_->audio.getDeviceIds();
+	const std::vector<unsigned int> ids = impl_->audio->getDeviceIds();
 	if (ids.empty()) {
 		error = "no audio devices available";
 		return false;
 	}
-	unsigned int outputId = impl_->audio.getDefaultOutputDevice();
+	unsigned int outputId = impl_->audio->getDefaultOutputDevice();
 	if (!deviceName.empty()) {
 		outputId = 0;
 		for (const unsigned int id : ids) {
-			const RtAudio::DeviceInfo info = impl_->audio.getDeviceInfo(id);
+			const RtAudio::DeviceInfo info = impl_->audio->getDeviceInfo(id);
 			if (info.outputChannels > 0 && info.name.find(deviceName) != std::string::npos) {
 				outputId = id;
 				break;
@@ -182,7 +234,7 @@ bool AudioDevice::start(const std::string &deviceName, uint32_t inputChannels, s
 		}
 	}
 
-	const RtAudio::DeviceInfo outputInfo = impl_->audio.getDeviceInfo(outputId);
+	const RtAudio::DeviceInfo outputInfo = impl_->audio->getDeviceInfo(outputId);
 	impl_->outputChannels = std::min<unsigned int>(outputInfo.outputChannels, 2);
 	if (impl_->outputChannels == 0) {
 		error = outputInfo.name + " has no output channels";
@@ -202,17 +254,17 @@ bool AudioDevice::start(const std::string &deviceName, uint32_t inputChannels, s
 	RtAudio::StreamParameters inputParameters;
 	bool useInput = false;
 	if (inputChannels != 0) {
-		unsigned int inputId = impl_->audio.getDefaultInputDevice();
+		unsigned int inputId = impl_->audio->getDefaultInputDevice();
 		if (!impl_->inputDeviceId.empty()) {
 			for (const unsigned int id : ids) {
-				const RtAudio::DeviceInfo candidate = impl_->audio.getDeviceInfo(id);
+				const RtAudio::DeviceInfo candidate = impl_->audio->getDeviceInfo(id);
 				if (candidate.inputChannels > 0 && candidate.name == impl_->inputDeviceId) {
 					inputId = id;
 					break;
 				}
 			}
 		}
-		const RtAudio::DeviceInfo inputInfo = impl_->audio.getDeviceInfo(inputId);
+		const RtAudio::DeviceInfo inputInfo = impl_->audio->getDeviceInfo(inputId);
 		if (inputInfo.inputChannels != 0) {
 			inputParameters.deviceId = inputId;
 			inputParameters.nChannels = std::min<unsigned int>(inputInfo.inputChannels, inputChannels);
@@ -229,33 +281,58 @@ bool AudioDevice::start(const std::string &deviceName, uint32_t inputChannels, s
 	options.flags = RTAUDIO_SCHEDULE_REALTIME;
 	options.streamName = "nativeClapHost";
 
-	const RtAudioErrorType result =
-	    impl_->audio.openStream(&outputParameters, useInput ? &inputParameters : nullptr, RTAUDIO_FLOAT32,
-	                            static_cast<unsigned int>(impl_->sampleRate), &bufferFrames, audioCallback,
-	                            &session_, &options);
-	if (result != RTAUDIO_NO_ERROR) {
-		error = impl_->audio.getErrorText();
+	// Everything the open writes to is the step's own, since a step the host
+	// gives up on still runs after start() has returned.
+	auto result = std::make_shared<RtAudioErrorType>(RTAUDIO_SYSTEM_ERROR);
+	auto frames = std::make_shared<unsigned int>(bufferFrames);
+	auto open = [=, rate = static_cast<unsigned int>(impl_->sampleRate),
+	             gate = impl_->gate.get()](RtAudio &audio) mutable {
+		*result = audio.openStream(&outputParameters, useInput ? &inputParameters : nullptr, RTAUDIO_FLOAT32, rate,
+		                           frames.get(), audioCallback, gate, &options);
+	};
+#if defined(_WIN32)
+	// WASAPI opens through COM objects that belong to the thread that made the
+	// RtAudio, so the open stays on this one.
+	open(*impl_->audio);
+#else
+	if (!impl_->within(open)) {
+		error = "the audio device did not open within " + std::to_string(kDeviceTimeout.count()) +
+		        " seconds; gave up on it";
+		return false;
+	}
+#endif
+	bufferFrames = *frames;
+	if (*result != RTAUDIO_NO_ERROR) {
+		error = impl_->audio->getErrorText();
 		if (error.empty())
 			error = "cannot open the audio stream";
 		// A duplex open can leave its output half open when the input fails.
 		// It isn't running yet, but must be closed before either UI retries.
-		stop();
+		stop(stopError);
 		return false;
 	}
 	impl_->blockSize = bufferFrames;
+	impl_->gate->outputChannels = impl_->outputChannels;
 	session_.engine().setDeviceOutputChannels(impl_->outputChannels);
 	session_.engine().setDeviceInputChannels(useInput ? impl_->inputChannels : 0);
 
 	std::string activationError;
 	if (!session_.prepareForDevice(impl_->sampleRate, bufferFrames, activationError)) {
-		impl_->audio.closeStream();
+		impl_->audio->closeStream();
 		error = activationError;
 		return false;
 	}
 
-	if (impl_->audio.startStream() != RTAUDIO_NO_ERROR) {
+	auto started = std::make_shared<RtAudioErrorType>(RTAUDIO_SYSTEM_ERROR);
+	if (!impl_->within([started](RtAudio &audio) { *started = audio.startStream(); })) {
 		session_.engine().stop();
-		impl_->audio.closeStream();
+		error = "the audio device did not start within " + std::to_string(kDeviceTimeout.count()) +
+		        " seconds; gave up on it";
+		return false;
+	}
+	if (*started != RTAUDIO_NO_ERROR) {
+		session_.engine().stop();
+		impl_->audio->closeStream();
 		error = "cannot start the audio stream";
 		return false;
 	}
@@ -273,19 +350,85 @@ bool AudioDevice::hasRequest() const {
 	return impl_->requested;
 }
 
-void AudioDevice::stop() {
-	// Own the backend's whole lifetime, not only successfully started streams.
-	if (impl_->audio.isStreamRunning())
-		impl_->audio.stopStream();
-	if (impl_->audio.isStreamOpen())
-		impl_->audio.closeStream();
+bool AudioDevice::stop(std::string &error) {
 	impl_->running = false;
+	// Own the backend's whole lifetime, not only successfully started streams.
+	if (!impl_->audio->isStreamOpen())
+		return true;
+	if (impl_->within([](RtAudio &audio) {
+		    if (audio.isStreamRunning())
+			    audio.stopStream();
+		    if (audio.isStreamOpen())
+			    audio.closeStream();
+	    }))
+		return true;
+	error = "the audio device did not stop within " + std::to_string(kDeviceTimeout.count()) +
+	        " seconds; gave up on it";
+	std::fprintf(stderr, "error: %s\n", error.c_str());
+	return false;
+}
+
+namespace {
+
+// A step handed to its own thread, and what that thread frees if the host
+// stops waiting for it.
+struct DeviceJob {
+	std::mutex mutex;
+	std::condition_variable finished;
+	bool done = false;
+	std::unique_ptr<RtAudio> abandoned;
+	std::shared_ptr<CallbackGate> gate;
+};
+
+} // namespace
+
+bool AudioDevice::Impl::within(std::function<void(RtAudio &)> step) {
+	// A device can stop answering: with another program holding the card,
+	// PipeWire's ALSA plug-in can wait forever in an open, and a read on the
+	// device thread never returns, so stopStream() waits on it forever too.
+	// The step runs on its own thread, and past the timeout the host carries
+	// on without it.
+	auto job = std::make_shared<DeviceJob>();
+	std::thread([job, step = std::move(step), stream = audio.get()] {
+		step(*stream);
+		std::unique_lock<std::mutex> lock(job->mutex);
+		job->done = true;
+		job->finished.notify_all();
+		std::unique_ptr<RtAudio> abandoned = std::move(job->abandoned);
+		std::shared_ptr<CallbackGate> gate = std::move(job->gate);
+		lock.unlock();
+		if (abandoned == nullptr)
+			return;
+		// The device answered after all. Closed, the stream has joined its
+		// device thread, so the RtAudio can go, and the gate after it.
+		if (abandoned->isStreamRunning())
+			abandoned->stopStream();
+		if (abandoned->isStreamOpen())
+			abandoned->closeStream();
+		abandoned.reset();
+	}).detach();
+
+	std::unique_lock<std::mutex> lock(job->mutex);
+	if (job->finished.wait_for(lock, kDeviceTimeout, [&] { return job->done; }))
+		return true;
+	// Given up on. The step's thread takes the stuck RtAudio and the gate its
+	// device thread calls through, and frees them only once the stream has
+	// closed, or never. Closing the gate first means no callback reaches the
+	// session after this returns, so the plug-in can be deactivated and
+	// unloaded while the old device thread is still alive.
+	job->abandoned = std::move(audio);
+	job->gate = gate;
+	gate->close();
+	Session &session = gate->session;
+	audio = std::make_unique<RtAudio>();
+	gate = std::make_shared<CallbackGate>(session);
+	return false;
 }
 
 std::vector<DeviceChoice> AudioDevice::outputDevices() const {
 	std::vector<DeviceChoice> devices;
-	for (const unsigned int id : impl_->audio.getDeviceIds()) {
-		const RtAudio::DeviceInfo info = impl_->audio.getDeviceInfo(id);
+	for (const unsigned int id : impl_->audio->getDeviceIds()) {
+		const RtAudio::DeviceInfo info = impl_->audio->getDeviceInfo(id);
 		if (info.outputChannels > 0)
 			devices.push_back(choiceFor(info, false));
 	}
@@ -294,8 +437,8 @@ std::vector<DeviceChoice> AudioDevice::outputDevices() const {
 
 std::vector<DeviceChoice> AudioDevice::inputDevices() const {
 	std::vector<DeviceChoice> devices;
-	for (const unsigned int id : impl_->audio.getDeviceIds()) {
-		const RtAudio::DeviceInfo info = impl_->audio.getDeviceInfo(id);
+	for (const unsigned int id : impl_->audio->getDeviceIds()) {
+		const RtAudio::DeviceInfo info = impl_->audio->getDeviceInfo(id);
 		if (info.inputChannels > 0)
 			devices.push_back(choiceFor(info, true));
 	}
@@ -303,8 +446,8 @@ std::vector<DeviceChoice> AudioDevice::inputDevices() const {
 }
 
 std::vector<uint32_t> AudioDevice::sampleRatesFor(const std::string &deviceId) const {
-	for (const unsigned int id : impl_->audio.getDeviceIds()) {
-		const RtAudio::DeviceInfo info = impl_->audio.getDeviceInfo(id);
+	for (const unsigned int id : impl_->audio->getDeviceIds()) {
+		const RtAudio::DeviceInfo info = impl_->audio->getDeviceInfo(id);
 		if (!deviceId.empty() && info.name != deviceId)
 			continue;
 		if (deviceId.empty() && !info.isDefaultOutput)
@@ -353,8 +496,8 @@ bool AudioDevice::apply(const DeviceSettings &settings, std::string &error) {
 
 Value AudioDevice::deviceReport() const {
 	Array rows;
-	for (const unsigned int id : impl_->audio.getDeviceIds()) {
-		const RtAudio::DeviceInfo info = impl_->audio.getDeviceInfo(id);
+	for (const unsigned int id : impl_->audio->getDeviceIds()) {
+		const RtAudio::DeviceInfo info = impl_->audio->getDeviceInfo(id);
 		Object row;
 		row["name"] = Value(info.name);
 		row["outputs"] = Value(info.outputChannels);
