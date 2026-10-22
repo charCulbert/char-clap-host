@@ -129,7 +129,7 @@ For a coding agent, link the skill into its skills directory:
 | Reported by the plug-in | `latency` `tail` `voices` `note.names` `remote.pages` `triggers` `render.mode` |
 | Devices | `audio.devices` `audio.start` `audio.settings` `audio.stop` `audio.status` `audio.test` `power` `output.gain` `input.mute` `meters` `midi.ports` `midi.open` `midi.close` `midi.outputs` `midi.out` |
 | Interface | `gui.open` `gui.close` `gui.resize` `gui` `gui.contents` `gui.snapshot` `gui.check` `panel` `panel.snapshot` `panel.close` `settings` `settings.close` |
-| Validation | `validate` `validate.clear` `validate.run` `validate.tests` |
+| Validation | `validate` `validate.clear` `validate.run` `validate.tests` (the tests are in [What it checks](checks.md#validaterun)) |
 | Scripting | `wait` |
 | Host behaviour | `track.info` `threadpool` `undo` `callbacks` |
 

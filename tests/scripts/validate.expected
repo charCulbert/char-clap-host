@@ -18,9 +18,12 @@ tests:
   param-info-consistency  Parameter ids, ranges and flags agree with the specification.
   param-default-values  Every parameter starts at the default it declares.
   param-set-wrong-namespace  Events in an unknown namespace are ignored.
+  param-conversions  value_to_text and text_to_value round trip, enums have text, and junk text is refused.
+  param-gesture-pairs  Gesture begin and end events from the plug-in pair up.
   param-modulation-value-unchanged  Modulation offsets the value heard without changing the value itself.
   param-modulation-polyphonic  Modulation addressed at one voice, one key, one channel, and all of them.
   param-modulation-reset  Modulation does not survive a reset.
+  latency-stable-while-active  The latency changes only through activate(), however parameters move.
   process-audio-basic  Five ordinary blocks produce usable audio.
   process-varying-block-sizes  Block sizes from one frame to four thousand.
   process-varying-sample-rates  Sample rates including fractional ones.
@@ -29,6 +32,7 @@ tests:
   state-invalid-random  Random bytes do not crash the plug-in.
   state-round-trip  State saved and loaded returns the same parameters.
   state-buffered  State loads from a stream that returns short reads.
+  state-context-round-trip  Each state context saves, loads every other's state, and the preset routes agree.
   process-note-basic  A consistent stream of notes and expressions.
   process-note-inconsistent  Notes ended that never started, and started twice.
   process-note-wildcard  Notes addressed with wildcards in the tuple.
@@ -41,6 +45,7 @@ tests:
   param-set-events  flush() and process() put a parameter in the same place.
   transport-null  Processing with no transport at all.
   transport-fuzz  Tempo, metre, loops and withheld flags changing every block.
+  context-menu  Menus for every target are well formed, and their actions perform.
   gui-open-close  The interface opens and closes twice.
   gui-resize  The interface reports a size, and adjust_size settles.
 seed: 0x13376767
@@ -59,10 +64,11 @@ tests:
   state-invalid-random  skipped  the plug-in does not implement clap.state  @TIME@
   state-round-trip  skipped  the plug-in does not implement clap.state  @TIME@
   state-buffered  skipped  the plug-in does not implement clap.state  @TIME@
+  state-context-round-trip  skipped  the plug-in does not implement clap.state-context  @TIME@
 passed: 0
 failed: 0
 warnings: 0
-skipped: 4
+skipped: 5
 ok: true
 id: com.charlieculbert.wclap-runtime-thread-check-example
 name: WCLAP Runtime Thread Check Example
