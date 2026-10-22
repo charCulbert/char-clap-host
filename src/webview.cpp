@@ -101,9 +101,13 @@ bool WebviewHost::open(const std::string &uri, std::string &error) {
 	choc::ui::WebView::Options options;
 	options.enableDebugMode = true;
 	options.acceptsFirstMouseClick = true;
-	options.fetchResource = [this, uri](const std::string &path)
+	options.fetchResource = [this, uri](const std::string &requested)
 	    -> std::optional<choc::ui::WebView::Options::Resource> {
 		++impl_->resourcesServed;
+		// choc hands over only the path on macOS and Linux but the rest of the
+		// URI on Windows, so a page's "style.css?v=2" would ask the plug-in for
+		// a file of that name. The plug-in is asked for the path alone.
+		const std::string path = requested.substr(0, requested.find_first_of("?#"));
 		// The wrapper page only exists when there is a separate page to frame;
 		// a host interface serves its own root.
 		if (!uri.empty() && (path == "/" || path.empty())) {
