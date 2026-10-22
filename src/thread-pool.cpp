@@ -52,8 +52,14 @@ void ThreadPool::workerLoop() {
 		     index = nextTask_.fetch_add(1, std::memory_order_relaxed))
 			(*task)(index);
 
-		if (remaining_.fetch_sub(1, std::memory_order_acq_rel) == 1)
+		// The notify must happen under the mutex. Without it, the caller can
+		// check remaining_, see it non-zero, and be about to block when this
+		// worker takes it to zero and notifies; that wake-up is lost and run()
+		// never returns.
+		if (remaining_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+			std::lock_guard<std::mutex> lock(mutex_);
 			workFinished_.notify_one();
+		}
 	}
 }
 
