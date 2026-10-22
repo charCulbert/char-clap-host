@@ -166,6 +166,15 @@ reports `bOverA` ratios and each round's median in `roundP50Us`; trust a ratio
 only if every round agrees. Turn the audio device off first. The blocks run
 back to back at normal priority, so this measures speed, not dropouts.
 
+**Will it drop out on this machine?** `profile <seconds> --live` records the
+audio device's own callbacks (it turns the audio on for the run if it's off,
+after a 0.5 s `--warmup`). `perCallback` is each callback's length against the
+block's deadline, with `overruns` past it; `process` is the plug-in's share;
+`interval` is the gap between callbacks, `late` counting ones the device
+delivered late; `underruns` is what the device itself reported. Set the
+buffer first with `audio.settings --buffer=64`. Output goes to the speakers:
+`output.gain -40` or `input.mute on` keeps a run quiet.
+
 ```text
 activate 48000 128
 audio.input drums.wav --loop

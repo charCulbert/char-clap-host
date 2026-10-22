@@ -43,8 +43,9 @@ in pixels and points (`gui.check --summary` gives one line:
 commands after it for 5 seconds, in a `--script` file or on stdin, so a
 webview can draw before `gui.snapshot`. The host exits when stdin ends, closing
 any window it has open.
-`profile 10` times the plug-in's `process()` per block, and
-`profile 10 --compare=other.clap` compares two builds of it.
+`profile 10` times the plug-in's `process()` per block,
+`profile 10 --compare=other.clap` compares two builds of it, and
+`profile 10 --live` times it on the audio device's own callbacks.
 
 ```console
 $ clap-host MySynth.clap

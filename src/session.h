@@ -145,6 +145,17 @@ public:
 	void onMidiMessage(const uint8_t *bytes, uint32_t size, std::chrono::steady_clock::time_point arrival);
 	uint64_t audioCallbackCount() const { return audioCallbacks_.load(std::memory_order_relaxed); }
 	uint64_t audioUnderrunCount() const { return audioUnderruns_.load(std::memory_order_relaxed); }
+	// What `profile --live` records of the device's callbacks. Each vector is
+	// filled only up to the capacity reserved for it, so the device thread
+	// never allocates.
+	struct CallbackCapture {
+		std::vector<uint64_t> startNanos;   // steady_clock, from its epoch
+		std::vector<uint64_t> lengthNanos;  // the whole callback, host's work included
+		std::vector<uint64_t> processNanos; // each process() call inside them
+	};
+	// Starts recording into `capture`, or with null stops, returning once no
+	// callback is still writing to the one before.
+	void setCallbackCapture(CallbackCapture *capture);
 	uint64_t midiMessageCount() const { return midiMessages_.load(std::memory_order_relaxed); }
 	// Messages the plug-in's note dialect has no form for, counted rather than
 	// silently discarded.
@@ -288,6 +299,9 @@ private:
 	PluginPanel panel_;
 	std::atomic<uint64_t> audioCallbacks_{0};
 	std::atomic<uint64_t> audioUnderruns_{0};
+	std::atomic<CallbackCapture *> callbackCapture_{nullptr};
+	// Callbacks between reading callbackCapture_ and their last write to it.
+	std::atomic<int> captureWriters_{0};
 	std::atomic<uint64_t> midiMessages_{0};
 	std::atomic<uint64_t> midiDropped_{0};
 	// Invalid plug-ins sometimes send webview messages off the main thread.

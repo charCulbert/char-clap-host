@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <thread>
 
 #if defined(_WIN32)
 #define NOMINMAX
@@ -58,6 +59,42 @@ uint64_t percentile(const std::vector<uint64_t> &sorted, double fraction) {
 
 double micros(uint64_t nanos) {
 	return static_cast<double>(nanos) / 1000.0;
+}
+
+// Mean, median, 99th percentile and maximum of `nanos` in microseconds, and
+// each as a share of `budgetUs`.
+Object timesAgainst(std::vector<uint64_t> nanos, double budgetUs) {
+	Object out;
+	out["budgetUs"] = Value(budgetUs);
+	if (nanos.empty())
+		return out;
+	std::sort(nanos.begin(), nanos.end());
+	uint64_t total = 0;
+	for (const uint64_t each : nanos)
+		total += each;
+	const double meanUs = micros(total) / static_cast<double>(nanos.size());
+	const double p50Us = micros(percentile(nanos, 0.50));
+	const double p99Us = micros(percentile(nanos, 0.99));
+	const double maxUs = micros(nanos.back());
+	out["meanUs"] = Value(meanUs);
+	out["p50Us"] = Value(p50Us);
+	out["p99Us"] = Value(p99Us);
+	out["maxUs"] = Value(maxUs);
+	out["p50Percent"] = Value(100.0 * p50Us / budgetUs);
+	out["p99Percent"] = Value(100.0 * p99Us / budgetUs);
+	out["maxPercent"] = Value(100.0 * maxUs / budgetUs);
+	return out;
+}
+
+// Waits on the calling (main) thread while keeping the plug-in's main-thread
+// work going, as `wait` does.
+void serviceFor(Session &session, double seconds) {
+	const auto until = std::chrono::steady_clock::now() +
+	                   std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(seconds));
+	while (std::chrono::steady_clock::now() < until) {
+		session.runMainThreadWork();
+		std::this_thread::sleep_for(std::chrono::milliseconds(5));
+	}
 }
 
 } // namespace
@@ -140,6 +177,81 @@ Value describeProfile(const ProfileRun &run, double sampleRate, uint32_t blockSi
 		out["processCpuPercent"] =
 		    Value(100.0 * static_cast<double>(run.processCpuNanos) / static_cast<double>(run.wallNanos));
 	}
+	return Value(std::move(out));
+}
+
+bool runLiveProfile(Session &session, double warmupSeconds, double seconds, LiveRun &run, std::string &error) {
+	run.poweredOn = !session.isPowered();
+	if (run.poweredOn && !session.powerOn(error))
+		return false;
+	run.sampleRate = session.sampleRate();
+	run.blockSize = session.blockSize();
+	run.seconds = seconds;
+	serviceFor(session, warmupSeconds);
+
+	// Room for every callback even at a block of 16 frames, and for a device
+	// that calls back with less than it was asked for.
+	const auto room = static_cast<size_t>(seconds * run.sampleRate / 16.0) + 1024;
+	run.capture.startNanos.reserve(room);
+	run.capture.lengthNanos.reserve(room);
+	run.capture.processNanos.reserve(room * 4);
+	const uint64_t underrunsBefore = session.audioUnderrunCount();
+	const uint64_t callbacksBefore = session.audioCallbackCount();
+	session.setCallbackCapture(&run.capture);
+	serviceFor(session, seconds);
+	session.setCallbackCapture(nullptr);
+	run.underruns = session.audioUnderrunCount() - underrunsBefore;
+	run.callbacks = session.audioCallbackCount() - callbacksBefore;
+
+	if (run.poweredOn) {
+		std::string offError;
+		session.powerOff(offError);
+	}
+	if (run.capture.lengthNanos.empty()) {
+		error = "the device made no callbacks in " + std::to_string(seconds) + " seconds";
+		return false;
+	}
+	return true;
+}
+
+Value describeLiveProfile(const LiveRun &run) {
+	const auto &capture = run.capture;
+	const double budgetUs = 1e6 * run.blockSize / run.sampleRate;
+	Object out;
+	out["sampleRate"] = Value(run.sampleRate);
+	out["blockSize"] = Value(run.blockSize);
+	out["seconds"] = Value(run.seconds);
+	out["callbacks"] = Value(run.callbacks);
+	// What the device said went wrong: buffers it played or captured late.
+	out["underruns"] = Value(run.underruns);
+	out["poweredOn"] = Value(run.poweredOn);
+
+	// The whole callback, host's work and plug-in's, against the time the
+	// block lasts. Past 100% the device had to wait for it.
+	Object perCallback = timesAgainst(capture.lengthNanos, budgetUs);
+	uint64_t overruns = 0;
+	for (const uint64_t each : capture.lengthNanos)
+		overruns += micros(each) > budgetUs ? 1 : 0;
+	perCallback["overruns"] = Value(overruns);
+	out["perCallback"] = Value(std::move(perCallback));
+
+	// The plug-in's own share of it.
+	Object process = timesAgainst(capture.processNanos, budgetUs);
+	process["calls"] = Value(static_cast<uint64_t>(capture.processNanos.size()));
+	out["process"] = Value(std::move(process));
+
+	// How evenly the device called: the time from one callback's start to the
+	// next's. A gap well past the budget is a callback that came late, which
+	// the plug-in can't be blamed for but the listener hears all the same.
+	std::vector<uint64_t> gaps;
+	for (size_t i = 1; i < capture.startNanos.size(); ++i)
+		gaps.push_back(capture.startNanos[i] - capture.startNanos[i - 1]);
+	Object interval = timesAgainst(gaps, budgetUs);
+	uint64_t late = 0;
+	for (const uint64_t gap : gaps)
+		late += micros(gap) > 1.5 * budgetUs ? 1 : 0;
+	interval["late"] = Value(late);
+	out["interval"] = Value(std::move(interval));
 	return Value(std::move(out));
 }
 

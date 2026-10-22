@@ -491,16 +491,36 @@ void Session::registerAudioCommands() {
 		               return Response::success(Value(std::move(out)));
 	               }, /* needsPlugin */ true});
 
-	commands_.add({"profile", "<seconds|Nf> [--compare=<other.clap>] [--rounds=<n>] [--warmup=<seconds|Nf>]",
-	               "Time the plug-in's process() over blocks run back to back, or two builds of it in turn.",
+	commands_.add({"profile", "<seconds|Nf> [--live] [--compare=<other.clap>] [--rounds=<n>] [--warmup=<seconds|Nf>]",
+	               "Time the plug-in's process() over blocks run back to back, two builds of it in turn, or "
+	               "with --live on the audio device's own callbacks.",
 	               [](Session &session, const Request &request) -> Response {
 		               if (!request.hasArg(0, "duration"))
-			               return Response::failure(
-			                   "usage: profile <seconds|Nf> [--compare=<other.clap>] [--rounds=<n>] [--warmup=<seconds|Nf>]");
+			               return Response::failure("usage: profile <seconds|Nf> [--live] [--compare=<other.clap>] "
+			                                        "[--rounds=<n>] [--warmup=<seconds|Nf>]");
+		               if (request.arg("live").asBool(false)) {
+			               if (!request.arg("compare").asString().empty())
+				               return Response::failure("--live times one build; --compare runs offline");
+			               // Durations in seconds of the device's time, whatever rate it
+			               // opens at; the session's rate stands in for an Nf until then.
+			               const double rate = session.sampleRate();
+			               const double seconds =
+			                   static_cast<double>(framesFromArgument(request.arg(0, "duration"), rate, 0)) / rate;
+			               const double warmup =
+			                   static_cast<double>(framesFromArgument(request.arg("warmup"), rate,
+			                                                          static_cast<uint64_t>(rate / 2))) / rate;
+			               if (seconds <= 0.0)
+				               return Response::failure("nothing to profile");
+			               LiveRun run;
+			               std::string error;
+			               if (!runLiveProfile(session, warmup, seconds, run, error))
+				               return Response::failure(error);
+			               return Response::success(describeLiveProfile(run));
+		               }
 		               // The device thread would be calling process() between the
 		               // blocks being timed, and the guard would refuse half of them.
 		               if (session.audioDevice().isRunning())
-			               return Response::failure("the audio is on; `power off` first");
+			               return Response::failure("the audio is on; `power off` first, or use --live");
 		               const double rate = session.sampleRate();
 		               const uint32_t blockSize = session.blockSize();
 		               const uint64_t frames = framesFromArgument(request.arg(0, "duration"), rate, 0);

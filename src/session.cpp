@@ -291,7 +291,19 @@ void Session::openEveryMidiInput() {
 	}
 }
 
+void Session::setCallbackCapture(CallbackCapture *capture) {
+	engine_.setProcessTimes(capture != nullptr ? &capture->processNanos : nullptr);
+	callbackCapture_.store(capture);
+	if (capture == nullptr)
+		while (captureWriters_.load() != 0)
+			std::this_thread::yield();
+}
+
 void Session::onAudioCallback(const float *input, float *output, uint32_t frames, bool hadGlitch) {
+	// Counted in before the capture is read, so setCallbackCapture(nullptr)
+	// either sees this callback or this callback sees no capture.
+	captureWriters_.fetch_add(1);
+	CallbackCapture *capture = callbackCapture_.load();
 	const auto started = std::chrono::steady_clock::now();
 	audioCallbacks_.fetch_add(1, std::memory_order_relaxed);
 	if (hadGlitch)
@@ -318,6 +330,14 @@ void Session::onAudioCallback(const float *input, float *output, uint32_t frames
 	float seen = audioLoad_.load(std::memory_order_relaxed);
 	while (!audioLoad_.compare_exchange_weak(seen, std::max(load, seen * 0.95f), std::memory_order_relaxed)) {
 	}
+	if (capture != nullptr && capture->lengthNanos.size() < capture->lengthNanos.capacity()) {
+		using std::chrono::duration_cast;
+		using std::chrono::nanoseconds;
+		capture->startNanos.push_back(
+		    static_cast<uint64_t>(duration_cast<nanoseconds>(started.time_since_epoch()).count()));
+		capture->lengthNanos.push_back(static_cast<uint64_t>(spent * 1e9));
+	}
+	captureWriters_.fetch_sub(1);
 }
 
 Value Session::outputLevels() const {
