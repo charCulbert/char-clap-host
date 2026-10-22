@@ -588,7 +588,9 @@ void Session::registerCommands() {
 		const double rate = session.sampleRate();
 		motion.startFrame = session.engine().playhead() + framesFromArgument(request.arg("at"), rate, 0);
 		motion.nextFrame = motion.startFrame;
-		const uint64_t step = framesFromArgument(request.arg("step"), rate, 32);
+		// A step is a count of frames, "64" as much as "64f".
+		const Value &stepArg = request.arg("step");
+		const uint64_t step = stepArg.isNull() ? 32 : static_cast<uint64_t>(std::max(0.0, std::floor(stepArg.asNumber())));
 		if (step == 0 || step > 1u << 20) {
 			error = "--step must be at least one frame";
 			return false;

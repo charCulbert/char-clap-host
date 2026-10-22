@@ -3,7 +3,3 @@ cmake-build*/
 .DS_Store
 compile_commands.json
 .cache/
-.pi
-# Agents' worktrees and task notes
-.claude/
-.task/

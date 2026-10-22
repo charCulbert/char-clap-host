@@ -29,6 +29,10 @@ param.motions
 param.stop
 render 0.1
 param.motions
+# A bare --step is frames too.
+param.lfo 0 1 10 --step=64
+param.stop 0
+render 0.1
 # A value LFO swings the parameter itself, inside its range.
 param.lfo 0 1 2000 --value --for=0.5 --step=64f
 render 0.6

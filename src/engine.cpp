@@ -504,6 +504,13 @@ void Engine::clearMotions() {
 	motions_.clear();
 }
 
+void Engine::dropMotions(clap_id paramId) {
+	std::lock_guard<std::mutex> lock(scheduleMutex_);
+	motions_.erase(std::remove_if(motions_.begin(), motions_.end(),
+	                              [paramId](const ParamMotion &motion) { return motion.paramId == paramId; }),
+	               motions_.end());
+}
+
 void Engine::buildTransportEvent() {
 	transportEvent_ = makeEvent<clap_event_transport_t>(CLAP_EVENT_TRANSPORT);
 

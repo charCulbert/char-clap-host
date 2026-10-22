@@ -126,3 +126,14 @@ TEST(a_stepped_parameter_only_hears_whole_steps) {
 	CHECK(whole);
 	CHECK(reachesBothEnds[0] && reachesBothEnds[1]);
 }
+
+TEST(a_ramp_stopped_early_stays_where_it_got_to) {
+	ParamMotion motion = ramp(0.0, 1.0, 0, 1000);
+	EventList first;
+	motion.emit(0, 100, first);
+	motion.stopAt(100);
+	const auto sent = run(motion, 100, 300);
+	CHECK(motion.to > 0.09 && motion.to < 0.11);
+	CHECK_EQ(sent.size(), 1u);
+	CHECK(sent.back().value > 0.09 && sent.back().value < 0.11);
+}

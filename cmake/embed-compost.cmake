@@ -3,6 +3,9 @@
 # from a checkout that a downloaded or installed build doesn't have.
 function(nch_embed_compost ROOT OUTPUT)
     file(GLOB_RECURSE modules RELATIVE "${ROOT}/src" CONFIGURE_DEPENDS "${ROOT}/src/*.js")
+    if(NOT modules)
+        message(FATAL_ERROR "Compost is missing from ${ROOT}. Run: git submodule update --init --recursive")
+    endif()
     list(SORT modules)
     set(arrays "")
     set(table "")

@@ -511,6 +511,8 @@ void Session::registerAudioCommands() {
 			                                                          static_cast<uint64_t>(rate / 2))) / rate;
 			               if (seconds <= 0.0)
 				               return Response::failure("nothing to profile");
+			               if (seconds > 3600.0)
+				               return Response::failure("a live profile runs for an hour at most");
 			               LiveRun run;
 			               std::string error;
 			               if (!runLiveProfile(session, warmup, seconds, run, error))

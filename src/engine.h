@@ -218,8 +218,10 @@ public:
 	enum class MotionKind { Both, Value, Modulation };
 	size_t stopMotions(clap_id paramId, MotionKind kind = MotionKind::Both);
 	std::vector<ParamMotion> motions() const;
-	// Forgets them without a closing event: their plug-in is going.
+	// Forgets them without a closing event: their plug-in, or the parameter,
+	// is going.
 	void clearMotions();
+	void dropMotions(clap_id paramId);
 
 	// --- notes ------------------------------------------------------------
 	// Note helpers keep track of what is sounding, so `note off all` can end

@@ -570,12 +570,23 @@ void Session::onParamsRescan(clap_param_rescan_flags flags) {
 	if ((flags & CLAP_PARAM_RESCAN_ALL) != 0 && instance_.isActive())
 		validator_.error("clap_host_params.rescan",
 		                 "CLAP_PARAM_RESCAN_ALL while the plug-in is active; it may only be used while deactivated");
+	// params.h: "The cookie is invalidated by a call to
+	// clap_host_params->rescan(CLAP_PARAM_RESCAN_ALL)", and a motion carries one.
+	if ((flags & CLAP_PARAM_RESCAN_ALL) != 0)
+		engine_.clearMotions();
 }
 
 void Session::onParamsClear(clap_id paramId, clap_param_clear_flags flags) {
-	// Already recorded by the host callback; nothing to act on yet.
-	(void)paramId;
-	(void)flags;
+	// The only references the host keeps are its ramps and LFOs. "Clears all
+	// possible references to a parameter" may mean it is gone, so those are
+	// dropped without another event; clearing its automations or its
+	// modulations ends those motions the usual way.
+	if ((flags & CLAP_PARAM_CLEAR_ALL) != 0)
+		engine_.dropMotions(paramId);
+	else if ((flags & CLAP_PARAM_CLEAR_AUTOMATIONS) != 0)
+		engine_.stopMotions(paramId, Engine::MotionKind::Value);
+	if ((flags & CLAP_PARAM_CLEAR_ALL) == 0 && (flags & CLAP_PARAM_CLEAR_MODULATIONS) != 0)
+		engine_.stopMotions(paramId, Engine::MotionKind::Modulation);
 }
 
 void Session::onParamsRequestFlush() {
