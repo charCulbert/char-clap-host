@@ -57,6 +57,23 @@ void Validator::clear() {
 	violations_.clear();
 }
 
+void Validator::restoreEarlier(std::vector<Violation> earlier) {
+	std::lock_guard<std::mutex> lock(mutex_);
+	for (auto &violation : violations_) {
+		bool folded = false;
+		for (auto &old : earlier) {
+			if (old.severity == violation.severity && old.where == violation.where && old.message == violation.message) {
+				old.count += violation.count;
+				folded = true;
+				break;
+			}
+		}
+		if (!folded)
+			earlier.push_back(std::move(violation));
+	}
+	violations_ = std::move(earlier);
+}
+
 const char *severityName(Severity severity) {
 	switch (severity) {
 	case Severity::Info: return "INFO";

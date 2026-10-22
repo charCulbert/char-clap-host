@@ -1,5 +1,6 @@
 // The validator's own rules, without a plug-in to misbehave.
 #include "harness.h"
+#include "process-check.h"
 #include "validator.h"
 
 #include <string>
@@ -76,4 +77,69 @@ TEST(an_info_note_is_recorded_without_being_an_error) {
 	CHECK_EQ(validator.violationCount(), size_t(1));
 	CHECK(!validator.hasErrors());
 	CHECK_EQ(validator.report()["violations"].array()[0]["severity"].asString(), std::string("INFO"));
+}
+
+TEST(restoring_earlier_violations_keeps_them_first_and_folds_repeats) {
+	Validator validator;
+	validator.error("a", "first");
+	std::vector<nch::Violation> earlier = validator.violations();
+	validator.clear();
+	validator.error("b", "second");
+	validator.error("a", "first");
+	validator.restoreEarlier(std::move(earlier));
+	CHECK_EQ(validator.violationCount(), size_t(2));
+	CHECK_EQ(validator.violations()[0].where, std::string("a"));
+	CHECK_EQ(validator.violations()[0].count, uint64_t(2));
+	CHECK_EQ(validator.violations()[1].where, std::string("b"));
+}
+
+namespace {
+
+clap_event_param_gesture_t gesture(uint16_t type, clap_id param) {
+	clap_event_param_gesture_t event{};
+	event.header.size = sizeof(event);
+	event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+	event.header.type = type;
+	event.param_id = param;
+	return event;
+}
+
+} // namespace
+
+TEST(gestures_that_pair_up_raise_nothing) {
+	nch::GestureCheck check;
+	auto begin = gesture(CLAP_EVENT_PARAM_GESTURE_BEGIN, 1);
+	auto other = gesture(CLAP_EVENT_PARAM_GESTURE_BEGIN, 2);
+	auto end = gesture(CLAP_EVENT_PARAM_GESTURE_END, 1);
+	auto otherEnd = gesture(CLAP_EVENT_PARAM_GESTURE_END, 2);
+	// Gestures on different parameters may overlap.
+	CHECK(check.onEvent(&begin.header).empty());
+	CHECK(check.onEvent(&other.header).empty());
+	CHECK(check.onEvent(&end.header).empty());
+	CHECK(check.onEvent(&otherEnd.header).empty());
+	CHECK(check.open().empty());
+	CHECK_EQ(check.seen(), uint64_t(4));
+}
+
+TEST(a_gesture_begun_twice_or_ended_unbegun_is_reported) {
+	nch::GestureCheck check;
+	auto begin = gesture(CLAP_EVENT_PARAM_GESTURE_BEGIN, 7);
+	auto end = gesture(CLAP_EVENT_PARAM_GESTURE_END, 7);
+	auto stray = gesture(CLAP_EVENT_PARAM_GESTURE_END, 9);
+	CHECK(check.onEvent(&begin.header).empty());
+	CHECK(check.onEvent(&begin.header).find("previous gesture had not ended") != std::string::npos);
+	CHECK(check.onEvent(&stray.header).find("had not begun") != std::string::npos);
+	CHECK_EQ(check.open().size(), size_t(1));
+	CHECK(check.onEvent(&end.header).empty());
+	CHECK(check.open().empty());
+}
+
+TEST(events_other_than_gestures_are_ignored) {
+	nch::GestureCheck check;
+	clap_event_param_value_t value{};
+	value.header.size = sizeof(value);
+	value.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+	value.header.type = CLAP_EVENT_PARAM_VALUE;
+	CHECK(check.onEvent(&value.header).empty());
+	CHECK_EQ(check.seen(), uint64_t(0));
 }
