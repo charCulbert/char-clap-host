@@ -1,0 +1,23 @@
+# Ramps and LFOs move a parameter block by block; the plug-in hears them as
+# value or modulation events.
+load @FIXTURES@/parameters.clap
+# Not processing yet: a moving parameter needs the plug-in active.
+param.ramp 0 880 1.0
+activate 48000 512
+param.set 0 300 --at=0.25
+param.ramp 0 880 0.5 --from=220 --at=0.5
+param.lfo 0 2 100 --shape=triangle
+param.lfo 1 2 1
+param.lfo 0 2 100 --shape=wobble
+param.motions
+render 1.5
+# The ramp has finished on its target; the LFO is still running.
+param.get 0
+param.motions
+param.stop
+render 0.1
+param.motions
+# A value LFO swings the parameter itself, inside its range.
+param.lfo 0 1 2000 --value --for=0.5 --step=64f
+render 0.6
+param.get 0

@@ -132,6 +132,8 @@ void Session::unload() {
 		engine_.stop();
 	}
 	instance_.unload();
+	// They carry the old plug-in's parameter cookies.
+	engine_.clearMotions();
 	// The home window stays; it just has nothing to show now.
 	panel_.refresh();
 	timers_.clear();

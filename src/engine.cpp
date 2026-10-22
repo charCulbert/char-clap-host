@@ -218,6 +218,8 @@ void Engine::resetPlayhead() {
 	transport_.songBeats = 0.0;
 	transport_.songSeconds = 0.0;
 	activeNotes_.clear(); // reset "kills all voices"
+	// Their frames count from a playhead that just went back to zero.
+	clearMotions();
 }
 
 void Engine::scheduleAfter(const clap_event_header_t *event, uint64_t delayFrames) {
@@ -455,7 +457,49 @@ void Engine::collectBlockEvents(uint32_t frames) {
 	}
 	if (consumed != 0)
 		schedule_.erase(schedule_.begin(), schedule_.begin() + static_cast<long>(consumed));
+	for (auto &motion : motions_)
+		motion.emit(playhead_, frames, inEvents_);
+	motions_.erase(std::remove_if(motions_.begin(), motions_.end(),
+	                              [](const ParamMotion &motion) { return motion.finished; }),
+	               motions_.end());
 	inEvents_.sortByTime();
+}
+
+void Engine::startMotion(const ParamMotion &motion) {
+	wakeRequested_.store(true, std::memory_order_release);
+	std::lock_guard<std::mutex> lock(scheduleMutex_);
+	for (auto &existing : motions_) {
+		if (existing.paramId == motion.paramId && existing.modulation == motion.modulation &&
+		    existing.port == motion.port && existing.channel == motion.channel && existing.key == motion.key &&
+		    existing.noteId == motion.noteId) {
+			existing = motion;
+			return;
+		}
+	}
+	motions_.push_back(motion);
+}
+
+size_t Engine::stopMotions(clap_id paramId) {
+	wakeRequested_.store(true, std::memory_order_release);
+	std::lock_guard<std::mutex> lock(scheduleMutex_);
+	size_t stopped = 0;
+	for (auto &motion : motions_) {
+		if (paramId != CLAP_INVALID_ID && motion.paramId != paramId)
+			continue;
+		motion.stopAt(playhead_);
+		++stopped;
+	}
+	return stopped;
+}
+
+std::vector<ParamMotion> Engine::motions() const {
+	std::lock_guard<std::mutex> lock(scheduleMutex_);
+	return motions_;
+}
+
+void Engine::clearMotions() {
+	std::lock_guard<std::mutex> lock(scheduleMutex_);
+	motions_.clear();
 }
 
 void Engine::buildTransportEvent() {

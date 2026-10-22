@@ -10,6 +10,7 @@ add_executable(nch-tests
     midi-file.test.cpp
     midi-player.test.cpp
     note-encoding.test.cpp
+    param-motion.test.cpp
     plugin-instance.test.cpp
     process-buffers.test.cpp
     profile.test.cpp

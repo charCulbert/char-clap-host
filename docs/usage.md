@@ -83,6 +83,25 @@ note.off 67 --at=1.5
 render 2.0 out.wav
 ```
 
+Parameters can move on their own while the plug-in plays, offline or live.
+`param.set <id> <value> --at=0.5` lands a value mid-block, at its frame.
+`param.ramp <id> <to> <seconds>` automates a parameter from its value (or
+`--from`) to `<to>`. `param.lfo <id> <hz> <depth>` swings it `<depth>` either
+side: as modulation (the parameter's own value untouched) where the parameter
+is modulatable, or with `--value` as automation around its value, kept inside
+its range. `--shape` is `sine`, `triangle`, `square` or `saw`, and an LFO runs
+until `param.stop`, or `--for` a time. The events fall every `--step` frames
+(32 by default) counted from the motion's start, so a render comes out the
+same at any block size. `param.motions` lists what is moving.
+
+```text
+activate 48000 512
+note.on 60 100
+param.ramp 0 880 2.0
+param.lfo 3 5 0.2 --shape=triangle --key=60
+render 4.0 sweep.wav
+```
+
 The host loads one plug-in per process. To put an instrument through an
 effect, render to a WAV and feed it to a second run with `audio.input`:
 
@@ -101,7 +120,7 @@ For a coding agent, link the skill into its skills directory:
 | Area | Commands |
 | --- | --- |
 | Plug-in | `load` `unload` `plugins` `plugins.recent` `info` `extensions` `status` |
-| Parameters | `params.list` `param.get` `param.set` `param.steps` `params.dump` `param.indication` `param.mod` |
+| Parameters | `params.list` `param.get` `param.set` `param.steps` `params.dump` `param.indication` `param.mod` `param.ramp` `param.lfo` `param.stop` `param.motions` |
 | Audio | `activate` `deactivate` `render` `process` `profile` `engine.start` `engine.stop` `audio.input` `audio.input.play` `audio.input.loop` `audio.input.seek` `audio.input.recent` `playhead` `bypass` |
 | Notes and MIDI | `note.on` `note.off` `notes` `midi` `cc` `midi.load` `midi.file` `midi.file.play` `midi.file.loop` `midi.file.seek` `midi.file.recent` `events` |
 | Transport | `tempo` `timesig` `transport` |
