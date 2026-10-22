@@ -38,6 +38,9 @@ struct ParamMotion {
 	// plug-in adds them to a value it knows and the host does not.
 	double minValue = -std::numeric_limits<double>::infinity();
 	double maxValue = std::numeric_limits<double>::infinity();
+	// params.h: a stepped parameter takes "integer values only", and the
+	// plug-in truncates anything else, so values go out rounded to a step.
+	bool stepped = false;
 	uint64_t startFrame = 0;
 	// Past the last frame it covers; the end of time for an LFO left running.
 	uint64_t endFrame = std::numeric_limits<uint64_t>::max();

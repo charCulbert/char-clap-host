@@ -2,6 +2,7 @@
 #include "harness.h"
 #include "param-motion.h"
 
+#include <cmath>
 #include <vector>
 
 using nch::EventList;
@@ -104,4 +105,24 @@ TEST(a_stopped_lfo_closes_at_the_next_block) {
 	CHECK_EQ(second.size(), 1u);
 	CHECK_EQ(second.at(0)->time, 0u);
 	CHECK_EQ(reinterpret_cast<const clap_event_param_mod_t *>(second.at(0))->amount, 0.0);
+}
+
+TEST(a_stepped_parameter_only_hears_whole_steps) {
+	ParamMotion lfo = ramp(0.0, 0.0, 0, 400);
+	lfo.shape = ParamMotion::Shape::Sine;
+	lfo.centre = 1.0;
+	lfo.depth = 1.0;
+	lfo.minValue = 0.0;
+	lfo.maxValue = 2.0;
+	lfo.stepped = true;
+	lfo.cyclesPerFrame = 1.0 / 100.0;
+	bool whole = true;
+	bool reachesBothEnds[2] = {false, false};
+	for (const auto &each : run(lfo, 64, 512)) {
+		whole = whole && each.value == std::floor(each.value);
+		reachesBothEnds[0] = reachesBothEnds[0] || each.value == 0.0;
+		reachesBothEnds[1] = reachesBothEnds[1] || each.value == 2.0;
+	}
+	CHECK(whole);
+	CHECK(reachesBothEnds[0] && reachesBothEnds[1]);
 }

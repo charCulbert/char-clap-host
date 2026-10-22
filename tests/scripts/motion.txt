@@ -14,6 +14,8 @@ param.lfo 0 2 100 --shape=wobble
 param.set 2 5
 param.ramp 2 5 1.0
 param.lfo 1 2 1 --value
+# A stepped parameter takes whole values only (params.h).
+param.set 1 0.5
 param.motions
 render 1.5
 # The ramp has finished on its target; the LFO is still running.
