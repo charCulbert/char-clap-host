@@ -1,4 +1,9 @@
 cmake_minimum_required(VERSION 3.21)
+# Must come before project(). Without it the app needs the macOS of the SDK it
+# was built with; 11 is the first that runs on Apple silicon.
+if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET 11.0 CACHE STRING "Minimum macOS" FORCE)
+endif()
 project(nativeClapHost VERSION 0.1.0 LANGUAGES C CXX)
 
 if(APPLE)
@@ -97,6 +102,9 @@ add_library(nch-core STATIC
     src/validator.cpp
 )
 target_include_directories(nch-core PUBLIC src)
+# project()'s VERSION is the one version: what the host reports and what a
+# release tag must match.
+target_compile_definitions(nch-core PUBLIC NCH_VERSION="${PROJECT_VERSION}")
 target_link_libraries(nch-core PUBLIC clap rtaudio rtmidi)
 
 # choc's Linux window layer is GTK-based, and its optional WebView layer adds

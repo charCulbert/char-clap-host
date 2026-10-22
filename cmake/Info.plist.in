@@ -21,7 +21,7 @@
 	<key>CFBundleVersion</key>
 	<string>${MACOSX_BUNDLE_BUNDLE_VERSION}</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>10.15</string>
+	<string>11.0</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>clap-host feeds your audio input to the loaded plug-in, or straight to the output when none is loaded.</string>
 	<key>NSHighResolutionCapable</key>

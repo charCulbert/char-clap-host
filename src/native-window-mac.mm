@@ -696,7 +696,14 @@ std::string chooseFile(const std::string &message, const std::vector<std::string
 	NSMutableArray *types = [NSMutableArray array];
 	for (const auto &extension : extensions)
 		[types addObject:[NSString stringWithUTF8String:extension.c_str()]];
+	// Deprecated, but allowedContentTypes can't stand in: a .clap or .wclap
+	// bundle has no registered type, so it is only a public.folder there, and
+	// a suffix like .wclap.tar.gz has no type of its own. This matches by
+	// extension, which is what a plug-in path is.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 	[panel setAllowedFileTypes:types];
+#pragma clang diagnostic pop
 	[panel setCanChooseFiles:YES];
 	[panel setCanChooseDirectories:NO];
 	[panel setAllowsMultipleSelection:NO];

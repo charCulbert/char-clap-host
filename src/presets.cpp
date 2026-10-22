@@ -181,7 +181,7 @@ void prepare(Indexing &indexing) {
 	indexing.indexer.name = "nativeClapHost";
 	indexing.indexer.vendor = "charCulbert";
 	indexing.indexer.url = "https://github.com/charCulbert";
-	indexing.indexer.version = "0.1.0";
+	indexing.indexer.version = NCH_VERSION;
 	indexing.indexer.indexer_data = &indexing;
 	indexing.indexer.declare_filetype = declareFiletype;
 	indexing.indexer.declare_location = declareLocation;
