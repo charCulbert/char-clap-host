@@ -170,8 +170,8 @@ back to back at normal priority, so this measures speed, not dropouts.
 audio device's own callbacks (it turns the audio on for the run if it's off,
 after a 0.5 s `--warmup`). `perCallback` is each callback's length against the
 block's deadline, with `overruns` past it; `process` is the plug-in's share;
-`interval` is the gap between callbacks, `late` counting ones the device
-delivered late; `underruns` is what the device itself reported. Set the
+`interval` is the gap between callbacks, `late` counting gaps of two blocks or
+more; `underruns` is what the device itself reported. Set the
 buffer first with `audio.settings --buffer=64`. Output goes to the speakers:
 `output.gain -40` or `input.mute on` keeps a run quiet.
 
