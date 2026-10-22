@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.21)
 if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
     set(CMAKE_OSX_DEPLOYMENT_TARGET 11.0 CACHE STRING "Minimum macOS" FORCE)
 endif()
-project(nativeClapHost VERSION 0.1.0 LANGUAGES C CXX)
+project(nativeClapHost VERSION 0.2.0 LANGUAGES C CXX)
 
 if(APPLE)
     enable_language(OBJCXX)  # the Cocoa window layer
