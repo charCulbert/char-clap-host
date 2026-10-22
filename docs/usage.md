@@ -54,8 +54,13 @@ preset list. A strip on the left has Power, Bypass, Interface and Mute input,
 the input and output meters, a master fader and the audio device. Each
 parameter is a row with the plug-in's own value text. A stepped parameter with
 two steps is a switch, three or four steps cycle on a button, and up to 24 make
-a list. Every other parameter is a slider. File players for WAV and MIDI input
-run along the bottom. It sends the same commands you'd type.
+a list. Every other parameter is a slider. At the end of each row, one button
+automates the parameter (an LFO, or a ramp to a value) and one modulates it,
+each shown only where the plug-in marks the parameter automatable or
+modulatable. Both can run at once; a modulated slider stays put and shows the
+swing as a band over its track. File players for WAV and MIDI input run along
+the bottom. It sends the same commands you'd type, so a motion started from a
+script shows in the panel too.
 `gui.open` opens the plug-in's own interface. Validation and the event log are
 command line only.
 

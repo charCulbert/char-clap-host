@@ -123,7 +123,10 @@ const char *kPage = R"(<!doctype html>
 	.params { min-width: 0; overflow-y: auto; padding: 12px 18px 14px; }
 	/* One row per parameter: name, control, and the plug-in's own reading. */
 	#params { display: grid; gap: 4px; }
-	.row { display: grid; grid-template-columns: minmax(0, 1fr) 80px; gap: 12px; align-items: center; min-height: 26px; }
+	.param { display: grid; gap: 4px; }
+	/* Name and control, the plug-in's reading, then a button for automating
+	   the parameter and one for modulating it, each only where it may be. */
+	.row { display: grid; grid-template-columns: minmax(0, 1fr) 80px 24px 24px; gap: 10px; align-items: center; min-height: 26px; }
 	.row compost-slider::part(panel) {
 		display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 0 12px; align-items: center;
 		/* The panel's MIDI-map label is a third child: later rows take no room. */
@@ -134,9 +137,9 @@ const char *kPage = R"(<!doctype html>
 	/* The slider's own number is hidden: the plug-in's value_to_text goes
 	   beside it instead, because only the plug-in knows the unit. */
 	.row compost-slider::part(value) { display: none; }
-	.row.ctl { grid-template-columns: 90px minmax(0, 1fr) 80px; }
+	.row.ctl { grid-template-columns: 90px minmax(0, 1fr) 80px 24px 24px; }
 	.row .name { text-align: right; color: var(--ink2); font-weight: 500; overflow-wrap: anywhere; }
-	.row.ctl compost-button { --compost-button-width: auto; --compost-button-label-padding: 0 12px; justify-self: start; min-width: 64px; }
+	.row.ctl compost-button:not(.motion) { --compost-button-width: auto; --compost-button-label-padding: 0 12px; justify-self: start; min-width: 64px; }
 	.row.ctl compost-select { justify-self: start; width: 160px; }
 	/* Wrapped, never clipped: this window exists to show what the plug-in
 	   actually says, and an elided value is the one you needed to see. */
@@ -149,6 +152,34 @@ const char *kPage = R"(<!doctype html>
 	}
 	.group span:first-child { text-align: right; }
 	.group span:last-child { height: 1px; background: var(--hair); }
+	.track { position: relative; min-width: 0; }
+	.track > compost-slider { display: block; width: 100%; }
+	/* Modulation leaves the value where it is: its swing is drawn over the
+	   track instead, with a tick at the value plus the offset sent now. */
+	.swing { position: absolute; top: 50%; height: 10px; margin-top: -5px; background: var(--acc); opacity: .25; pointer-events: none; }
+	.sent { position: absolute; top: 50%; height: 14px; margin-top: -7px; width: 2px; margin-left: -1px; background: var(--acc); pointer-events: none; }
+	compost-button.motion { --compost-button-width: 24px; color: var(--dim); }
+	compost-button.motion::part(button) { border-color: transparent; }
+	compost-button.motion svg { display: block; margin: auto; }
+	compost-button.motion:hover { color: var(--ink); }
+	compost-button.motion.on { color: var(--acc); }
+	compost-button.motion.open::part(button) { border-color: var(--lineb); }
+	.line { margin: 2px 0 6px 102px; padding: 8px 8px 10px 0; background: var(--glass); border: 1px solid var(--hair); display: grid; gap: 6px; }
+	.line .top { display: grid; grid-template-columns: 90px minmax(0, 1fr) 24px; gap: 12px; align-items: center; }
+	.line .tag { text-align: right; color: var(--dim); font-size: 11px; }
+	.line .tag.kind { color: var(--ink); font-weight: 500; }
+	.line .btns { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+	.line .btns compost-button { --compost-button-width: auto; --compost-button-label-padding: 0 10px; }
+	.line .seg { display: inline-flex; }
+	.line .seg compost-button + compost-button { margin-left: -1px; }
+	.line .hint { font-size: 11px; }
+	.line .stop { --compost-button-width: 24px; }
+	.line .sub { display: grid; grid-template-columns: minmax(0, 1fr) 80px 24px; gap: 10px; align-items: center; }
+	.line compost-slider::part(panel) { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 0 12px; align-items: center; grid-template-rows: auto; grid-auto-rows: 0; }
+	.line compost-slider::part(row) { display: contents; }
+	.line compost-slider::part(label) { text-align: right; color: var(--dim); font-size: 11px; }
+	.line compost-slider::part(value) { display: none; }
+	.line .reading { font-size: 11px; color: var(--ink2); }
 	.empty { color: var(--dim); }
 	#empty { min-height: 100%; display: grid; place-items: center; text-align: center; }
 	#empty > div { border: 1px dashed var(--lineb); padding: 34px 26px; display: grid; gap: 6px; }
@@ -365,6 +396,7 @@ const char *kPage = R"(<!doctype html>
 		}
 		const built = document.createDocumentFragment();
 		builtViews = new Map();
+		builtMotions = new Map();
 		let section = null;
 		for (const param of params) {
 			if (param.module !== section) {
@@ -384,6 +416,7 @@ const char *kPage = R"(<!doctype html>
 		container.textContent = "";
 		container.append(built);
 		paramViews = builtViews;
+		motionViews = builtMotions;
 	}
 )" R"(
 	async function buildParam(param) {
@@ -492,17 +525,306 @@ const char *kPage = R"(<!doctype html>
 			name.textContent = param.name;
 			row.append(name);
 		}
-		builtViews.set(param.id, update => show(update));
-
 		if (readonly)
 			control.setAttribute("disabled", "");
-		row.append(control);
+		const view = { param, kind, value: param.value, stepped: flags.includes("stepped"), button: {}, line: {} };
+		builtViews.set(param.id, update => {
+			view.value = update.value;
+			show(update);
+		});
+		let track = control;
+		if (kind === "slider") {
+			track = document.createElement("div");
+			track.className = "track";
+			view.swing = document.createElement("div");
+			view.swing.className = "swing";
+			view.sent = document.createElement("div");
+			view.sent.className = "sent";
+			view.swing.hidden = view.sent.hidden = true;
+			track.append(control, view.swing, view.sent);
+		}
+		row.append(track);
 		// A switch and a choice already show the plug-in's wording on the
 		// control, so a reading beside them would say the same thing twice.
 		row.append(kind === "slider" ? reading : document.createElement("span"));
+
+		// params.h lets the host play automation back only on an automatable
+		// parameter and send modulation only to a modulatable one; a read-only
+		// one it can't change at all.
+		const allowed = {
+			value: !readonly && flags.includes("automatable"),
+			mod: !readonly && flags.includes("modulatable"),
+		};
+		for (const which of ["value", "mod"]) {
+			view.line[which] = document.createElement("div");
+			view.line[which].className = "line";
+			view.line[which].hidden = true;
+			if (!allowed[which]) {
+				row.append(document.createElement("span"));
+				continue;
+			}
+			const button = document.createElement("compost-button");
+			button.className = "motion";
+			const label = (which === "value" ? "Automate " : "Modulate ") + param.name;
+			button.title = label;
+			button.setAttribute("aria-label", label);
+			button.innerHTML = motionIcons[which];
+			button.addEventListener("click", () => toggleMotion(view, which));
+			view.button[which] = button;
+			row.append(button);
+		}
+		const wrapper = document.createElement("div");
+		wrapper.className = "param";
+		wrapper.append(row, view.line.value, view.line.mod);
+		builtMotions.set(param.id, view);
+		refreshMotionView(view);
+		return wrapper;
+	}
+
+	// --- Moving parameters ------------------------------------------------
+	// Automation sends values; modulation sends offsets the plug-in adds on
+	// top ("The value heard is: param_value + param_mod", events.h), so the
+	// two are separate and run together. Every control here is a param.lfo,
+	// param.ramp or param.stop, and what is lit comes from param.motions, so a
+	// motion a script started shows here too.
+	const motionShapes = ["sine", "triangle", "square", "saw"];
+	const motionIcons = {
+		value: '<svg width="16" height="10" viewBox="0 0 16 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 9h4l6-8h4"/></svg>',
+		mod: '<svg width="16" height="10" viewBox="0 0 16 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M1 5c1.75-5 3.25-5 5 0s3.25 5 5 0 3.25-5 4 -2"/></svg>',
+	};
+	let motionViews = new Map();
+	let builtMotions = new Map();
+	// What each line was set to, by parameter, so a redraw after a preset
+	// keeps it.
+	const motionSettings = new Map();
+	let runningMotions = [];
+
+	function runningMotion(view, which) {
+		const sends = which === "value" ? "value" : "modulation";
+		return runningMotions.find(motion => motion.id === view.param.id && motion.sends === sends);
+	}
+
+	function settingsFor(view, which) {
+		if (!motionSettings.has(view.param.id))
+			motionSettings.set(view.param.id, {});
+		const all = motionSettings.get(view.param.id);
+		if (!all[which]) {
+			const span = view.param.max - view.param.min;
+			// A stepped parameter moves between its steps: a square across the
+			// whole range is the useful default.
+			all[which] = {
+				open: false, type: "lfo", shape: view.stepped ? 2 : 0, hz: 1, depth: view.stepped ? 100 : 25,
+				to: view.stepped ? view.param.max : view.param.min + span * 0.8, seconds: 2,
+			};
+			// One a script started is shown as it is.
+			const running = runningMotion(view, which);
+			if (running) {
+				all[which].type = running.shape === "ramp" ? "ramp" : "lfo";
+				if (running.shape !== "ramp") {
+					all[which].shape = Math.max(0, motionShapes.indexOf(running.shape));
+					all[which].hz = running.hz;
+					all[which].depth = span > 0 ? Math.min(100, running.depth / span * 100) : 0;
+				}
+			}
+		}
+		return all[which];
+	}
+
+	function motionCommand(view, which, settings) {
+		const id = view.param.id;
+		if (which === "value" && settings.type === "ramp")
+			return "param.ramp " + id + " " + settings.to + " " + settings.seconds.toFixed(2);
+		const depth = +(settings.depth / 100 * (view.param.max - view.param.min)).toPrecision(6);
+		return "param.lfo " + id + " " + settings.hz.toFixed(3) + " " + depth + " --shape=" +
+			motionShapes[settings.shape] + (which === "value" ? " --value" : "");
+	}
+
+	async function startMotion(view, which) {
+		await command(motionCommand(view, which, settingsFor(view, which)));
+	}
+
+	async function stopMotion(view, which) {
+		await command("param.stop " + view.param.id + (which === "value" ? " --value" : " --mod"));
+	}
+
+	async function toggleMotion(view, which) {
+		const settings = settingsFor(view, which);
+		settings.open = !settings.open;
+		refreshMotionView(view);
+		// Opening one that isn't running starts it; a ramp waits for Run.
+		if (settings.open && !runningMotion(view, which) && !(which === "value" && settings.type === "ramp"))
+			await startMotion(view, which);
+	}
+
+	function lineSlider(label, min, max, value, unit, onEdit, onEnd, curve) {
+		const slider = document.createElement("compost-slider");
+		slider.setAttribute("label", label);
+		slider.setAttribute("min", min);
+		slider.setAttribute("max", max);
+		slider.setAttribute("value", value);
+		if (curve) slider.setAttribute("curve", curve);
+		const reading = document.createElement("span");
+		reading.className = "reading";
+		reading.textContent = unit(value);
+		slider.addEventListener("parameter-edit", event => {
+			onEdit(event.detail.value);
+			reading.textContent = unit(event.detail.value);
+		});
+		slider.addEventListener("parameter-end", onEnd);
+		const row = document.createElement("div");
+		row.className = "sub";
+		row.append(slider, reading, document.createElement("span"));
 		return row;
 	}
 
+	function lineTop(tag, middle, end, isKind) {
+		const top = document.createElement("div");
+		top.className = "top";
+		const label = document.createElement("span");
+		label.className = isKind ? "tag kind" : "tag";
+		label.textContent = tag;
+		top.append(label, middle, end || document.createElement("span"));
+		return top;
+	}
+
+	function lineButton(text, attributes, onClick) {
+		const button = document.createElement("compost-button");
+		for (const [name, value] of Object.entries(attributes)) button.setAttribute(name, value);
+		if (text !== null) button.textContent = text;
+		button.addEventListener("click", onClick);
+		return button;
+	}
+)" R"(
+	function buildMotionLine(view, which) {
+		const line = view.line[which];
+		const settings = settingsFor(view, which);
+		const param = view.param;
+		line.textContent = "";
+		// A changed setting replaces the running motion with the new one.
+		const resend = () => { if (runningMotion(view, which)) startMotion(view, which); };
+
+		const middle = document.createElement("div");
+		middle.className = "btns";
+		if (which === "value") {
+			const seg = document.createElement("div");
+			seg.className = "seg";
+			for (const type of ["lfo", "ramp"]) {
+				const button = lineButton(type === "lfo" ? "LFO" : "Ramp", { mode: "switch" }, async () => {
+					if (settings.type === type) {
+						button.toggleAttribute("pressed", true);
+						return;
+					}
+					if (runningMotion(view, which)) await stopMotion(view, which);
+					settings.type = type;
+					buildMotionLine(view, which);
+					if (type === "lfo") await startMotion(view, which);
+				});
+				button.toggleAttribute("pressed", settings.type === type);
+				seg.append(button);
+			}
+			middle.append(seg);
+		} else {
+			const hint = document.createElement("span");
+			hint.className = "hint";
+			hint.textContent = "added on top; the value stays";
+			middle.append(hint);
+		}
+		const stop = lineButton("✕", { class: "bare stop", title: "Stop and close", "aria-label": "Stop and close" }, async () => {
+			settings.open = false;
+			refreshMotionView(view);
+			await stopMotion(view, which);
+		});
+		line.append(lineTop(which === "value" ? "Automate" : "Modulate", middle, stop, true));
+
+		if (which === "mod" || settings.type === "lfo") {
+			const shapes = document.createElement("div");
+			shapes.className = "btns";
+			const shape = lineButton(null, { mode: "cycle", text: "Sine|Triangle|Square|Saw", value: String(settings.shape), title: "Shape" }, () => {});
+			shape.addEventListener("parameter-edit", event => {
+				settings.shape = Math.round(event.detail.value);
+				resend();
+			});
+			shapes.append(shape);
+			line.append(lineTop("Shape", shapes),
+				lineSlider("Rate", 0.05, 8, settings.hz, v => Number(v).toFixed(2) + " Hz", v => { settings.hz = Number(v); }, resend, "log"),
+				lineSlider("Depth", 0, 100, settings.depth, v => "±" + Math.round(v) + "%", v => { settings.depth = Number(v); }, resend));
+		} else {
+			const toText = v => String(+Number(v).toPrecision(4));
+			const to = lineSlider("To", param.min, param.max, settings.to, toText,
+				v => { settings.to = view.stepped ? Math.round(v) : +Number(v).toPrecision(6); }, () => {});
+			if (view.stepped) to.firstChild.setAttribute("step", 1);
+			const run = document.createElement("div");
+			run.className = "btns";
+			run.append(lineButton("Run ramp", {}, () => startMotion(view, which)));
+			line.append(to,
+				lineSlider("Over", 0.1, 10, settings.seconds, v => Number(v).toFixed(1) + " s", v => { settings.seconds = Number(v); }, () => {}),
+				lineTop("", run));
+		}
+	}
+
+	function refreshMotionView(view) {
+		for (const which of ["value", "mod"]) {
+			const settings = motionSettings.get(view.param.id)?.[which];
+			const button = view.button[which];
+			if (button) {
+				button.classList.toggle("on", !!runningMotion(view, which));
+				button.classList.toggle("open", !!settings?.open);
+			}
+			const line = view.line[which];
+			const open = !!settings?.open;
+			if (open && line.hidden)
+				buildMotionLine(view, which);
+			line.hidden = !open;
+			if (!open) line.textContent = "";
+		}
+	}
+
+	function motionWave(shape, phase) {
+		if (shape === "sine") return Math.sin(2 * Math.PI * phase);
+		if (shape === "triangle") return phase < 0.25 ? 4 * phase : phase < 0.75 ? 2 - 4 * phase : 4 * phase - 4;
+		if (shape === "square") return phase < 0.5 ? 1 : -1;
+		return phase < 0.5 ? 2 * phase : 2 * phase - 2;
+	}
+
+	let showingMotions = false;
+	async function showMotions() {
+		if (motionViews.size === 0 || showingMotions) return;
+		showingMotions = true;
+		try {
+			const [list, playhead] = await Promise.all([
+				run("param.motions").catch(() => null), run("playhead").catch(() => null)]);
+			runningMotions = (list && list.motions) || [];
+			const rate = playhead && playhead.seconds > 0 ? playhead.frames / playhead.seconds : 0;
+			for (const view of motionViews.values()) {
+				refreshMotionView(view);
+				// Automation moves the value inside the plug-in; ask for it.
+				if (runningMotion(view, "value")) {
+					const update = await run("param.get " + view.param.id).catch(() => null);
+					const show = paramViews.get(view.param.id);
+					if (update && show) show(update);
+				}
+				if (!view.swing) continue;
+				const mod = runningMotion(view, "mod");
+				view.swing.hidden = view.sent.hidden = !mod;
+				if (!mod) continue;
+				// Over the slider's track: after its 90px label and 12px gap,
+				// inset by half the thumb at each end.
+				const span = view.param.max - view.param.min;
+				const fraction = value => Math.min(1, Math.max(0, (value - view.param.min) / span));
+				const at = f => 'calc(109px + (100% - 116px) * ' + f + ')';
+				const low = fraction(view.value - mod.depth), high = fraction(view.value + mod.depth);
+				view.swing.style.left = at(low);
+				view.swing.style.width = 'calc((100% - 116px) * ' + (high - low) + ')';
+				// Where the engine's LFO is now, worked out from the playhead.
+				const elapsed = rate > 0 ? Math.max(0, playhead.frames - mod.startFrame) / rate : 0;
+				const phase = (elapsed * mod.hz) % 1;
+				view.sent.style.left = at(fraction(view.value + mod.depth * motionWave(mod.shape, phase)));
+			}
+		} finally {
+			showingMotions = false;
+		}
+	}
+)" R"(
 	async function showPresets() {
 		const container = document.getElementById("presets");
 		let data;
@@ -781,6 +1103,7 @@ const char *kPage = R"(<!doctype html>
 
 		showOutput(data.running ? data.peaks : null);
 		showInput(data.running ? data.inputPeaks : null);
+		await showMotions();
 	}
 
 	setInterval(pollActivity, 60);
