@@ -213,8 +213,10 @@ public:
 	// the same way: values or offsets, for the same voices.
 	void startMotion(const ParamMotion &motion);
 	// Ends the motions on `paramId`, or all of them for CLAP_INVALID_ID, at the
-	// next block, each leaving the parameter where it says. Returns how many.
-	size_t stopMotions(clap_id paramId);
+	// next block, each leaving the parameter where it says. Which kinds: the
+	// value motions, the modulation ones, or both. Returns how many.
+	enum class MotionKind { Both, Value, Modulation };
+	size_t stopMotions(clap_id paramId, MotionKind kind = MotionKind::Both);
 	std::vector<ParamMotion> motions() const;
 	// Forgets them without a closing event: their plug-in is going.
 	void clearMotions();

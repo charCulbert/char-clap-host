@@ -21,6 +21,11 @@ render 1.5
 # The ramp has finished on its target; the LFO is still running.
 param.get 0
 param.motions
+# Automation and modulation run together; each stops on its own.
+param.lfo 0 3 50 --value --for=5
+param.motions
+param.stop 0 --mod
+param.motions
 param.stop
 render 0.1
 param.motions

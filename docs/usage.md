@@ -93,7 +93,10 @@ its range, in whole steps for a stepped parameter. `--shape` is `sine`,
 `triangle`, `square` or `saw`, and an LFO runs
 until `param.stop`, or `--for` a time. The events fall every `--step` frames
 (32 by default) counted from the motion's start, so a render comes out the
-same at any block size. `param.motions` lists what is moving.
+same at any block size. Automation and modulation can move one parameter at
+once, the modulation riding on whatever value the automation sets;
+`param.stop <id> --value` or `--mod` stops one and leaves the other.
+`param.motions` lists what is moving.
 
 ```text
 activate 48000 512

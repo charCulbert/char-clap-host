@@ -62,7 +62,25 @@ flags:
 motions:
   id  shape  sends  hz  depth  centre  startFrame  endFrame  stepFrames
   0  triangle  modulation  2  100  0  0  until stopped  32
+id: 0
+shape: sine
+sends: value
+hz: 3
+depth: 50
+centre: 880
+startFrame: 72000
+endFrame: 312000
+stepFrames: 32
+motions:
+  id  shape  sends  hz  depth  centre  startFrame  endFrame  stepFrames
+  0  triangle  modulation  2  100  0  0  until stopped  32
+  0  sine  value  3  50  880  72000  312000  32
 stopped: 1
+motions:
+  id  shape  sends  hz  depth  centre  startFrame  endFrame  stepFrames
+  0  triangle  modulation  2  100  0  0  72000  32
+  0  sine  value  3  50  880  72000  312000  32
+stopped: 2
 frames: 4800
 channels: 2
 sampleRate: 48000
