@@ -45,6 +45,10 @@ def normalise(text, fixtures, tmp):
     # the host reports, or a short one in exponent form, which drops trailing
     # zeros (7.709e-05).
     text = re.sub(r"\d+\.\d+e-?\d+|\d+\.\d{5,}", "@TIME@", text)
+    # The validator's table ends each row with the test's seconds, however
+    # few decimals it happened to need.
+    text = re.sub(r"^(\s+\S+\s{2,}(?:passed|failed|skipped|warning)\s{2,}.*\s)\d[\d.]*$",
+                  r"\1@TIME@", text, flags=re.M)
     # Column widths follow the longest cell, so a scrubbed duration changes the
     # alignment of the whole table.
     text = re.sub(r"[ \t]{2,}", "  ", text)
