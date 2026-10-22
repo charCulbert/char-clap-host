@@ -248,8 +248,8 @@ int main(int argc, char **argv) {
 	// shows the new plug-in's interface, because that is plainly what choosing
 	// a plug-in from a menu is asking for.
 	handlers.loadPlugin = [&session](const std::string &path) {
-		session.postLine(loadLine(path));
-		session.postLine("gui.open");
+		session.postLine(loadLine(path), false);
+		session.postLine("gui.open", false);
 	};
 
 	// A .wav or .mid dropped on a window plays into the plug-in, round and
@@ -259,13 +259,13 @@ int main(int argc, char **argv) {
 		std::transform(extension.begin(), extension.end(), extension.begin(),
 		               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 		const bool midi = extension == ".mid" || extension == ".midi";
-		session.postLine(std::string(midi ? "midi.file" : "audio.input") + " \"" + path + "\" --loop");
+		session.postLine(std::string(midi ? "midi.file" : "audio.input") + " \"" + path + "\" --loop", false);
 	};
 
 	// File > Open Recent reads the same list `plugins.recent` does, and its
 	// Clear Menu is that command.
 	handlers.recentPlugins = [&session] { return session.recentPlugins().list(); };
-	handlers.clearRecentPlugins = [&session] { session.postLine("plugins.recent clear"); };
+	handlers.clearRecentPlugins = [&session] { session.postLine("plugins.recent clear", false); };
 
 	handlers.openSettings = [&session] {
 		std::string settingsError;
