@@ -241,15 +241,16 @@ Value describeLiveProfile(const LiveRun &run) {
 	out["process"] = Value(std::move(process));
 
 	// How evenly the device called: the time from one callback's start to the
-	// next's. A gap well past the budget is a callback that came late, which
-	// the plug-in can't be blamed for but the listener hears all the same.
+	// next's. Late is a gap of two blocks or more: a whole block's time with no
+	// callback. Shorter swings are how some devices deliver, WASAPI filling a
+	// 512-frame block from 480-frame periods at 10 and 20 ms.
 	std::vector<uint64_t> gaps;
 	for (size_t i = 1; i < capture.startNanos.size(); ++i)
 		gaps.push_back(capture.startNanos[i] - capture.startNanos[i - 1]);
 	Object interval = timesAgainst(gaps, budgetUs);
 	uint64_t late = 0;
 	for (const uint64_t gap : gaps)
-		late += micros(gap) > 1.5 * budgetUs ? 1 : 0;
+		late += micros(gap) >= 2.0 * budgetUs ? 1 : 0;
 	interval["late"] = Value(late);
 	out["interval"] = Value(std::move(interval));
 	return Value(std::move(out));

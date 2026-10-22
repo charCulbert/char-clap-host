@@ -261,8 +261,10 @@ count. `--compare` doesn't combine with `--live`. The reply gives:
   counting the callbacks that took longer than that.
 - `process`: the plug-in's `process()` calls inside those callbacks.
 - `interval`: the time from one callback's start to the next. Near 100% of the
-  budget is steady; `late` counts gaps over 150%, a callback the device
-  delivered late, which the listener hears whatever the plug-in did.
+  budget is steady. `late` counts gaps of 200% or more, a whole block with no
+  callback, which the listener hears whatever the plug-in did. Some devices
+  swing between shorter and longer gaps by design: WASAPI fills a 512-frame
+  block from 480-frame periods, so its gaps alternate around 10 and 20 ms.
 - `underruns`: the buffers the device itself reported as late during the run.
 - `callbacks`, `sampleRate`, `blockSize`, and `poweredOn` (whether the run
   turned the audio on).

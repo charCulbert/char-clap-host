@@ -39,8 +39,9 @@ TEST(a_callback_past_its_budget_is_an_overrun) {
 }
 
 TEST(a_gap_well_past_the_budget_is_a_late_callback) {
-	// The third callback comes 2 ms after the second: late. 1.2 ms is jitter.
-	const Value report = nch::describeLiveProfile(runOf({100, 100, 100, 100}, {1200, 2000, 1000}));
+	// The third callback comes 2 ms after the second, a whole block missed:
+	// late. 1.9 ms is how WASAPI can deliver, not a miss.
+	const Value report = nch::describeLiveProfile(runOf({100, 100, 100, 100}, {1900, 2000, 1000}));
 	CHECK_EQ(report["interval"]["late"].asNumber(), 1.0);
 	CHECK_EQ(report["interval"]["maxUs"].asNumber(), 2000.0);
 }
