@@ -69,8 +69,8 @@ void Session::registerDeviceCommands() {
 		               std::string error;
 		               if (on && !session.powerOn(error))
 			               return Response::failure(error);
-		               if (!on)
-			               session.powerOff();
+		               if (!on && !session.powerOff(error))
+			               return Response::failure(error);
 		               Object out;
 		               out["power"] = Value(session.isPowered());
 		               return Response::success(Value(std::move(out)));
@@ -103,7 +103,9 @@ void Session::registerDeviceCommands() {
 
 	commands_.add({"audio.stop", "", "Stop the audio stream.",
 	               [](Session &session, const Request &) -> Response {
-		               session.powerOff();
+		               std::string error;
+		               if (!session.powerOff(error))
+			               return Response::failure(error);
 		               return Response::success();
 	               }});
 

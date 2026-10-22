@@ -131,7 +131,7 @@ public:
 	// closes the stream, microphone included. A window starts with it off, so
 	// launching the app never makes a sound or opens a microphone unasked.
 	bool powerOn(std::string &error);
-	void powerOff() { audioDevice_.stop(); }
+	bool powerOff(std::string &error) { return audioDevice_.stop(error); }
 	bool isPowered() const { return audioDevice_.isRunning(); }
 
 
