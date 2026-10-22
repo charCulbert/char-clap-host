@@ -690,15 +690,21 @@ void Session::registerCommands() {
 		               return Response::success(describeMotion(motion, session.sampleRate()));
 	               }, /* needsPlugin */ true});
 
-	commands_.add({"param.stop", "[id]",
-	               "Stop the ramps and LFOs on one parameter, or all of them. An LFO leaves the parameter "
-	               "where it found it; a ramp stays where it got to.",
+	commands_.add({"param.stop", "[id] [--value|--mod]",
+	               "Stop the ramps and LFOs on one parameter, or all of them; --value stops only the automation, "
+	               "--mod only the modulation. An LFO leaves the parameter where it found it; a ramp stays where it "
+	               "got to.",
 	               [](Session &session, const Request &request) -> Response {
 		               const clap_id id = request.hasArg(0, "id")
 		                                      ? static_cast<clap_id>(request.arg(0, "id").asNumber())
 		                                      : CLAP_INVALID_ID;
+		               const bool values = request.arg("value").asBool(false);
+		               const bool mods = request.arg("mod").asBool(false);
+		               const auto kind = values == mods ? Engine::MotionKind::Both
+		                                 : values      ? Engine::MotionKind::Value
+		                                               : Engine::MotionKind::Modulation;
 		               Object out;
-		               out["stopped"] = Value(static_cast<uint64_t>(session.engine().stopMotions(id)));
+		               out["stopped"] = Value(static_cast<uint64_t>(session.engine().stopMotions(id, kind)));
 		               return Response::success(Value(std::move(out)));
 	               }, /* needsPlugin */ true});
 

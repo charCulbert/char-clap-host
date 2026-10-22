@@ -479,12 +479,14 @@ void Engine::startMotion(const ParamMotion &motion) {
 	motions_.push_back(motion);
 }
 
-size_t Engine::stopMotions(clap_id paramId) {
+size_t Engine::stopMotions(clap_id paramId, MotionKind kind) {
 	wakeRequested_.store(true, std::memory_order_release);
 	std::lock_guard<std::mutex> lock(scheduleMutex_);
 	size_t stopped = 0;
 	for (auto &motion : motions_) {
 		if (paramId != CLAP_INVALID_ID && motion.paramId != paramId)
+			continue;
+		if ((kind == MotionKind::Value && motion.modulation) || (kind == MotionKind::Modulation && !motion.modulation))
 			continue;
 		motion.stopAt(playhead_);
 		++stopped;
