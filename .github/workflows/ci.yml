@@ -20,8 +20,10 @@ jobs:
         with:
           submodules: recursive
 
+      # A stalled package mirror once held this step for half an hour.
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
+        timeout-minutes: 10
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev libgtk-3-dev libwebkit2gtk-4.1-dev xvfb xauth
 
       - name: Configure
