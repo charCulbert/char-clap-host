@@ -1,0 +1,146 @@
+id: com.charlieculbert.wclap-runtime-parameters-example
+name: WCLAP Runtime Parameters Example
+vendor: Charlie Culbert
+version: 0.1.0
+description: Sine frequency parameter example
+features:
+  instrument
+  stereo
+format: clap
+seed: 0x13376767
+tests:
+  test  status  details  seconds
+  param-conversions  passed  round-tripped 48 values through value_to_text and text_to_value  @TIME@
+passed: 1
+failed: 0
+warnings: 0
+skipped: 0
+ok: true
+seed: 0x13376767
+tests:
+  test  status  details  seconds
+  param-gesture-pairs  passed  saw 30 gesture events, all paired  @TIME@
+passed: 1
+failed: 0
+warnings: 0
+skipped: 0
+ok: true
+id: com.charlieculbert.char-clap-latency-probe
+name: Char CLAP Latency Probe
+vendor: Charlie Culbert
+version: 0.1.0
+description: Dynamic 32/64-sample latency example
+features:
+  audio-effect
+  stereo
+format: clap
+seed: 0x13376767
+tests:
+  test  status  details  seconds
+  latency-stable-while-active  passed  the latency stayed put while active, across 13 activations  @TIME@
+passed: 1
+failed: 0
+warnings: 0
+skipped: 0
+ok: true
+id: com.charlieculbert.wclap-runtime-state-context-example
+name: WCLAP Runtime State Context Example
+vendor: Charlie Culbert
+version: 0.1.0
+description: Context-aware state loading
+features:
+  audio-effect
+  stereo
+format: clap
+seed: 0x13376767
+tests:
+  test  status  details  seconds
+  state-context-round-trip  passed  every context saved, and loaded the state saved by every other  @TIME@
+passed: 1
+failed: 0
+warnings: 0
+skipped: 0
+ok: true
+id: com.charlieculbert.char-clap-context-menu-example
+name: Char CLAP Context Menu Example
+vendor: Charlie Culbert
+version: 0.1.0
+description: Gain with global and parameter context menus
+features:
+  audio-effect
+  stereo
+format: clap
+seed: 0x13376767
+tests:
+  test  status  details  seconds
+  context-menu  passed  populated 3 menus with 17 items and performed 7 actions  @TIME@
+passed: 1
+failed: 0
+warnings: 0
+skipped: 0
+ok: true
+id: com.charlieculbert.char-clap-extension-bugs
+name: Char CLAP Extension Bugs
+vendor: Charlie Culbert
+version: 0.1.0
+description: Gets the plug-in side of several extensions wrong
+features:
+  audio-effect
+  stereo
+format: clap
+error: 1 of 1 tests failed
+seed: 0x13376767
+tests:
+  test  status  details  seconds
+  param-conversions  failed  Level: @TIME@ displays as "50 %", which parses to @TIME@, which displays as "5000 %"; the two conversions do not round trip
+Level: text_to_value accepted "" as @TIME@
+Mode: text_to_value refused "Clean", which value_to_text produced for @TIME@
+Mode is an enum but value_to_text gives no text for @TIME@  @TIME@
+passed: 0
+failed: 1
+warnings: 0
+skipped: 0
+ok: false
+seed: 0x13376767
+tests:
+  test  status  details  seconds
+  param-gesture-pairs  warning  began a gesture on parameter 0 while its previous gesture had not ended
+began a gesture on parameter 0 and had not ended it after 20 blocks  @TIME@
+passed: 0
+failed: 0
+warnings: 1
+skipped: 0
+ok: true
+error: 1 of 1 tests failed
+seed: 0x13376767
+tests:
+  test  status  details  seconds
+  latency-stable-while-active  failed  the latency changed from 24 to 28 samples while the plug-in was active; it may only change during activate()  @TIME@
+passed: 0
+failed: 1
+warnings: 0
+skipped: 0
+ok: false
+seed: 0x13376767
+tests:
+  test  status  details  seconds
+  state-context-round-trip  warning  loading for the preset context refused the state from clap_plugin_state.save; the specification says a state may arrive saved either way
+loading for the duplicate context refused the state from clap_plugin_state.save; the specification says a state may arrive saved either way
+loading for the project context refused the state from clap_plugin_state.save; the specification says a state may arrive saved either way  @TIME@
+passed: 0
+failed: 0
+warnings: 1
+skipped: 0
+ok: true
+error: 1 of 1 tests failed
+seed: 0x13376767
+tests:
+  test  status  details  seconds
+  context-menu  failed  populate for the null target ended a submenu that had not begun
+populate for the global target ended a submenu that had not begun
+populate for parameter "Level" added a menu entry with no data; the item kind says what data it carries  @TIME@
+passed: 0
+failed: 1
+warnings: 0
+skipped: 0
+ok: false

@@ -1,0 +1,21 @@
+# The extension checks against plug-ins that get the plug-in side right, and
+# against one that gets each of them wrong.
+load @FIXTURES@/parameters.clap
+validate.run param-conversions
+validate.run param-gesture-pairs
+unload
+load @FIXTURES@/latency.clap
+validate.run latency-stable-while-active
+unload
+load @FIXTURES@/state-context.clap
+validate.run state-context-round-trip
+unload
+load @FIXTURES@/context-menu.clap
+validate.run context-menu
+unload
+load @FIXTURES@/extension-bugs.clap
+validate.run param-conversions
+validate.run param-gesture-pairs
+validate.run latency-stable-while-active
+validate.run state-context-round-trip
+validate.run context-menu

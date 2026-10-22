@@ -95,6 +95,13 @@ clap-host --strict --json --quiet plugin.clap -- validate.run --isolate ; echo "
 `data.tests[].status` (`passed` `failed` `warning` `skipped` `crashed`) and
 `data.details` for the reason.
 
+Five tests call the plug-in's side of an extension: `param-conversions`
+(value text round trip, enum text, junk text), `param-gesture-pairs`,
+`latency-stable-while-active`, `state-context-round-trip` and `context-menu`.
+They fail only on a rule the CLAP headers state. A "should", or something the
+headers leave open, comes back as a warning. Each one skips if the plug-in
+doesn't have the extension.
+
 **Render a note and check it made sound:**
 
 ```text

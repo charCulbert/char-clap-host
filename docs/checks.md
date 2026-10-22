@@ -50,6 +50,21 @@ wildcard note addressing, and parameters at and past their bounds. The
 transport withholds random flags each block and puts NaN behind them, so a
 plug-in that reads tempo without checking `HAS_TEMPO` fails.
 
+Five tests call the plug-in's side of an extension and check what comes back.
+Each one fails only on a rule the CLAP headers state. Where a header says
+"should", or says nothing, the result is a warning.
+
+| Test | What it does | Fails on | Warns on |
+| --- | --- | --- | --- |
+| `param-conversions` | Puts values through `value_to_text`, `text_to_value` and `value_to_text` again, and sends text that isn't a value | An enum with blank text for a value in its range | Text that doesn't come back the same, own text refused, junk text accepted |
+| `param-gesture-pairs` | Changes every parameter for 20 blocks and pairs the plug-in's gesture events | Nothing | A second begin before the end, an end with no begin, a gesture left open |
+| `latency-stable-while-active` | Changes every parameter while active and reads the latency after each block | The latency changing while active. After `request_restart` the host reactivates and reads it again | Nothing |
+| `state-context-round-trip` | Saves through `clap.state` and each of the three contexts, then loads every save in every context | `clap.state-context` without `clap.state` | A save or load refused, or the three preset routes giving different states |
+| `context-menu` | Builds the menu for the null target, the global target and each parameter, then performs each enabled action | An item with no data where its kind takes a struct | A submenu ended that never began or left open, a kind the builder refused, an action refused |
+
+The gesture pairing also runs whenever the host is running, not only under
+`validate.run`, so `validate` lists it too.
+
 Neither clap-validator nor pluginval sends
 `CLAP_EVENT_PARAM_MOD`. Here `param.mod` does, and three tests check that
 modulation changes the sound without changing the value, can be addressed per

@@ -311,6 +311,201 @@ void paramSetWrongNamespace(TestContext &context) {
 	}
 }
 
+// The plug-in's own text for a value, or nothing if it gave none.
+bool valueText(Session &session, const clap_param_info_t &info, double value, std::string &text) {
+	const auto *params = session.pluginExtension<clap_plugin_params_t>(CLAP_EXT_PARAMS);
+	char buffer[256] = {};
+	if (params == nullptr || params->value_to_text == nullptr ||
+	    !params->value_to_text(session.plugin(), info.id, value, buffer, sizeof(buffer)))
+		return false;
+	buffer[sizeof(buffer) - 1] = '\0';
+	text = buffer;
+	return true;
+}
+
+void paramConversions(TestContext &context) {
+	Session &session = context.session();
+	const std::vector<clap_param_info_t> params = parameters(session);
+	const auto *ext = session.pluginExtension<clap_plugin_params_t>(CLAP_EXT_PARAMS);
+	if (params.empty() || ext == nullptr) {
+		context.skip("the plug-in has no parameters");
+		return;
+	}
+	if (ext->value_to_text == nullptr || ext->text_to_value == nullptr) {
+		context.skip("the plug-in does not implement value_to_text and text_to_value");
+		return;
+	}
+
+	uint32_t converted = 0;
+	for (const auto &info : params) {
+		const std::string name = info.name[0] != '\0' ? info.name : "(unnamed)";
+		const bool stepped = (info.flags & CLAP_PARAM_IS_STEPPED) != 0;
+		std::vector<double> values = {info.min_value, info.default_value, info.max_value};
+		for (int i = 0; i < 5; ++i) {
+			const double value = context.random().between(info.min_value, info.max_value);
+			values.push_back(stepped ? std::round(value) : value);
+		}
+
+		// ext/params.h, value_to_text: "The host should always use this to
+		// format parameter values before displaying it to the user."
+		// text_to_value: "The host can use this to convert user input into a
+		// parameter value." What the plug-in displays is what a user types
+		// back, so its own text should parse, to a value that displays the
+		// same: equal to within the precision the text shows, which is the only
+		// precision a host can know. The header states no round-trip rule, so
+		// a mismatch is a warning.
+		for (const double value : values) {
+			std::string text;
+			if (!valueText(session, info, value, text))
+				continue;
+			++converted;
+			double parsed = 0.0;
+			if (!ext->text_to_value(session.plugin(), info.id, text.c_str(), &parsed)) {
+				// A host's text entry for this parameter then refuses
+				// whatever the user types.
+				context.warn(name + ": text_to_value refused " + quote(text) + ", which value_to_text produced for " +
+				             std::to_string(value));
+				break;
+			}
+			std::string again;
+			if (!valueText(session, info, parsed, again) || again != text) {
+				context.warn(name + ": " + std::to_string(value) + " displays as " + quote(text) +
+				             ", which parses to " + std::to_string(parsed) + ", which displays as " + quote(again) +
+				             "; the two conversions do not round trip");
+				break;
+			}
+		}
+
+		// ext/params.h, CLAP_PARAM_IS_ENUM: "If you set this flag, then you
+		// must set CLAP_PARAM_IS_STEPPED too. All values from min to max must
+		// not have a blank value_to_text()."
+		if ((info.flags & CLAP_PARAM_IS_ENUM) != 0 && stepped && info.max_value - info.min_value <= 1024) {
+			for (double value = info.min_value; value <= info.max_value; value += 1.0) {
+				std::string text;
+				if (!valueText(session, info, value, text) || text.empty()) {
+					context.fail(name + " is an enum but value_to_text gives no text for " + std::to_string(value));
+					break;
+				}
+			}
+		}
+
+		// Text that is not a value. text_to_value only says "Returns true on
+		// success", so accepting it is a warning: a host would then store a
+		// value the user never typed.
+		static const char *garbage[] = {"", "not a value", "\xff\xfe"};
+		for (const char *text : garbage) {
+			double parsed = 0.0;
+			if (ext->text_to_value(session.plugin(), info.id, text, &parsed)) {
+				context.warn(name + ": text_to_value accepted " + quote(text) + " as " + std::to_string(parsed));
+				break;
+			}
+		}
+	}
+	if (converted == 0)
+		context.skip("value_to_text gave no text for any parameter, so there was nothing to convert back");
+	else if (context.status() == TestStatus::Success)
+		context.note("round-tripped " + std::to_string(converted) + " values through value_to_text and text_to_value");
+}
+
+// Changes every writable parameter for `blocks` blocks and gives the plug-in
+// the main thread after each, so whatever it does in response -- callbacks,
+// flush requests, restarts -- happens as it would in a host. `afterBlock` runs
+// after each block, before the main thread does; returning false stops early.
+void driveParams(TestContext &context, uint32_t blocks, const std::function<bool()> &afterBlock = {}) {
+	Session &session = context.session();
+	ParamFuzzer fuzzer(context.random(), parameters(session, 0, CLAP_PARAM_IS_READONLY));
+	if (!startChecked(context))
+		return;
+	for (uint32_t block = 0; block < blocks && !context.failed(); ++block) {
+		EventList events;
+		fuzzer.fillBlock(events, 0);
+		scheduleAll(session, events);
+		if (!processOneChecked(context, 512))
+			return;
+		if (afterBlock && !afterBlock())
+			return;
+		session.runMainThreadWork();
+		if (!noViolations(context))
+			return;
+	}
+}
+
+void paramGesturePairs(TestContext &context) {
+	Session &session = context.session();
+	const std::vector<clap_param_info_t> params = parameters(session);
+	if (params.empty()) {
+		context.skip("the plug-in has no parameters");
+		return;
+	}
+	std::string error;
+	if (!session.activate(48000.0, 1, 512, error)) {
+		context.fail("could not activate: " + error);
+		return;
+	}
+	// The pairing itself is checked by the host as the events arrive (see
+	// GestureCheck for the rule and why a mismatch is only a warning).
+	driveParams(context, 20);
+	if (context.failed())
+		return;
+	if (session.gestures().seen() == 0) {
+		context.skip("the plug-in sent no gesture events while its parameters were changing");
+		return;
+	}
+	for (const auto &violation : session.validator().violations())
+		if (violation.where == "clap_event_param_gesture")
+			context.warn(violation.message);
+	for (const clap_id id : session.gestures().open())
+		context.warn("began a gesture on parameter " + std::to_string(id) + " and had not ended it after 20 blocks");
+	if (context.status() == TestStatus::Success)
+		context.note("saw " + std::to_string(session.gestures().seen()) + " gesture events, all paired");
+}
+
+// --- latency --------------------------------------------------------------
+
+void latencyStableWhileActive(TestContext &context) {
+	Session &session = context.session();
+	const auto *latency = session.pluginExtension<clap_plugin_latency_t>(CLAP_EXT_LATENCY);
+	if (latency == nullptr || latency->get == nullptr) {
+		context.skip("the plug-in does not implement clap.latency");
+		return;
+	}
+	std::string error;
+	if (!session.activate(48000.0, 1, 512, error)) {
+		context.fail("could not activate: " + error);
+		return;
+	}
+
+	// ext/latency.h: clap_plugin_latency.get is "[main-thread &
+	// (being-activated | active)]", and clap_host_latency.changed says "The
+	// latency is only allowed to change during plugin->activate. If the plugin
+	// is activated, call host->request_restart()". So between one activation and the next, get()
+	// answers the same, whatever the parameters do; a restart the plug-in asks
+	// for is the host's cue to reactivate, after which it may differ.
+	uint32_t expected = latency->get(session.plugin());
+	uint64_t restarts = session.services().callCount("clap_host.request_restart");
+	uint32_t activations = 1;
+	driveParams(context, 24, [&] {
+		const uint32_t now = latency->get(session.plugin());
+		if (now != expected) {
+			context.fail("the latency changed from " + std::to_string(expected) + " to " + std::to_string(now) +
+			             " samples while the plug-in was active; it may only change during activate()");
+			return false;
+		}
+		const uint64_t requested = session.services().callCount("clap_host.request_restart");
+		if (requested != restarts) {
+			// The restart runs with the main thread's work, so the value is
+			// read again once the plug-in has been through activate().
+			restarts = requested;
+			session.runMainThreadWork();
+			expected = latency->get(session.plugin());
+			++activations;
+		}
+		return true;
+	});
+	if (!context.failed())
+		context.note("the latency stayed put while active, across " + std::to_string(activations) + " activations");
+}
+
 // --- modulation -----------------------------------------------------------
 //
 // Neither clap-validator nor pluginval sends CLAP_EVENT_PARAM_MOD at all, so
@@ -594,6 +789,111 @@ void stateBuffered(TestContext &context) {
 	if (!state->load(session.plugin(), trickle.stream()))
 		context.fail("the plug-in could not load its own state when the stream returned short reads; read() may "
 		             "return fewer bytes than asked for");
+}
+
+void stateContextRoundTrip(TestContext &context) {
+	Session &session = context.session();
+	const auto *contextual = session.pluginExtension<clap_plugin_state_context_t>(CLAP_EXT_STATE_CONTEXT);
+	if (contextual == nullptr || contextual->save == nullptr || contextual->load == nullptr) {
+		context.skip("the plug-in does not implement clap.state-context");
+		return;
+	}
+	// ext/state-context.h: "If the plugin implements CLAP_EXT_STATE_CONTEXT
+	// then it is mandatory to also implement CLAP_EXT_STATE."
+	const auto *state = session.pluginExtension<clap_plugin_state_t>(CLAP_EXT_STATE);
+	if (state == nullptr || state->save == nullptr || state->load == nullptr) {
+		context.fail("the plug-in implements clap.state-context without clap.state, which is mandatory with it");
+		return;
+	}
+
+	struct Saved {
+		std::string how;
+		std::vector<uint8_t> bytes;
+	};
+	static const std::pair<uint32_t, const char *> contexts[] = {{CLAP_STATE_CONTEXT_FOR_PRESET, "preset"},
+	                                                             {CLAP_STATE_CONTEXT_FOR_DUPLICATE, "duplicate"},
+	                                                             {CLAP_STATE_CONTEXT_FOR_PROJECT, "project"}};
+	// Every save comes from the same starting state.
+	std::vector<Saved> saves;
+	OutputStream plain;
+	if (!state->save(session.plugin(), plain.stream())) {
+		context.fail("the plug-in refused to save its state");
+		return;
+	}
+	saves.push_back({"clap_plugin_state.save", plain.bytes()});
+	// save: "Returns true if the state was correctly saved." Nothing says
+	// every context must be saveable, so a refusal is a warning.
+	for (const auto &[type, name] : contexts) {
+		OutputStream out;
+		if (!contextual->save(session.plugin(), out.stream(), type)) {
+			context.warn(std::string("the plug-in refused to save its state for the ") + name + " context");
+			continue;
+		}
+		saves.push_back({std::string("save for ") + name, out.bytes()});
+	}
+	if (saves.size() < 4) {
+		context.note("the preset equivalence was not checked, because a context refused to save");
+		return;
+	}
+
+	// Loads `bytes` through clap_plugin_state.
+	const auto restore = [&](const std::vector<uint8_t> &bytes) {
+		InputStream in(bytes);
+		return state->load(session.plugin(), in.stream());
+	};
+	const auto plainSave = [&] {
+		OutputStream out;
+		state->save(session.plugin(), out.stream());
+		return out.bytes();
+	};
+
+	// ext/state-context.h, load: "Note that the state may have been saved by
+	// clap_plugin_state.save() or clap_plugin_state_context.save() with a
+	// different context_type." So every context should load every save. It
+	// is a note rather than a rule, so a refusal is a warning.
+	for (const auto &[type, name] : contexts) {
+		for (const auto &saved : saves) {
+			if (!restore(plain.bytes())) {
+				context.fail("the plug-in refused to load the state it had just saved");
+				return;
+			}
+			InputStream in(saved.bytes);
+			if (!contextual->load(session.plugin(), in.stream(), type))
+				context.warn(std::string("loading for the ") + name + " context refused the state from " +
+				             saved.how + "; the specification says a state may arrive saved either way");
+		}
+	}
+
+	// ext/state-context.h: "All three operations should be equivalent:
+	// 1. clap_plugin_state_context.load(clap_plugin_state.save(), CLAP_STATE_CONTEXT_FOR_PRESET)
+	// 2. clap_plugin_state.load(clap_plugin_state_context.save(CLAP_STATE_CONTEXT_FOR_PRESET))
+	// 3. clap_plugin_state_context.load(
+	//        clap_plugin_state_context.save(CLAP_STATE_CONTEXT_FOR_PRESET),
+	//        CLAP_STATE_CONTEXT_FOR_PRESET)"
+	// Equivalent is judged by what clap_plugin_state.save makes of each.
+	// "should", so a difference is a warning.
+	const std::vector<uint8_t> &presetBytes = saves[1].bytes;
+	std::vector<uint8_t> results[3];
+	restore(plain.bytes());
+	{
+		InputStream in(plain.bytes());
+		contextual->load(session.plugin(), in.stream(), CLAP_STATE_CONTEXT_FOR_PRESET);
+		results[0] = plainSave();
+	}
+	restore(plain.bytes());
+	restore(presetBytes);
+	results[1] = plainSave();
+	restore(plain.bytes());
+	{
+		InputStream in(presetBytes);
+		contextual->load(session.plugin(), in.stream(), CLAP_STATE_CONTEXT_FOR_PRESET);
+		results[2] = plainSave();
+	}
+	if (results[0] != results[1] || results[0] != results[2])
+		context.warn("the three preset operations the specification says should be equivalent left the plug-in in "
+		             "different states (judged by clap_plugin_state.save afterwards)");
+	if (context.status() == TestStatus::Success)
+		context.note("every context saved, and loaded the state saved by every other");
 }
 
 // --- generated event streams ----------------------------------------------
@@ -886,6 +1186,143 @@ void transportFuzz(TestContext &context) {
 	context.note("varied tempo, time signature, loop points and which flags were set");
 }
 
+// --- context menu ---------------------------------------------------------
+
+// What a plug-in put in one menu, and what was wrong with how it put it there.
+struct MenuRecording {
+	std::vector<clap_id> actions;
+	std::vector<std::string> failures;
+	std::vector<std::string> problems;
+	uint32_t items = 0;
+	int depth = 0;
+
+	static bool addItem(const clap_context_menu_builder_t *builder, clap_context_menu_item_kind_t kind,
+	                    const void *data) {
+		auto &menu = *static_cast<MenuRecording *>(builder->ctx);
+		++menu.items;
+		// ext/context-menu.h gives each kind its data, e.g. for
+		// CLAP_CONTEXT_MENU_ITEM_ENTRY "data: const clap_context_menu_item_entry_t*".
+		// A kind that carries a struct and gets none is a failure; everything
+		// else here the header leaves unstated, so it is a warning.
+		const auto needsData = [&](const char *what) {
+			if (data == nullptr)
+				menu.failures.push_back(std::string("added a ") + what + " with no data; the item kind says " +
+				                        "what data it carries");
+			return data != nullptr;
+		};
+		switch (kind) {
+		case CLAP_CONTEXT_MENU_ITEM_ENTRY:
+			if (needsData("menu entry")) {
+				const auto *entry = static_cast<const clap_context_menu_entry_t *>(data);
+				if (entry->label == nullptr)
+					menu.problems.push_back("added a menu entry with no label");
+				if (entry->is_enabled)
+					menu.actions.push_back(entry->action_id);
+			}
+			break;
+		case CLAP_CONTEXT_MENU_ITEM_CHECK_ENTRY:
+			if (needsData("check entry")) {
+				const auto *entry = static_cast<const clap_context_menu_check_entry_t *>(data);
+				if (entry->label == nullptr)
+					menu.problems.push_back("added a check entry with no label");
+				if (entry->is_enabled)
+					menu.actions.push_back(entry->action_id);
+			}
+			break;
+		case CLAP_CONTEXT_MENU_ITEM_SEPARATOR:
+			break;
+		case CLAP_CONTEXT_MENU_ITEM_BEGIN_SUBMENU:
+			needsData("submenu");
+			++menu.depth;
+			break;
+		case CLAP_CONTEXT_MENU_ITEM_END_SUBMENU:
+			// "Ends the current sub menu." With none begun there is no
+			// current one.
+			if (menu.depth == 0)
+				menu.problems.push_back("ended a submenu that had not begun");
+			else
+				--menu.depth;
+			break;
+		case CLAP_CONTEXT_MENU_ITEM_TITLE:
+			needsData("title");
+			break;
+		default:
+			// supports(): "Returns true if the menu builder supports the given
+			// item kind". It said no to anything else.
+			menu.problems.push_back("added an item of kind " + std::to_string(kind) +
+			                        ", which the builder's supports() does not accept");
+			return false;
+		}
+		return true;
+	}
+
+	static bool supports(const clap_context_menu_builder_t *, clap_context_menu_item_kind_t kind) {
+		return kind <= CLAP_CONTEXT_MENU_ITEM_TITLE;
+	}
+};
+
+void contextMenu(TestContext &context) {
+	Session &session = context.session();
+	const auto *menu = session.pluginExtension<clap_plugin_context_menu_t>(CLAP_EXT_CONTEXT_MENU);
+	if (menu == nullptr)
+		menu = session.pluginExtension<clap_plugin_context_menu_t>(CLAP_EXT_CONTEXT_MENU_COMPAT);
+	if (menu == nullptr || menu->populate == nullptr || menu->perform == nullptr) {
+		context.skip("the plug-in does not implement clap.context-menu");
+		return;
+	}
+
+	// ext/context-menu.h: "If target is null, assume global context", so null, the global
+	// target and each parameter are all menus a host may ask for.
+	struct Target {
+		std::string name;
+		bool null = false;
+		clap_context_menu_target_t target{};
+	};
+	std::vector<Target> targets = {{"the null target", true, {}},
+	                               {"the global target", false, {CLAP_CONTEXT_MENU_TARGET_KIND_GLOBAL, 0}}};
+	for (const auto &info : parameters(session))
+		targets.push_back({std::string("parameter ") + quote(info.name), false,
+		                   {CLAP_CONTEXT_MENU_TARGET_KIND_PARAM, info.id}});
+
+	uint32_t items = 0;
+	uint32_t performed = 0;
+	for (const auto &target : targets) {
+		MenuRecording recording;
+		const clap_context_menu_builder_t builder{&recording, MenuRecording::addItem, MenuRecording::supports};
+		const clap_context_menu_target_t *pointer = target.null ? nullptr : &target.target;
+		if (!menu->populate(session.plugin(), pointer, &builder))
+			continue;
+		items += recording.items;
+		for (const auto &failure : recording.failures)
+			context.fail("populate for " + target.name + " " + failure);
+		if (context.failed())
+			return;
+		for (const auto &problem : recording.problems)
+			context.warn("populate for " + target.name + " " + problem);
+		if (recording.depth != 0)
+			context.warn("populate for " + target.name + " began " + std::to_string(recording.depth) +
+			             " submenu(s) it never ended");
+
+		// ext/context-menu.h, perform: "Performs the given action, which was
+		// previously provided to the host via populate(). [...] Returns true on
+		// success." Refusing is not forbidden, so it is a warning.
+		for (const clap_id action : recording.actions) {
+			++performed;
+			if (!menu->perform(session.plugin(), pointer, action))
+				context.warn("perform refused action " + std::to_string(action) + ", which populate for " +
+				             target.name + " had offered as enabled");
+			session.runMainThreadWork();
+		}
+	}
+	if (!noViolations(context))
+		return;
+	if (items == 0)
+		context.skip("populate added no items for any target");
+	else if (context.status() == TestStatus::Success)
+		context.note("populated " + std::to_string(targets.size()) + " menus with " + std::to_string(items) +
+		             " items and performed " + std::to_string(performed) + " actions");
+}
+
 // --- interface ------------------------------------------------------------
 
 void guiOpenClose(TestContext &context) {
@@ -969,12 +1406,17 @@ const std::vector<TestCase> &allTests() {
 	     paramInfoConsistency},
 	    {"param-default-values", "Every parameter starts at the default it declares.", paramDefaultValues},
 	    {"param-set-wrong-namespace", "Events in an unknown namespace are ignored.", paramSetWrongNamespace},
+	    {"param-conversions", "value_to_text and text_to_value round trip, enums have text, and junk text is refused.",
+	     paramConversions},
+	    {"param-gesture-pairs", "Gesture begin and end events from the plug-in pair up.", paramGesturePairs},
 	    {"param-modulation-value-unchanged",
 	     "Modulation offsets the value heard without changing the value itself.",
 	     paramModulationDoesNotMoveValue},
 	    {"param-modulation-polyphonic", "Modulation addressed at one voice, one key, one channel, and all of them.",
 	     paramModulationPolyphonic},
 	    {"param-modulation-reset", "Modulation does not survive a reset.", paramModulationSurvivesReset},
+	    {"latency-stable-while-active", "The latency changes only through activate(), however parameters move.",
+	     latencyStableWhileActive},
 	    {"process-audio-basic", "Five ordinary blocks produce usable audio.", processAudioBasic},
 	    {"process-varying-block-sizes", "Block sizes from one frame to four thousand.", processVaryingBlockSizes},
 	    {"process-varying-sample-rates", "Sample rates including fractional ones.", processVaryingSampleRates},
@@ -983,6 +1425,8 @@ const std::vector<TestCase> &allTests() {
 	    {"state-invalid-random", "Random bytes do not crash the plug-in.", stateInvalidRandom},
 	    {"state-round-trip", "State saved and loaded returns the same parameters.", stateRoundTrip},
 	    {"state-buffered", "State loads from a stream that returns short reads.", stateBuffered},
+	    {"state-context-round-trip",
+	     "Each state context saves, loads every other's state, and the preset routes agree.", stateContextRoundTrip},
 	    {"process-note-basic", "A consistent stream of notes and expressions.", processNoteBasic},
 	    {"process-note-inconsistent", "Notes ended that never started, and started twice.",
 	     processNoteInconsistent},
@@ -996,6 +1440,7 @@ const std::vector<TestCase> &allTests() {
 	    {"param-set-events", "flush() and process() put a parameter in the same place.", paramSetEvents},
 	    {"transport-null", "Processing with no transport at all.", transportNull},
 	    {"transport-fuzz", "Tempo, metre, loops and withheld flags changing every block.", transportFuzz},
+	    {"context-menu", "Menus for every target are well formed, and their actions perform.", contextMenu},
 	    {"gui-open-close", "The interface opens and closes twice.", guiOpenClose},
 	    {"gui-resize", "The interface reports a size, and adjust_size settles.", guiResize},
 	};
