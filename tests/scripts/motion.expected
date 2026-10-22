@@ -90,12 +90,28 @@ silent: false
 motions:
 id: 0
 shape: sine
+sends: modulation
+hz: 1
+depth: 10
+centre: 0
+startFrame: 76800
+endFrame: until stopped
+stepFrames: 64
+stopped: 1
+frames: 4800
+channels: 2
+sampleRate: 48000
+peak: @TIME@
+rms: @TIME@
+silent: false
+id: 0
+shape: sine
 sends: value
 hz: 1
 depth: 2000
 centre: 880
-startFrame: 76800
-endFrame: 100800
+startFrame: 81600
+endFrame: 105600
 stepFrames: 64
 frames: 28800
 channels: 2

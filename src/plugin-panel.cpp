@@ -810,7 +810,7 @@ const char *kPage = R"(<!doctype html>
 				// Over the slider's track: after its 90px label and 12px gap,
 				// inset by half the thumb at each end.
 				const span = view.param.max - view.param.min;
-				const fraction = value => Math.min(1, Math.max(0, (value - view.param.min) / span));
+				const fraction = value => span > 0 ? Math.min(1, Math.max(0, (value - view.param.min) / span)) : 0;
 				const at = f => 'calc(109px + (100% - 116px) * ' + f + ')';
 				const low = fraction(view.value - mod.depth), high = fraction(view.value + mod.depth);
 				view.swing.style.left = at(low);

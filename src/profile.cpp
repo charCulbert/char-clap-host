@@ -189,9 +189,10 @@ bool runLiveProfile(Session &session, double warmupSeconds, double seconds, Live
 	run.seconds = seconds;
 	serviceFor(session, warmupSeconds);
 
-	// Room for every callback even at a block of 16 frames, and for a device
-	// that calls back with less than it was asked for.
-	const auto room = static_cast<size_t>(seconds * run.sampleRate / 16.0) + 1024;
+	// Room for every callback even if the device calls back with a quarter of
+	// the block it opened with, which some do; one past it is not recorded.
+	const double smallest = std::max(16.0, run.blockSize / 4.0);
+	const auto room = static_cast<size_t>(seconds * run.sampleRate / smallest) + 1024;
 	run.capture.startNanos.reserve(room);
 	run.capture.lengthNanos.reserve(room);
 	run.capture.processNanos.reserve(room * 4);

@@ -17,7 +17,10 @@ Each CI run also keeps a build per platform as an artifact: `clap-host.app`
 `clap-host.exe`. Pushing a tag `vX.Y.Z` that matches the version in
 `CMakeLists.txt` publishes the same three files as a GitHub release.
 `clap-host --version` prints the version.
-None is signed. The Linux build is made on Ubuntu 22.04, so it runs on
+None is signed. A Mac app downloaded in a browser is quarantined; clear that
+with `xattr -dr com.apple.quarantine clap-host.app` before opening it. The
+Windows exe needs the Microsoft Visual C++ Redistributable, which most
+machines already have. The Linux build is made on Ubuntu 22.04, so it runs on
 distributions with glibc 2.35 or newer, with GTK 3 and WebKitGTK 4.1
 installed.
 
@@ -231,7 +234,8 @@ started, plays the warmup, then times `<seconds>` divided by `<rounds>` of the
 material. Only one build is loaded at a time. The other build must offer a
 plug-in with the same id.
 
-When it is done the first build is loaded again, fresh, with its saved state.
+When it is done the first build is loaded again, fresh, active at the same
+rate and block size, with its saved state.
 Anything else about the session goes: the plug-in's window closes, ports
 opened with `midi.open` close, and a plug-in without `clap.state` comes back
 with its defaults (`stateRestored` is then `false`).

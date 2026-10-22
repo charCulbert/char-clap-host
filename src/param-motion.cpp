@@ -92,11 +92,12 @@ void ParamMotion::emit(uint64_t blockStart, uint32_t frames, EventList &out) {
 }
 
 void ParamMotion::stopAt(uint64_t frame) {
-	endFrame = std::max(frame, startFrame);
-	if (shape == Shape::Ramp) {
-		// A ramp stopped early stays where it got to.
-		to = valueAt(endFrame);
-	}
+	const uint64_t end = std::max(frame, startFrame);
+	// A ramp stopped early stays where it got to, read before the end moves,
+	// since valueAt measures the ramp against it.
+	if (shape == Shape::Ramp)
+		to = valueAt(end);
+	endFrame = end;
 }
 
 bool lfoShapeNamed(const std::string &name, ParamMotion::Shape &shape) {
