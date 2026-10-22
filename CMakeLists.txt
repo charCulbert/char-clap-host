@@ -10,6 +10,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 # So editors and clangd see the real compile flags.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+# The sources are UTF-8. Without this MSVC reads them in the system's code
+# page, so a "…" in a menu label comes out as "â€¦".
+if(MSVC)
+    add_compile_options(/utf-8)
+endif()
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
