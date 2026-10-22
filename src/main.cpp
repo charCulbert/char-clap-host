@@ -66,6 +66,7 @@ options:
   --script <file>        run commands from a file, then continue on stdin
                          (`wait <seconds>` in it, or on stdin, pauses the lines
                          after it; the host exits when stdin ends)
+  --version              the host's version
   --help                 this text
 
 Commands are read from stdin, one per line. A line starting with '{' is read
@@ -103,6 +104,10 @@ int main(int argc, char **argv) {
 		};
 		if (argument == "--help" || argument == "-h") {
 			printUsage();
+			return 0;
+		}
+		if (argument == "--version") {
+			std::puts(NCH_VERSION);
 			return 0;
 		}
 		if (argument == "--json") { options.json = true; continue; }
@@ -199,7 +204,7 @@ int main(int argc, char **argv) {
 		return exitStatus(session, options);
 
 	if (interactive && !quiet)
-		std::puts("clap-host 0.1.0 — type `help` for commands, `quit` to leave.");
+		std::puts("clap-host " NCH_VERSION " — type `help` for commands, `quit` to leave.");
 
 	// The main thread belongs to the plug-in: CLAP main-thread calls, timers
 	// and the window all run here. stdin gets a thread of its own.

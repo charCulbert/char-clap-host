@@ -15,7 +15,7 @@ namespace {
 constexpr const char *kHostName = "nativeClapHost";
 constexpr const char *kHostVendor = "charCulbert";
 constexpr const char *kHostUrl = "https://github.com/charCulbert";
-constexpr const char *kHostVersion = "0.1.0";
+constexpr const char *kHostVersion = NCH_VERSION;
 
 Session &sessionOf(const clap_host_t *host);
 
