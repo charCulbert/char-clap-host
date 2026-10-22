@@ -174,6 +174,11 @@ Response setParamValue(Session &session, clap_id id, double value, uint64_t dela
 	clap_param_info_t info{};
 	if (!paramInfoById(session, id, info))
 		return Response::failure("no parameter with id " + std::to_string(id));
+	// params.h: CLAP_PARAM_IS_READONLY "The parameter can't be changed by the
+	// host." A live change needs nothing more: "The host can send live user
+	// changes for this parameter regardless of" CLAP_PARAM_IS_AUTOMATABLE.
+	if ((info.flags & CLAP_PARAM_IS_READONLY) != 0)
+		return Response::failure("parameter " + std::to_string(id) + " is read-only: the host can't change it");
 	if (value < info.min_value || value > info.max_value)
 		return Response::failure("value out of range [" + std::to_string(info.min_value) + ", " +
 		                         std::to_string(info.max_value) + "]");
@@ -548,8 +553,29 @@ void Session::registerCommands() {
 			error = "no parameter with id " + std::to_string(id);
 			return false;
 		}
+		// params.h: CLAP_PARAM_IS_READONLY "The parameter can't be changed by
+		// the host."
+		if ((info.flags & CLAP_PARAM_IS_READONLY) != 0) {
+			error = "parameter " + std::to_string(id) + " is read-only: the host can't change it";
+			return false;
+		}
 		if (!session.isActive()) {
 			error = "a moving parameter needs the plug-in active: `activate` or `power on` first";
+			return false;
+		}
+		return true;
+	};
+	// A ramp or a value LFO is automation played back, which params.h ties to
+	// CLAP_PARAM_IS_AUTOMATABLE ("automation can be played back"), and per
+	// voice to the AUTOMATABLE_PER_* flags.
+	auto automatable = [](const clap_param_info_t &info, bool perVoice, std::string &error) {
+		if ((info.flags & CLAP_PARAM_IS_AUTOMATABLE) == 0) {
+			error = "parameter " + std::to_string(info.id) + " is not automatable";
+			return false;
+		}
+		if (perVoice && (info.flags & (CLAP_PARAM_IS_AUTOMATABLE_PER_NOTE_ID | CLAP_PARAM_IS_AUTOMATABLE_PER_KEY |
+		                               CLAP_PARAM_IS_AUTOMATABLE_PER_CHANNEL | CLAP_PARAM_IS_AUTOMATABLE_PER_PORT)) == 0) {
+			error = "parameter " + std::to_string(info.id) + " only accepts global automation";
 			return false;
 		}
 		return true;
@@ -569,14 +595,14 @@ void Session::registerCommands() {
 
 	commands_.add({"param.ramp", "<id> <to> <seconds|Nf> [--from=<value>] [--at=<seconds|Nf>] [--step=<Nf>]",
 	               "Move a parameter from its value (or --from) to <to> over a time, as automation.",
-	               [motionTarget, motionTiming](Session &session, const Request &request) -> Response {
+	               [motionTarget, motionTiming, automatable](Session &session, const Request &request) -> Response {
 		               if (!request.hasArg(0, "id") || !request.hasArg(1, "to") || !request.hasArg(2, "duration"))
 			               return Response::failure("usage: param.ramp <id> <to> <seconds|Nf> [--from=<value>] "
 			                                        "[--at=<seconds|Nf>] [--step=<Nf>]");
 		               clap_param_info_t info{};
 		               std::string error;
 		               ParamMotion motion;
-		               if (!motionTarget(session, request, info, error) ||
+		               if (!motionTarget(session, request, info, error) || !automatable(info, false, error) ||
 		                   !motionTiming(session, request, motion, error))
 			               return Response::failure(error);
 		               motion.paramId = info.id;
@@ -601,7 +627,7 @@ void Session::registerCommands() {
 	               "[--at=<seconds|Nf>] [--step=<Nf>] [--key=<k>] [--channel=<c>] [--port=<p>] [--noteId=<n>]",
 	               "Swing a parameter by <depth> either side at <hz>: as modulation, or with --value as automation "
 	               "around its value. Runs until param.stop, or --for a time.",
-	               [motionTarget, motionTiming](Session &session, const Request &request) -> Response {
+	               [motionTarget, motionTiming, automatable](Session &session, const Request &request) -> Response {
 		               if (!request.hasArg(0, "id") || !request.hasArg(1, "hz") || !request.hasArg(2, "depth"))
 			               return Response::failure("usage: param.lfo <id> <hz> <depth> [--shape=sine|triangle|"
 			                                        "square|saw] [--for=<seconds|Nf>] [--value] [--at=<seconds|Nf>]");
@@ -631,8 +657,9 @@ void Session::registerCommands() {
 		                   motion.key >= 0 || motion.channel >= 0 || motion.port >= 0 || motion.noteId >= 0;
 
 		               // Modulation where the parameter takes it, since that is
-		               // what an LFO is in CLAP: an offset the plug-in adds, the
-		               // parameter's own value untouched. --value automates it.
+		               // what an LFO is in CLAP: events.h, "The value heard is:
+		               // param_value + param_mod", the parameter's own value
+		               // untouched. --value automates it instead.
 		               motion.modulation = !request.arg("value").asBool(false);
 		               if (motion.modulation) {
 			               if ((info.flags & CLAP_PARAM_IS_MODULATABLE) == 0)
@@ -644,6 +671,8 @@ void Session::registerCommands() {
 				               return Response::failure("that parameter only accepts global modulation");
 			               motion.centre = 0.0;
 		               } else {
+			               if (!automatable(info, polyphonic, error))
+				               return Response::failure(error);
 			               motion.centre = currentParamValue(session, info);
 			               motion.minValue = info.min_value;
 			               motion.maxValue = info.max_value;

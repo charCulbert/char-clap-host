@@ -9,6 +9,11 @@ param.ramp 0 880 0.5 --from=220 --at=0.5
 param.lfo 0 2 100 --shape=triangle
 param.lfo 1 2 1
 param.lfo 0 2 100 --shape=wobble
+# params.h: a read-only parameter "can't be changed by the host", and only an
+# automatable one can have automation played back.
+param.set 2 5
+param.ramp 2 5 1.0
+param.lfo 1 2 1 --value
 param.motions
 render 1.5
 # The ramp has finished on its target; the LFO is still running.
