@@ -283,7 +283,8 @@ bool PluginGui::openWebview(std::string &error) {
 
 	api_ = GuiApi::Webview;
 	floating_ = false;
-	// A webview is laid out by its page; the host has nothing to resize.
+	// A webview is laid out by its page; the host doesn't resize it, though
+	// the plug-in can ask to be resized.
 	resizable_ = false;
 	width_ = width;
 	height_ = height;
@@ -383,7 +384,7 @@ bool PluginGui::resize(uint32_t width, uint32_t height, std::string &error) {
 }
 
 bool PluginGui::requestResize(uint32_t width, uint32_t height) {
-	if (api_ != GuiApi::Native || window_ == nullptr)
+	if (api_ == GuiApi::None || window_ == nullptr)
 		return false;
 	// "If the host returns true the new size is accepted, the host doesn't
 	// have to call clap_plugin_gui->set_size()." So the size is taken as
@@ -391,7 +392,11 @@ bool PluginGui::requestResize(uint32_t width, uint32_t height) {
 	// reports would call set_size from inside the plug-in's own request.
 	width_ = width;
 	height_ = height;
-	sizeWindowForNative(width, height);
+	// A webview's size is logical, as the window was opened with.
+	if (api_ == GuiApi::Webview)
+		window_->setSize(width, height);
+	else
+		sizeWindowForNative(width, height);
 	return true;
 }
 

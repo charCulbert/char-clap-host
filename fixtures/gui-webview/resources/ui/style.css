@@ -1,6 +1,35 @@
-:root { color-scheme: light dark; font: 16px system-ui, sans-serif; }
-body { --wclap-resources: ready; margin: 0; padding: 1rem; }
-label { display: grid; grid-template-columns: 5rem 1fr 4rem; gap: .5rem; margin: .75rem 0; }
-input { min-width: 0; }
-button { margin: 0 .4rem .4rem 0; padding: .5rem .75rem; }
-#status { min-height: 1.5em; }
+/* The Slide palette clap-host's own windows use. Colours are set, never
+   inherited, so the page reads the same whatever the host paints behind it. */
+:root {
+	--panel: #cdcdcd; --band: #c2c2c2; --ink: #1c1c1c; --ink2: #4f4f4f;
+	--dim: #5d5d5d; --hair: #a9a9a9; --acc: #75540a;
+	color-scheme: light dark;
+	font: 12px/1.4 system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+	:root {
+		--panel: #2f2f2f; --band: #3a3a3a; --ink: #dedede; --ink2: #bdbdbd;
+		--dim: #909090; --hair: #555; --acc: #ddc07e;
+	}
+}
+html, body { height: 100%; }
+body {
+	--wclap-resources: ready;
+	margin: 0; box-sizing: border-box; padding: 14px 16px 10px;
+	display: flex; flex-direction: column; gap: 10px;
+	background: var(--panel); color: var(--ink); overflow: hidden;
+}
+h1 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .32em; text-transform: uppercase; }
+p { margin: 0; color: var(--dim); }
+.params { display: grid; gap: 8px; padding: 10px 0; border-block: 1px solid var(--hair); }
+label { display: grid; grid-template-columns: 64px minmax(0, 1fr) 52px; gap: 10px; align-items: center; color: var(--ink2); }
+input[type="range"] { min-width: 0; margin: 0; accent-color: var(--acc); }
+output { font: 11px ui-monospace, monospace; color: var(--ink); text-align: right; }
+.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+button {
+	font: inherit; color: var(--ink); background: var(--band);
+	border: 1px solid var(--hair); border-radius: 0; padding: 4px 8px; cursor: pointer;
+}
+button:hover { border-color: var(--ink2); }
+button:active { background: var(--hair); }
+#status { margin-top: auto; font: 11px ui-monospace, monospace; color: var(--dim); }
