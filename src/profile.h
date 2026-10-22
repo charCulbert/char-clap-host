@@ -1,20 +1,20 @@
 // Timing a plug-in's process(), for the `profile` command.
 //
-// The blocks run back to back on the calling thread, as `render` runs them,
-// so the numbers say how fast the plug-in is and how much a change moved it.
-// They are not a prediction of dropouts: a device runs one block per period
+// The offline run plays blocks back to back on the calling thread, as `render`
+// runs them, so its numbers say how fast the plug-in is and how much a change
+// moved it, but not whether it drops out: a device runs one block per period
 // at a realtime priority, with the caches and the clock speed that brings.
+// The live run records that: the device's own callbacks, on its own thread.
 #pragma once
 
 #include "json.h"
+#include "session.h"
 
 #include <cstdint>
 #include <string>
 #include <vector>
 
 namespace nch {
-
-class Session;
 
 struct ProfileRun {
 	// The wall time of each process() call, in nanoseconds.
@@ -39,5 +39,27 @@ bool runProfile(Session &session, uint64_t warmupFrames, uint64_t frames, Profil
 
 // Per-block statistics against the block's time budget, and the totals.
 Value describeProfile(const ProfileRun &run, double sampleRate, uint32_t blockSize);
+
+// `profile --live`: the device's own callbacks, on its own thread, paced by
+// the hardware. This is the run that says whether the plug-in keeps up here.
+struct LiveRun {
+	Session::CallbackCapture capture;
+	// Underruns and callbacks the device reported during the timed seconds.
+	uint64_t underruns = 0;
+	uint64_t callbacks = 0;
+	double seconds = 0.0;
+	double sampleRate = 0.0;
+	uint32_t blockSize = 0;
+	// Whether the run turned the audio on, and so off again after.
+	bool poweredOn = false;
+};
+
+// Turns the audio on if it is off, lets `warmupSeconds` pass untimed, then
+// records `seconds` of callbacks. Leaves the audio as it found it.
+bool runLiveProfile(Session &session, double warmupSeconds, double seconds, LiveRun &run, std::string &error);
+
+// Each callback's length against the block's time budget, the gaps between
+// them, the plug-in's process() calls inside them, and the underruns.
+Value describeLiveProfile(const LiveRun &run);
 
 } // namespace nch

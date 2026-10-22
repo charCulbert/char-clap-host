@@ -650,14 +650,16 @@ int32_t Engine::processBlock(uint32_t frames, const BlockIo &io) {
 	int32_t status = CLAP_PROCESS_ERROR;
 	{
 		ScopedThreadRole role(ThreadRole::Audio);
-		if (processTimes_ == nullptr) {
+		std::vector<uint64_t> *times = processTimes_.load(std::memory_order_acquire);
+		if (times == nullptr) {
 			status = session_.plugin()->process(session_.plugin(), &process);
 		} else {
 			const auto started = std::chrono::steady_clock::now();
 			status = session_.plugin()->process(session_.plugin(), &process);
-			processTimes_->push_back(static_cast<uint64_t>(
-			    std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - started)
-			        .count()));
+			if (times->size() < times->capacity())
+				times->push_back(static_cast<uint64_t>(
+				    std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - started)
+				        .count()));
 		}
 	}
 

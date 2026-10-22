@@ -239,6 +239,37 @@ don't predict dropouts. A device calls `process()` once per period on a
 realtime thread, with the cache state and clock speed that brings. Here the
 blocks run back to back at normal priority.
 
+### On the audio device
+
+`profile <seconds> --live` answers the other question: does the plug-in keep
+up on this machine? It records the audio device's own callbacks, on the
+device's realtime thread, at the device's rate and buffer size:
+
+```text
+audio.settings --buffer=64
+output.gain -40
+midi.file take.mid --loop
+profile 10 --live
+```
+
+If the audio is off, the run turns it on and off again after. It skips
+`--warmup` first (half a second by default), so the device's start-up doesn't
+count. `--compare` doesn't combine with `--live`. The reply gives:
+
+- `perCallback`: how long each callback took, the host's work and the
+  plug-in's, against the time the block lasts (`budgetUs`), with `overruns`
+  counting the callbacks that took longer than that.
+- `process`: the plug-in's `process()` calls inside those callbacks.
+- `interval`: the time from one callback's start to the next. Near 100% of the
+  budget is steady; `late` counts gaps over 150%, a callback the device
+  delivered late, which the listener hears whatever the plug-in did.
+- `underruns`: the buffers the device itself reported as late during the run.
+- `callbacks`, `sampleRate`, `blockSize`, and `poweredOn` (whether the run
+  turned the audio on).
+
+Overruns with no underruns mean the device had slack to absorb them. Underruns
+with no overruns point at the system, not the plug-in.
+
 ## Tests
 
 `ctest --test-dir build --output-on-failure` runs the unit tests, the script

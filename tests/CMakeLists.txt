@@ -12,6 +12,7 @@ add_executable(nch-tests
     note-encoding.test.cpp
     plugin-instance.test.cpp
     process-buffers.test.cpp
+    profile.test.cpp
     random.test.cpp
     session-commands.test.cpp
     thread-pool.test.cpp

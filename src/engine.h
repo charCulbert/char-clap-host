@@ -183,9 +183,9 @@ public:
 
 	// While set, the wall time of each process() call is appended to it, in
 	// nanoseconds: the plug-in's own time, without the host's work around it.
-	// Only for blocks run on the calling thread, as `profile` runs them; a
-	// device callback would need a buffer it can write without allocating.
-	void setProcessTimes(std::vector<uint64_t> *times) { processTimes_ = times; }
+	// Only up to its capacity, so the device thread never allocates: reserve
+	// what the run needs first.
+	void setProcessTimes(std::vector<uint64_t> *times) { processTimes_.store(times, std::memory_order_release); }
 
 	// How many interleaved channels the device callback writes. Set once the
 	// stream's layout is known.
@@ -316,7 +316,7 @@ private:
 	uint64_t tailRemaining_ = 0;
 	ProcessCheck check_;
 	bool checkBlocks_ = false;
-	std::vector<uint64_t> *processTimes_ = nullptr;
+	std::atomic<std::vector<uint64_t> *> processTimes_{nullptr};
 	std::atomic<bool> running_{false};
 
 	// The schedule is written by the main thread and by device threads, and
