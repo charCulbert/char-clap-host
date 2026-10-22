@@ -134,6 +134,7 @@ void Session::unload() {
 	instance_.unload();
 	// They carry the old plug-in's parameter cookies.
 	engine_.clearMotions();
+	gestures_.clear();
 	// The home window stays; it just has nothing to show now.
 	panel_.refresh();
 	timers_.clear();
@@ -669,6 +670,9 @@ void Session::drainOutputEvents() {
 			case CLAP_EVENT_PARAM_GESTURE_BEGIN:
 			case CLAP_EVENT_PARAM_GESTURE_END: {
 				const auto *event = reinterpret_cast<const clap_event_param_gesture_t *>(header);
+				const std::string problem = gestures_.onEvent(header);
+				if (!problem.empty())
+					validator_.warn("clap_event_param_gesture", problem);
 				description = std::string(header->type == CLAP_EVENT_PARAM_GESTURE_BEGIN ? "gesture begin "
 				                                                                         : "gesture end ") +
 				              std::to_string(event->param_id);

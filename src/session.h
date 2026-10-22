@@ -218,6 +218,8 @@ public:
 	// The events the plug-in has emitted recently, newest last.
 	Value outputEventReport() const;
 	void clearOutputEvents();
+	// Whether the plug-in's gesture events have paired up so far.
+	const GestureCheck &gestures() const { return gestures_; }
 
 	// --- observable state -------------------------------------------------
 	bool stateDirty() const { return stateDirty_; }
@@ -353,6 +355,7 @@ private:
 	};
 	std::vector<OutputEvent> outputEvents_;
 	uint64_t outputEventsSeen_ = 0;
+	GestureCheck gestures_;
 	// The handoff from the audio thread. Sized up front so a copy never
 	// allocates; a block that finds the lock taken, or the room gone, counts
 	// what it could not keep instead of waiting.

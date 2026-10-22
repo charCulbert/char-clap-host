@@ -204,6 +204,10 @@ SuiteReport runSuite(Session &session, const std::string &pluginPath, const Suit
 		TestResult result;
 		result.id = test.id;
 		const auto started = std::chrono::steady_clock::now();
+		// A test is judged on what the host saw during it: an error left by
+		// an earlier test must not fail this one.
+		std::vector<Violation> earlier = session.validator().violations();
+		session.validator().clear();
 
 		if (options.isolate && !options.hostPath.empty()) {
 			result = runIsolated(options.hostPath, pluginPath, test.id, options);
@@ -225,6 +229,7 @@ SuiteReport runSuite(Session &session, const std::string &pluginPath, const Suit
 			session.unload();
 		}
 
+		session.validator().restoreEarlier(std::move(earlier));
 		result.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
 		switch (result.status) {
 		case TestStatus::Success: ++report.passed; break;

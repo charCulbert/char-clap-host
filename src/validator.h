@@ -34,6 +34,10 @@ public:
 	std::vector<Violation> violations() const;
 	Value report() const;
 	void clear();
+	// Puts `earlier` back in front of what has been recorded since, folding
+	// repeats together, so a run can be judged on its own violations and the
+	// record afterwards still holds everything.
+	void restoreEarlier(std::vector<Violation> earlier);
 
 	// When set, every note is also written to stderr as it happens.
 	void setLive(bool live) { live_ = live; }

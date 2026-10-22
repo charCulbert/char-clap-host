@@ -133,4 +133,28 @@ std::vector<std::string> ProcessCheck::after(ProcessBuffers &buffers, uint32_t f
 	return problems;
 }
 
+std::string GestureCheck::onEvent(const clap_event_header_t *header) {
+	if (header == nullptr || header->space_id != CLAP_CORE_EVENT_SPACE_ID ||
+	    (header->type != CLAP_EVENT_PARAM_GESTURE_BEGIN && header->type != CLAP_EVENT_PARAM_GESTURE_END))
+		return {};
+	if (header->size < sizeof(clap_event_param_gesture_t))
+		return "a gesture event is smaller than clap_event_param_gesture";
+	const clap_id id = reinterpret_cast<const clap_event_param_gesture_t *>(header)->param_id;
+	++seen_;
+	if (header->type == CLAP_EVENT_PARAM_GESTURE_BEGIN) {
+		if (!open_.insert(id).second)
+			return "began a gesture on parameter " + std::to_string(id) +
+			       " while its previous gesture had not ended";
+		return {};
+	}
+	if (open_.erase(id) == 0)
+		return "ended a gesture on parameter " + std::to_string(id) + " that had not begun";
+	return {};
+}
+
+void GestureCheck::clear() {
+	open_.clear();
+	seen_ = 0;
+}
+
 } // namespace nch
