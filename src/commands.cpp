@@ -9,6 +9,7 @@
 #include "thread-role.h"
 
 #include <cstring>
+#include <limits>
 
 namespace nch {
 namespace {
@@ -133,7 +134,43 @@ Value describeParam(Session &session, const clap_param_info_t &info) {
 // clap.params.flush belongs to the main thread only while the plug-in is
 // deactivated; once active, a parameter change has to arrive as an event in
 // the next process block instead.
-Response setParamValue(Session &session, clap_id id, double value) {
+double currentParamValue(Session &session, const clap_param_info_t &info) {
+	const auto *params = paramsExtension(session);
+	double value = info.default_value;
+	if (params != nullptr && params->get_value != nullptr)
+		params->get_value(session.plugin(), info.id, &value);
+	return value;
+}
+
+Value describeMotion(const ParamMotion &motion, double sampleRate) {
+	Object out;
+	out["id"] = Value(static_cast<uint64_t>(motion.paramId));
+	out["shape"] = Value(shapeName(motion.shape));
+	out["sends"] = Value(motion.modulation ? "modulation" : "value");
+	if (motion.shape == ParamMotion::Shape::Ramp) {
+		out["from"] = Value(motion.from);
+		out["to"] = Value(motion.to);
+	} else {
+		out["hz"] = Value(motion.cyclesPerFrame * sampleRate);
+		out["depth"] = Value(motion.depth);
+		out["centre"] = Value(motion.centre);
+	}
+	out["startFrame"] = Value(motion.startFrame);
+	if (motion.endFrame != std::numeric_limits<uint64_t>::max())
+		out["endFrame"] = Value(motion.endFrame);
+	else
+		out["endFrame"] = Value("until stopped");
+	out["stepFrames"] = Value(motion.stepFrames);
+	if (motion.key >= 0 || motion.channel >= 0 || motion.port >= 0 || motion.noteId >= 0) {
+		out["key"] = Value(static_cast<int64_t>(motion.key));
+		out["channel"] = Value(static_cast<int64_t>(motion.channel));
+		out["port"] = Value(static_cast<int64_t>(motion.port));
+		out["noteId"] = Value(static_cast<int64_t>(motion.noteId));
+	}
+	return Value(std::move(out));
+}
+
+Response setParamValue(Session &session, clap_id id, double value, uint64_t delayFrames = 0) {
 	clap_param_info_t info{};
 	if (!paramInfoById(session, id, info))
 		return Response::failure("no parameter with id " + std::to_string(id));
@@ -163,8 +200,10 @@ Response setParamValue(Session &session, clap_id id, double value) {
 	result["id"] = Value(static_cast<uint64_t>(id));
 	result["value"] = Value(value);
 	if (session.isActive()) {
-		session.engine().scheduleAfter(&event.header, 0);
-		result["appliesAt"] = Value("next block");
+		session.engine().scheduleAfter(&event.header, delayFrames);
+		result["appliesAt"] = delayFrames == 0 ? Value("next block") : Value(delayFrames);
+	} else if (delayFrames != 0) {
+		return Response::failure("--at needs the plug-in active: `activate` or `power on` first");
 	} else {
 		if (params->flush == nullptr)
 			return Response::failure("plug-in implements clap.params without flush");
@@ -413,12 +452,14 @@ void Session::registerCommands() {
 		               return Response::success(describeParam(session, info));
 	               }, /* needsPlugin */ true});
 
-	commands_.add({"param.set", "<id> <value>", "Set one parameter.",
+	commands_.add({"param.set", "<id> <value> [--at=<seconds|Nf>]",
+	               "Set one parameter, at the next block or --at after the playhead.",
 	               [](Session &session, const Request &request) -> Response {
 		               if (!request.hasArg(0, "id") || !request.hasArg(1, "value"))
-			               return Response::failure("usage: param.set <id> <value>");
+			               return Response::failure("usage: param.set <id> <value> [--at=<seconds|Nf>]");
 		               const auto id = static_cast<clap_id>(request.arg(0, "id").asNumber());
-		               return setParamValue(session, id, request.arg(1, "value").asNumber());
+		               return setParamValue(session, id, request.arg(1, "value").asNumber(),
+		                                    framesFromArgument(request.arg("at"), session.sampleRate(), 0));
 	               }, /* needsPlugin */ true});
 
 	commands_.add({"param.steps", "<id> [limit]",
@@ -494,6 +535,145 @@ void Session::registerCommands() {
 		               // modulation is that the parameter does not move.
 		               out["value"] = Value(info.default_value);
 		               out["note"] = Value("modulation is an offset; the parameter's own value is unchanged");
+		               return Response::success(Value(std::move(out)));
+	               }, /* needsPlugin */ true});
+
+	// Ramps and LFOs: the engine sends their events block by block, on a grid
+	// of --step frames, so they are sample-accurate and render the same at any
+	// block size. Both need the plug-in processing, offline or live.
+	auto motionTarget = [](Session &session, const Request &request, clap_param_info_t &info,
+	                       std::string &error) {
+		const auto id = static_cast<clap_id>(request.arg(0, "id").asNumber());
+		if (!paramInfoById(session, id, info)) {
+			error = "no parameter with id " + std::to_string(id);
+			return false;
+		}
+		if (!session.isActive()) {
+			error = "a moving parameter needs the plug-in active: `activate` or `power on` first";
+			return false;
+		}
+		return true;
+	};
+	auto motionTiming = [](Session &session, const Request &request, ParamMotion &motion, std::string &error) {
+		const double rate = session.sampleRate();
+		motion.startFrame = session.engine().playhead() + framesFromArgument(request.arg("at"), rate, 0);
+		motion.nextFrame = motion.startFrame;
+		const uint64_t step = framesFromArgument(request.arg("step"), rate, 32);
+		if (step == 0 || step > 1u << 20) {
+			error = "--step must be at least one frame";
+			return false;
+		}
+		motion.stepFrames = static_cast<uint32_t>(step);
+		return true;
+	};
+
+	commands_.add({"param.ramp", "<id> <to> <seconds|Nf> [--from=<value>] [--at=<seconds|Nf>] [--step=<Nf>]",
+	               "Move a parameter from its value (or --from) to <to> over a time, as automation.",
+	               [motionTarget, motionTiming](Session &session, const Request &request) -> Response {
+		               if (!request.hasArg(0, "id") || !request.hasArg(1, "to") || !request.hasArg(2, "duration"))
+			               return Response::failure("usage: param.ramp <id> <to> <seconds|Nf> [--from=<value>] "
+			                                        "[--at=<seconds|Nf>] [--step=<Nf>]");
+		               clap_param_info_t info{};
+		               std::string error;
+		               ParamMotion motion;
+		               if (!motionTarget(session, request, info, error) ||
+		                   !motionTiming(session, request, motion, error))
+			               return Response::failure(error);
+		               motion.paramId = info.id;
+		               motion.cookie = info.cookie;
+		               motion.shape = ParamMotion::Shape::Ramp;
+		               motion.from = request.arg("from").asNumber(currentParamValue(session, info));
+		               motion.to = request.arg(1, "to").asNumber();
+		               for (const double value : {motion.from, motion.to})
+			               if (value < info.min_value || value > info.max_value)
+				               return Response::failure("value out of range [" + std::to_string(info.min_value) +
+				                                        ", " + std::to_string(info.max_value) + "]");
+		               motion.minValue = info.min_value;
+		               motion.maxValue = info.max_value;
+		               motion.endFrame =
+		                   motion.startFrame + framesFromArgument(request.arg(2, "duration"), session.sampleRate(), 0);
+		               session.engine().startMotion(motion);
+		               return Response::success(describeMotion(motion, session.sampleRate()));
+	               }, /* needsPlugin */ true});
+
+	commands_.add({"param.lfo",
+	               "<id> <hz> <depth> [--shape=sine|triangle|square|saw] [--for=<seconds|Nf>] [--value] "
+	               "[--at=<seconds|Nf>] [--step=<Nf>] [--key=<k>] [--channel=<c>] [--port=<p>] [--noteId=<n>]",
+	               "Swing a parameter by <depth> either side at <hz>: as modulation, or with --value as automation "
+	               "around its value. Runs until param.stop, or --for a time.",
+	               [motionTarget, motionTiming](Session &session, const Request &request) -> Response {
+		               if (!request.hasArg(0, "id") || !request.hasArg(1, "hz") || !request.hasArg(2, "depth"))
+			               return Response::failure("usage: param.lfo <id> <hz> <depth> [--shape=sine|triangle|"
+			                                        "square|saw] [--for=<seconds|Nf>] [--value] [--at=<seconds|Nf>]");
+		               clap_param_info_t info{};
+		               std::string error;
+		               ParamMotion motion;
+		               if (!motionTarget(session, request, info, error) ||
+		                   !motionTiming(session, request, motion, error))
+			               return Response::failure(error);
+		               const std::string shape = request.arg("shape").asString().empty()
+		                                             ? std::string("sine")
+		                                             : request.arg("shape").asString();
+		               if (!lfoShapeNamed(shape, motion.shape))
+			               return Response::failure("--shape is sine, triangle, square or saw");
+		               const double hz = request.arg(1, "hz").asNumber();
+		               if (!(hz > 0.0) || hz > session.sampleRate() / 2.0)
+			               return Response::failure("<hz> must be above 0 and below half the sample rate");
+		               motion.paramId = info.id;
+		               motion.cookie = info.cookie;
+		               motion.cyclesPerFrame = hz / session.sampleRate();
+		               motion.depth = request.arg(2, "depth").asNumber();
+		               motion.key = static_cast<int16_t>(request.arg("key").asNumber(-1));
+		               motion.channel = static_cast<int16_t>(request.arg("channel").asNumber(-1));
+		               motion.port = static_cast<int16_t>(request.arg("port").asNumber(-1));
+		               motion.noteId = static_cast<int32_t>(request.arg("noteId").asNumber(-1));
+		               const bool polyphonic =
+		                   motion.key >= 0 || motion.channel >= 0 || motion.port >= 0 || motion.noteId >= 0;
+
+		               // Modulation where the parameter takes it, since that is
+		               // what an LFO is in CLAP: an offset the plug-in adds, the
+		               // parameter's own value untouched. --value automates it.
+		               motion.modulation = !request.arg("value").asBool(false);
+		               if (motion.modulation) {
+			               if ((info.flags & CLAP_PARAM_IS_MODULATABLE) == 0)
+				               return Response::failure("that parameter is not modulatable; --value automates it");
+			               if (polyphonic && (info.flags & (CLAP_PARAM_IS_MODULATABLE_PER_NOTE_ID |
+			                                                CLAP_PARAM_IS_MODULATABLE_PER_KEY |
+			                                                CLAP_PARAM_IS_MODULATABLE_PER_CHANNEL |
+			                                                CLAP_PARAM_IS_MODULATABLE_PER_PORT)) == 0)
+				               return Response::failure("that parameter only accepts global modulation");
+			               motion.centre = 0.0;
+		               } else {
+			               motion.centre = currentParamValue(session, info);
+			               motion.minValue = info.min_value;
+			               motion.maxValue = info.max_value;
+		               }
+		               const uint64_t length = framesFromArgument(request.arg("for"), session.sampleRate(), 0);
+		               if (length != 0)
+			               motion.endFrame = motion.startFrame + length;
+		               session.engine().startMotion(motion);
+		               return Response::success(describeMotion(motion, session.sampleRate()));
+	               }, /* needsPlugin */ true});
+
+	commands_.add({"param.stop", "[id]",
+	               "Stop the ramps and LFOs on one parameter, or all of them. An LFO leaves the parameter "
+	               "where it found it; a ramp stays where it got to.",
+	               [](Session &session, const Request &request) -> Response {
+		               const clap_id id = request.hasArg(0, "id")
+		                                      ? static_cast<clap_id>(request.arg(0, "id").asNumber())
+		                                      : CLAP_INVALID_ID;
+		               Object out;
+		               out["stopped"] = Value(static_cast<uint64_t>(session.engine().stopMotions(id)));
+		               return Response::success(Value(std::move(out)));
+	               }, /* needsPlugin */ true});
+
+	commands_.add({"param.motions", "", "List the ramps and LFOs moving parameters now.",
+	               [](Session &session, const Request &) -> Response {
+		               Array rows;
+		               for (const auto &motion : session.engine().motions())
+			               rows.push_back(describeMotion(motion, session.sampleRate()));
+		               Object out;
+		               out["motions"] = Value(std::move(rows));
 		               return Response::success(Value(std::move(out)));
 	               }, /* needsPlugin */ true});
 

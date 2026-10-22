@@ -9,6 +9,7 @@
 #include "level-meter.h"
 #include "midi-player.h"
 #include "note-encoding.h"
+#include "param-motion.h"
 #include "process-check.h"
 #include "process-buffers.h"
 #include "wav.h"
@@ -207,6 +208,17 @@ public:
 	void scheduleParamMod(clap_id paramId, void *cookie, double amount, int16_t port, int16_t channel, int16_t key,
 	                      int32_t noteId, uint64_t delayFrames);
 
+	// --- moving parameters ------------------------------------------------
+	// Starts a ramp or an LFO, replacing any already moving the same parameter
+	// the same way: values or offsets, for the same voices.
+	void startMotion(const ParamMotion &motion);
+	// Ends the motions on `paramId`, or all of them for CLAP_INVALID_ID, at the
+	// next block, each leaving the parameter where it says. Returns how many.
+	size_t stopMotions(clap_id paramId);
+	std::vector<ParamMotion> motions() const;
+	// Forgets them without a closing event: their plug-in is going.
+	void clearMotions();
+
 	// --- notes ------------------------------------------------------------
 	// Note helpers keep track of what is sounding, so `note off all` can end
 	// exactly the notes the host started.
@@ -325,6 +337,8 @@ private:
 	// that cannot take it carries no new events and the next one does.
 	mutable std::mutex scheduleMutex_;
 	std::vector<ScheduledEvent> schedule_;
+	// Guarded by scheduleMutex_ too; the block asks each for its events.
+	std::vector<ParamMotion> motions_;
 	std::vector<clap_event_note_t> activeNotes_;
 };
 

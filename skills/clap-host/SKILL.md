@@ -68,7 +68,7 @@ clap-host --json --quiet plugin.clap -- help render
 ```
 
 Areas: plug-in (`info` `extensions` `status`), parameters (`params.list`
-`param.get` `param.set` `param.mod`), audio (`activate` `render` `process`
+`param.get` `param.set` `param.mod` `param.ramp` `param.lfo` `param.stop`), audio (`activate` `render` `process`
 `audio.input` `audio.input.play` `audio.input.seek` `bypass`), notes (`note.on` `note.off` `midi` `cc` `midi.load` `midi.file`), transport
 (`tempo` `timesig` `transport`), state (`state.save` `state.load`
 `presets.list` `preset.load`), ports, devices (`audio.devices` `audio.start`
@@ -180,6 +180,14 @@ activate 48000 128
 audio.input drums.wav --loop
 profile 20 --compare=new/Effect.clap
 ```
+
+**Does it handle automation and modulation?** `param.ramp <id> <to> <seconds>`
+automates a parameter over time; `param.lfo <id> <hz> <depth>` modulates it
+(`--value` automates around its value instead; `--shape`, `--for`, and
+`--key`/`--channel`/`--port`/`--noteId` for one voice). `param.set ... --at=`
+lands a value mid-block. Events fall on a 32-frame grid from the start, so
+renders match at any block size. `param.stop` ends them, `param.motions` lists
+them. Render and listen, or compare against a render without them.
 
 **Round-trip state:** `state save a.state`, change a parameter,
 `state load a.state`, `param get <id>`.

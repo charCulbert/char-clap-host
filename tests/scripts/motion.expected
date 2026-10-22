@@ -1,0 +1,95 @@
+id: com.charlieculbert.wclap-runtime-parameters-example
+name: WCLAP Runtime Parameters Example
+vendor: Charlie Culbert
+version: 0.1.0
+description: Sine frequency parameter example
+features:
+  instrument
+  stereo
+format: clap
+error: a moving parameter needs the plug-in active: `activate` or `power on` first
+sampleRate: 48000
+blockSize: 512
+id: 0
+value: 300
+appliesAt: 12000
+text: 300 Hz
+id: 0
+shape: ramp
+sends: value
+from: 220
+to: 880
+startFrame: 24000
+endFrame: 48000
+stepFrames: 32
+id: 0
+shape: triangle
+sends: modulation
+hz: 2
+depth: 100
+centre: 0
+startFrame: 0
+endFrame: until stopped
+stepFrames: 32
+error: that parameter is not modulatable; --value automates it
+error: --shape is sine, triangle, square or saw
+motions:
+  id  shape  sends  from  to  startFrame  endFrame  stepFrames  hz  depth  centre
+  0  ramp  value  220  880  24000  48000  32  -  -  -
+  0  triangle  modulation  -  -  0  until stopped  32  2  100  0
+frames: 72000
+channels: 2
+sampleRate: 48000
+peak: @TIME@
+rms: @TIME@
+silent: false
+id: 0
+name: Frequency
+module: Oscillator
+value: 880
+text: 880 Hz
+min: 100
+max: 1000
+default: 220
+flags:
+  automatable
+  modulatable
+  requires-process
+motions:
+  id  shape  sends  hz  depth  centre  startFrame  endFrame  stepFrames
+  0  triangle  modulation  2  100  0  0  until stopped  32
+stopped: 1
+frames: 4800
+channels: 2
+sampleRate: 48000
+peak: @TIME@
+rms: @TIME@
+silent: false
+motions:
+id: 0
+shape: sine
+sends: value
+hz: 1
+depth: 2000
+centre: 880
+startFrame: 76800
+endFrame: 100800
+stepFrames: 64
+frames: 28800
+channels: 2
+sampleRate: 48000
+peak: @TIME@
+rms: @TIME@
+silent: false
+id: 0
+name: Frequency
+module: Oscillator
+value: 880
+text: 880 Hz
+min: 100
+max: 1000
+default: 220
+flags:
+  automatable
+  modulatable
+  requires-process

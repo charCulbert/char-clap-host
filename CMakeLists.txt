@@ -84,6 +84,7 @@ add_library(nch-core STATIC
     src/process-buffers.cpp
     src/process-check.cpp
     src/profile.cpp
+    src/param-motion.cpp
     src/wav.cpp
     src/webview.cpp
     src/event-generator.cpp
