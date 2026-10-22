@@ -6,6 +6,10 @@
 #include <RtAudio.h>
 #include <RtMidi.h>
 
+#if defined(__APPLE__)
+#include <CoreMIDI/CoreMIDI.h>
+#endif
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -74,8 +78,18 @@ void midiCallback(double, std::vector<unsigned char> *message, void *userData) {
 // reached: no ALSA sequencer in a container or a CI runner, a CoreMIDI client
 // refused. The host then runs with no MIDI ports rather than not at all, and
 // every helper below takes null as "no ports".
+//
+// On macOS RtMidi 6.0.0 raises a refused client from a throw() function, so
+// the exception ends the process instead of reaching the catch: ask CoreMIDI
+// for a client first.
 template <typename Midi>
 std::unique_ptr<Midi> makeMidi() {
+#if defined(__APPLE__)
+	MIDIClientRef probe = 0;
+	if (MIDIClientCreate(CFSTR("clap-host"), nullptr, nullptr, &probe) != noErr)
+		return nullptr;
+	MIDIClientDispose(probe);
+#endif
 	try {
 		return std::make_unique<Midi>();
 	} catch (const RtMidiError &) {
