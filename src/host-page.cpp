@@ -1,10 +1,7 @@
 #include "host-page.h"
 
+#include "compost-files.h"
 #include "native-window.h"
-
-#include <choc/text/choc_Files.h>
-
-#include <filesystem>
 
 namespace nch {
 namespace {
@@ -81,26 +78,23 @@ std::string mimeForPath(const std::string &path) {
 	return "application/octet-stream";
 }
 
-// The file a "/compost/..." request names, or nothing when the path is not one
-// of those or tries to climb out of the checkout. Compost is a submodule, so
-// its modules are served straight from it rather than bundled or copied.
+// The Compost module a "/compost/..." request names, or nothing when it names
+// none.
 std::optional<WebviewHost::Resource> compostResource(const std::string &path) {
 	const std::string prefix = "/compost/";
-	if (path.rfind(prefix, 0) != 0 || path.find("..") != std::string::npos)
+	if (path.rfind(prefix, 0) != 0)
 		return {};
-	const std::filesystem::path file =
-	    std::filesystem::path(NCH_COMPOST_ROOT) / "src" / path.substr(prefix.size());
-	WebviewHost::Resource resource;
-	try {
-		choc::file::readFileContent(file, [&resource](uint64_t size) {
-			resource.data.resize(static_cast<size_t>(size));
-			return static_cast<void *>(resource.data.data());
-		});
-	} catch (const std::exception &) {
-		return {};
+	const std::string module = path.substr(prefix.size());
+	for (size_t i = 0; i < kCompostFileCount; ++i) {
+		const CompostFile &file = kCompostFiles[i];
+		if (module != file.path)
+			continue;
+		WebviewHost::Resource resource;
+		resource.data.assign(file.data, file.data + file.size);
+		resource.mimeType = mimeForPath(path);
+		return resource;
 	}
-	resource.mimeType = mimeForPath(path);
-	return resource;
+	return {};
 }
 
 } // namespace
