@@ -89,7 +89,8 @@ Parameters can move on their own while the plug-in plays, offline or live.
 `--from`) to `<to>`. `param.lfo <id> <hz> <depth>` swings it `<depth>` either
 side: as modulation (the parameter's own value untouched) where the parameter
 is modulatable, or with `--value` as automation around its value, kept inside
-its range. `--shape` is `sine`, `triangle`, `square` or `saw`, and an LFO runs
+its range, in whole steps for a stepped parameter. `--shape` is `sine`,
+`triangle`, `square` or `saw`, and an LFO runs
 until `param.stop`, or `--for` a time. The events fall every `--step` frames
 (32 by default) counted from the motion's start, so a render comes out the
 same at any block size. `param.motions` lists what is moving.

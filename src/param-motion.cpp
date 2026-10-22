@@ -45,8 +45,11 @@ void ParamMotion::emit(uint64_t blockStart, uint32_t frames, EventList &out) {
 		return;
 	const uint64_t blockEnd = blockStart + frames;
 	auto send = [&](uint64_t frame, double value) {
-		if (!modulation)
+		if (!modulation) {
 			value = std::clamp(value, minValue, maxValue);
+			if (stepped)
+				value = std::clamp(std::round(value), std::ceil(minValue), std::floor(maxValue));
+		}
 		const auto offset = static_cast<uint32_t>(frame - blockStart);
 		if (modulation) {
 			auto event = makeEvent<clap_event_param_mod_t>(CLAP_EVENT_PARAM_MOD, offset);

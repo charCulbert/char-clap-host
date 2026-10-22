@@ -36,6 +36,7 @@ error: --shape is sine, triangle, square or saw
 error: parameter 2 is read-only: the host can't change it
 error: parameter 2 is read-only: the host can't change it
 error: parameter 1 is not automatable
+error: parameter 1 is stepped: it takes whole values
 motions:
   id  shape  sends  from  to  startFrame  endFrame  stepFrames  hz  depth  centre
   0  ramp  value  220  880  24000  48000  32  -  -  -

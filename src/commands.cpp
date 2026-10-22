@@ -182,6 +182,10 @@ Response setParamValue(Session &session, clap_id id, double value, uint64_t dela
 	if (value < info.min_value || value > info.max_value)
 		return Response::failure("value out of range [" + std::to_string(info.min_value) + ", " +
 		                         std::to_string(info.max_value) + "]");
+	// params.h: CLAP_PARAM_IS_STEPPED takes "integer values only"; the
+	// plug-in would truncate this one without saying so.
+	if ((info.flags & CLAP_PARAM_IS_STEPPED) != 0 && value != std::floor(value))
+		return Response::failure("parameter " + std::to_string(id) + " is stepped: it takes whole values");
 
 	clap_event_param_value_t event{};
 	event.header.size = sizeof(event);
@@ -616,6 +620,7 @@ void Session::registerCommands() {
 				                                        ", " + std::to_string(info.max_value) + "]");
 		               motion.minValue = info.min_value;
 		               motion.maxValue = info.max_value;
+		               motion.stepped = (info.flags & CLAP_PARAM_IS_STEPPED) != 0;
 		               motion.endFrame =
 		                   motion.startFrame + framesFromArgument(request.arg(2, "duration"), session.sampleRate(), 0);
 		               session.engine().startMotion(motion);
@@ -676,6 +681,7 @@ void Session::registerCommands() {
 			               motion.centre = currentParamValue(session, info);
 			               motion.minValue = info.min_value;
 			               motion.maxValue = info.max_value;
+			               motion.stepped = (info.flags & CLAP_PARAM_IS_STEPPED) != 0;
 		               }
 		               const uint64_t length = framesFromArgument(request.arg("for"), session.sampleRate(), 0);
 		               if (length != 0)
