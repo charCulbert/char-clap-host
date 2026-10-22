@@ -45,6 +45,10 @@ function(add_fixture name)
         else()
             set(bundle_root "${CMAKE_BINARY_DIR}/fixtures/${name}.clap.resources")
         endif()
+        # The copy runs when the plug-in links, so an edit to a resource alone
+        # has to relink it (Makefile and Ninja generators).
+        file(GLOB_RECURSE resources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${name}/resources/*")
+        set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS ${resources})
         add_custom_command(TARGET ${target} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_directory
                     "${CMAKE_CURRENT_SOURCE_DIR}/${name}/resources" "${bundle_root}"
