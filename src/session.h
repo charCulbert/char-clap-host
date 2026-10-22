@@ -228,8 +228,9 @@ public:
 	// The reply as it would appear over the wire, envelope and all.
 	Value executeAsJson(const std::string &line);
 
-	// Queues a line from the reader thread.
-	void postLine(std::string line);
+	// Queues a line from the reader thread. A line from a window's menu or a
+	// drop is not input: it doesn't count towards the input running out.
+	void postLine(std::string line, bool fromInput = true);
 	// One turn of the main loop, called from the platform's application loop:
 	// runs whatever commands have arrived and services the plug-in's
 	// main-thread work. Returns false when the session should stop.
@@ -319,6 +320,7 @@ private:
 	bool stateDirty_ = false;
 	bool quit_ = false;
 	uint64_t commandFailures_ = 0;
+	// Lines run from stdin or a script, not from a window.
 	uint64_t linesRun_ = 0;
 
 	// What the plug-in has asked the host for is counted once, by
@@ -358,7 +360,11 @@ private:
 
 	std::mutex lineMutex_;
 	std::condition_variable lineArrived_;
-	std::deque<std::string> lines_;
+	struct QueuedLine {
+		std::string text;
+		bool fromInput = true;
+	};
+	std::deque<QueuedLine> lines_;
 	std::chrono::steady_clock::time_point waitUntil_{};
 	bool inputClosed_ = false;
 	std::atomic<bool> callbackRequested_{false};

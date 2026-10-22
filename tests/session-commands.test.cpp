@@ -386,3 +386,14 @@ TEST(output_gain_trims_what_the_device_plays) {
 	host.session().onAudioCallback(input, output, 2, false);
 	CHECK_NEAR(output[0], 0.0f, 1e-6);
 }
+
+// From the Finder or the Start menu stdin is closed from the start. A plug-in
+// loaded from the window's menu afterwards is not piped input running out, so
+// the session must keep it rather than unload and end the run.
+TEST(a_load_from_a_window_is_not_mistaken_for_input_that_ran_out) {
+	TestSession host;
+	host.session().closeInput();
+	host.session().postLine("load \"" + fixture("instrument") + "\"", false);
+	host.session().tick();
+	CHECK(host.session().isLoaded());
+}

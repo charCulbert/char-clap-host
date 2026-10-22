@@ -932,10 +932,10 @@ bool Session::runLine(const std::string &line) {
 	return !quit_;
 }
 
-void Session::postLine(std::string line) {
+void Session::postLine(std::string line, bool fromInput) {
 	{
 		std::lock_guard<std::mutex> lock(lineMutex_);
-		lines_.push_back(std::move(line));
+		lines_.push_back({std::move(line), fromInput});
 	}
 	lineArrived_.notify_one();
 }
@@ -969,7 +969,7 @@ bool Session::tick() {
 	// of piped commands is not rationed one per tick. A `wait` holds back
 	// what follows it.
 	while (!waiting()) {
-		std::string line;
+		QueuedLine line;
 		{
 			std::lock_guard<std::mutex> lock(lineMutex_);
 			if (lines_.empty())
@@ -977,8 +977,9 @@ bool Session::tick() {
 			line = std::move(lines_.front());
 			lines_.pop_front();
 		}
-		++linesRun_;
-		if (!runLine(line))
+		if (line.fromInput)
+			++linesRun_;
+		if (!runLine(line.text))
 			return false;
 	}
 	bool finished = false;
