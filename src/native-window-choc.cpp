@@ -172,6 +172,19 @@ public:
 		if (missing > 0)
 			SetWindowPos(hwnd, nullptr, 0, 0, frame.right - frame.left, frame.bottom - frame.top + missing,
 			             SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+		// As on the Mac: a window taller than the screen hides its bottom behind
+		// the taskbar, so keep it within the work area, moving it up if needed.
+		MONITORINFO monitor{sizeof(monitor)};
+		RECT placed{};
+		if (GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &monitor) &&
+		    GetWindowRect(hwnd, &placed)) {
+			const RECT &work = monitor.rcWork;
+			const LONG fitWidth = (std::min)(placed.right - placed.left, work.right - work.left);
+			const LONG fitHeight = (std::min)(placed.bottom - placed.top, work.bottom - work.top);
+			const LONG left = std::clamp(placed.left, work.left, work.right - fitWidth);
+			const LONG top = std::clamp(placed.top, work.top, work.bottom - fitHeight);
+			SetWindowPos(hwnd, nullptr, left, top, fitWidth, fitHeight, SWP_NOZORDER | SWP_NOACTIVATE);
+		}
 #elif defined(__linux__)
 		// The window reports this size back as it takes it, and that is not a
 		// resize for the plug-in to hear about. Resized in place: choc's

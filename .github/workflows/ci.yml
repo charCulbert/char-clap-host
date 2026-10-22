@@ -9,8 +9,10 @@ jobs:
   build:
     strategy:
       fail-fast: false
+      # Linux builds on the oldest supported Ubuntu, so its binary runs on any
+      # distribution with glibc 2.35 or newer.
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        os: [macos-latest, ubuntu-22.04, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
