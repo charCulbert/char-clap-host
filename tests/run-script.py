@@ -42,8 +42,9 @@ def normalise(text, fixtures, tmp):
                   lambda m: fixtures + m.group(1), text)
     text = text.replace(fixtures, "@FIXTURES@").replace(tmp, "@TMP@")
     # An elapsed time: a decimal with more precision than anything meaningful
-    # the host reports.
-    text = re.sub(r"\d+\.\d{5,}(e-?\d+)?", "@TIME@", text)
+    # the host reports, or a short one in exponent form, which drops trailing
+    # zeros (7.709e-05).
+    text = re.sub(r"\d+\.\d+e-?\d+|\d+\.\d{5,}", "@TIME@", text)
     # Column widths follow the longest cell, so a scrubbed duration changes the
     # alignment of the whole table.
     text = re.sub(r"[ \t]{2,}", "  ", text)
