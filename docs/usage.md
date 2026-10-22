@@ -13,7 +13,10 @@ Started from the Finder or Explorer with no plug-in, it opens its own window
 instead of a prompt.
 
 Each CI run also keeps a build per platform as an artifact: `clap-host.app`
-(Apple silicon) and a Linux `clap-host` in tar files, and `clap-host.exe`.
+(Apple silicon, macOS 11 or later) and a Linux `clap-host` in tar files, and
+`clap-host.exe`. Pushing a tag `vX.Y.Z` that matches the version in
+`CMakeLists.txt` publishes the same three files as a GitHub release.
+`clap-host --version` prints the version.
 None is signed. The Linux build is made on Ubuntu 22.04, so it runs on
 distributions with glibc 2.35 or newer, with GTK 3 and WebKitGTK 4.1
 installed.
