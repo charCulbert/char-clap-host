@@ -282,25 +282,47 @@ bool AudioDevice::start(const std::string &deviceName, uint32_t inputChannels, s
 	options.streamName = "nativeClapHost";
 
 	// Everything the open writes to is the step's own, since a step the host
-	// gives up on still runs after start() has returned.
+	// gives up on still runs after start() has returned. Returns false only
+	// when the device never answered; a refused open sets `result`.
 	auto result = std::make_shared<RtAudioErrorType>(RTAUDIO_SYSTEM_ERROR);
 	auto frames = std::make_shared<unsigned int>(bufferFrames);
-	auto open = [=, rate = static_cast<unsigned int>(impl_->sampleRate),
-	             gate = impl_->gate.get()](RtAudio &audio) mutable {
-		*result = audio.openStream(&outputParameters, useInput ? &inputParameters : nullptr, RTAUDIO_FLOAT32, rate,
-		                           frames.get(), audioCallback, gate, &options);
-	};
+	const auto openStream = [&](bool withInput) {
+		*frames = bufferFrames;
+		auto open = [=, rate = static_cast<unsigned int>(impl_->sampleRate),
+		             gate = impl_->gate.get()](RtAudio &audio) mutable {
+			*result = audio.openStream(&outputParameters, withInput ? &inputParameters : nullptr, RTAUDIO_FLOAT32,
+			                           rate, frames.get(), audioCallback, gate, &options);
+		};
 #if defined(_WIN32)
-	// WASAPI opens through COM objects that belong to the thread that made the
-	// RtAudio, so the open stays on this one.
-	open(*impl_->audio);
+		// WASAPI opens through COM objects that belong to the thread that made
+		// the RtAudio, so the open stays on this one.
+		open(*impl_->audio);
+		return true;
 #else
-	if (!impl_->within(open)) {
-		error = "the audio device did not open within " + std::to_string(kDeviceTimeout.count()) +
-		        " seconds; gave up on it";
+		return impl_->within(open);
+#endif
+	};
+	const std::string timedOut =
+	    "the audio device did not open within " + std::to_string(kDeviceTimeout.count()) + " seconds; gave up on it";
+	if (!openStream(useInput)) {
+		error = timedOut;
 		return false;
 	}
-#endif
+	if (*result != RTAUDIO_NO_ERROR && useInput) {
+		// Bluetooth headphones drop to a low headset rate once their mic opens,
+		// so the output can't keep its own. The output matters more than the
+		// input, and the headset rate is never worth taking, so it opens alone.
+		std::fprintf(stderr, "warning: %s can't run at %u Hz alongside the output; opened the output without input\n",
+		             impl_->inputDeviceName.c_str(), static_cast<unsigned int>(impl_->sampleRate));
+		stop(stopError);
+		useInput = false;
+		impl_->inputChannels = 0;
+		impl_->inputDeviceName.clear();
+		if (!openStream(false)) {
+			error = timedOut;
+			return false;
+		}
+	}
 	bufferFrames = *frames;
 	if (*result != RTAUDIO_NO_ERROR) {
 		error = impl_->audio->getErrorText();
