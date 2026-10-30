@@ -216,10 +216,17 @@ bool tableInto(std::string &out, const Value &v, int indent) {
 		}
 		rows.push_back(std::move(row));
 	}
+	// Widths count code points, not bytes, so a device name with a curly
+	// apostrophe lines up with the rest.
+	const auto columnsOf = [](const std::string &text) {
+		return static_cast<size_t>(std::count_if(text.begin(), text.end(), [](char c) {
+			return (static_cast<unsigned char>(c) & 0xC0) != 0x80;
+		}));
+	};
 	std::vector<size_t> widths(columns.size(), 0);
 	for (const auto &row : rows)
 		for (size_t i = 0; i < row.size(); ++i)
-			widths[i] = std::max(widths[i], row[i].size());
+			widths[i] = std::max(widths[i], columnsOf(row[i]));
 
 	const std::string pad(static_cast<size_t>(indent), ' ');
 	for (const auto &row : rows) {
@@ -227,7 +234,7 @@ bool tableInto(std::string &out, const Value &v, int indent) {
 		for (size_t i = 0; i < row.size(); ++i) {
 			out += row[i];
 			if (i + 1 < row.size())
-				out.append(widths[i] - row[i].size() + 2, ' ');
+				out.append(widths[i] - columnsOf(row[i]) + 2, ' ');
 		}
 		while (!out.empty() && out.back() == ' ')
 			out.pop_back();
