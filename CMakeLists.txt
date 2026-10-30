@@ -46,6 +46,13 @@ set(RTMIDI_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(RTMIDI_BUILD_STATIC_LIBS ON CACHE BOOL "" FORCE)
 add_subdirectory(external/rtaudio EXCLUDE_FROM_ALL)
 add_subdirectory(external/rtmidi EXCLUDE_FROM_ALL)
+# Without UNICODE, RtAudio's CoreAudio backend reads device names in the
+# system encoding (Mac Roman), so a name like "Charlie’s AirPods" arrives as
+# invalid UTF-8: unprintable, unmatchable and unsafe in JSON. UNICODE only
+# switches those reads to UTF-8 on macOS.
+if(APPLE)
+  target_compile_definitions(rtaudio PRIVATE UNICODE)
+endif()
 
 # macOS keeps a file of its own because the application bundle, menu bar,
 # activation policy and quit handling live there. Everywhere else choc's
