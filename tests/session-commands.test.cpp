@@ -6,8 +6,10 @@
 #include "harness.h"
 #include "json.h"
 #include "session.h"
+#include "thread-role.h"
 #include "wav.h"
 
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -396,4 +398,28 @@ TEST(a_load_from_a_window_is_not_mistaken_for_input_that_ran_out) {
 	host.session().postLine("load \"" + fixture("instrument") + "\"", false);
 	host.session().tick();
 	CHECK(host.session().isLoaded());
+}
+
+// A keyboard's messages are encoded on its own thread from what the main thread
+// cached, so that cache has to say the port takes MIDI as well as its dialect.
+TEST(a_keyboards_cc_reaches_a_port_that_prefers_clap_but_takes_midi) {
+	TestSession host;
+	CHECK(host.run("load \"" + fixture("note-name") + "\"")["ok"].asBool());
+	const uint8_t modWheel[3] = {0xB0, 1, 127};
+	{
+		nch::ScopedThreadRole device(nch::ThreadRole::Audio);
+		host.session().onMidiMessage(modWheel, 3, std::chrono::steady_clock::now());
+	}
+	CHECK_EQ(host.session().midiDroppedCount(), uint64_t(0));
+}
+
+TEST(a_keyboards_cc_is_counted_dropped_on_a_clap_only_port) {
+	TestSession host;
+	CHECK(host.run("load \"" + fixture("note-echo") + "\"")["ok"].asBool());
+	const uint8_t modWheel[3] = {0xB0, 1, 127};
+	{
+		nch::ScopedThreadRole device(nch::ThreadRole::Audio);
+		host.session().onMidiMessage(modWheel, 3, std::chrono::steady_clock::now());
+	}
+	CHECK_EQ(host.session().midiDroppedCount(), uint64_t(1));
 }

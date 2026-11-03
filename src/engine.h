@@ -312,8 +312,10 @@ private:
 	// another thread can be turned into a frame.
 	std::atomic<uint64_t> blockStartFrame_{0};
 	std::atomic<int64_t> blockStartNanos_{0};
-	// The input port's dialect, published for the device threads.
+	// The input port's dialect, and whether it also takes MIDI, published for
+	// the device threads.
 	std::atomic<uint32_t> cachedDialect_{CLAP_NOTE_DIALECT_CLAP};
+	std::atomic<bool> cachedTakesMidi_{false};
 	// Guards the one thing CLAP says must never happen twice at once.
 	std::atomic<bool> insideProcess_{false};
 	// Set while the host holds that guard for itself between blocks.
