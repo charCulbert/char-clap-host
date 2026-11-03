@@ -314,6 +314,7 @@ NoteEncoding Engine::noteEncoding(int16_t port) const {
 		// answer the main thread last worked out rather than asking again.
 		NoteEncoding encoding;
 		encoding.dialect = cachedDialect_.load(std::memory_order_acquire);
+		encoding.takesMidi = cachedTakesMidi_.load(std::memory_order_acquire);
 		encoding.portIndex = port;
 		return encoding;
 	}
@@ -323,6 +324,7 @@ NoteEncoding Engine::noteEncoding(int16_t port) const {
 
 void Engine::refreshNoteEncoding() {
 	const NoteEncoding encoding = noteEncoding(0);
+	cachedTakesMidi_.store(encoding.takesMidi, std::memory_order_release);
 	cachedDialect_.store(encoding.dialect, std::memory_order_release);
 	// The MIDI file follows the plug-in: a new one may want the other dialect.
 	if (!midiPlayer_.isLoaded())
