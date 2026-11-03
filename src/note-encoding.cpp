@@ -165,6 +165,7 @@ NoteEncoding encodingForPort(const clap_plugin_t *plugin, const clap_plugin_note
 	const uint32_t midiDialects = CLAP_NOTE_DIALECT_MIDI | CLAP_NOTE_DIALECT_MIDI_MPE;
 	const bool supportsClap = (info.supported_dialects & CLAP_NOTE_DIALECT_CLAP) != 0;
 	const bool supportsMidi = (info.supported_dialects & midiDialects) != 0;
+	encoding.takesMidi = supportsMidi;
 
 	// The port's own preference comes first, as long as it is one the port
 	// also claims to support and the host can actually produce.
@@ -204,7 +205,10 @@ NoteTranslation translateMidi(const uint8_t *bytes, uint32_t size, const NoteEnc
 		return out;
 	}
 
-	if (!encoding.wantsClapNotes()) {
+	// Only notes need a CLAP form. A port that also takes MIDI gets the rest as
+	// MIDI, which is how a plug-in reading CCs and bend from MIDI receives them.
+	const bool isNote = status == kNoteOn || status == kNoteOff;
+	if (!encoding.wantsClapNotes() || (encoding.takesMidi && !isNote)) {
 		append(out, makeMidi(encoding.portIndex, bytes, size, flags));
 		return out;
 	}

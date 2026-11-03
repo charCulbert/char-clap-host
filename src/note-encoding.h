@@ -29,6 +29,9 @@ struct NoteEncoding {
 	// either way).
 	uint32_t dialect = CLAP_NOTE_DIALECT_CLAP;
 	int16_t portIndex = 0;
+	// The port takes MIDI as well as the dialect above. What has no CLAP note
+	// form, or that the plug-in reads as MIDI, can then go as MIDI.
+	bool takesMidi = false;
 
 	bool wantsClapNotes() const { return dialect == CLAP_NOTE_DIALECT_CLAP; }
 };
@@ -36,7 +39,8 @@ struct NoteEncoding {
 // Reads the port's declaration and settles on a dialect. Honours
 // preferred_dialect when the port supports it, otherwise falls back through
 // what it does support, preferring CLAP as events.h asks. A port that declares
-// nothing usable, or a plug-in without clap.note-ports, yields CLAP.
+// nothing usable, or a plug-in without clap.note-ports, yields CLAP. Also notes
+// whether the port takes MIDI at all.
 NoteEncoding encodingForPort(const clap_plugin_t *plugin, const clap_plugin_note_ports_t *notePorts,
                              int16_t portIndex);
 
@@ -61,10 +65,13 @@ struct NoteTranslation {
 // Appends the events for one MIDI 1.0 channel-voice message to `out`.
 //
 // In the MIDI dialect the message is passed through unchanged. In the CLAP
-// dialect: note on and note off become note events; pitch bend becomes a
-// TUNING note expression in semitones; channel pressure and poly aftertouch
-// become PRESSURE note expressions. A control change has no CLAP note form, so
-// it is reported as dropped rather than sent as something it is not.
+// dialect note on and note off become note events. On a port that also takes
+// MIDI, every other message passes through unchanged as MIDI: events.h forbids
+// sending one note both ways, and a CC or a bend is not a note. On a CLAP-only
+// port, pitch bend becomes a TUNING note expression in semitones, channel
+// pressure and poly aftertouch become PRESSURE note expressions, and a control
+// change, having no CLAP note form, is reported as dropped rather than sent as
+// something it is not.
 //
 // `flags` is applied to every event produced, which is how CLAP_EVENT_IS_LIVE
 // reaches events that came from a physical keyboard.

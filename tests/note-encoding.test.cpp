@@ -18,6 +18,13 @@ NoteEncoding clapPort(int16_t port = 0) {
 	return encoding;
 }
 
+// Prefers CLAP but also takes MIDI.
+NoteEncoding clapAndMidiPort(int16_t port = 0) {
+	NoteEncoding encoding = clapPort(port);
+	encoding.takesMidi = true;
+	return encoding;
+}
+
 NoteEncoding midiPort(int16_t port = 0) {
 	NoteEncoding encoding;
 	encoding.dialect = CLAP_NOTE_DIALECT_MIDI;
@@ -127,6 +134,34 @@ TEST(a_control_change_passes_through_on_a_midi_port) {
 
 	CHECK_EQ(translation.produced, 1u);
 	CHECK(!translation.dropped);
+}
+
+TEST(a_port_taking_clap_and_midi_gets_notes_as_clap) {
+	const std::vector<uint8_t> noteOn = {0x90, 60, 100};
+	const NoteTranslation translation = translateMidi(noteOn.data(), 3, clapAndMidiPort(), 0);
+
+	CHECK_EQ(translation.produced, 1u);
+	CHECK_EQ(firstEvent(translation)->type, static_cast<uint16_t>(CLAP_EVENT_NOTE_ON));
+}
+
+TEST(a_port_taking_clap_and_midi_gets_everything_else_as_midi) {
+	const std::vector<std::vector<uint8_t>> messages = {
+	    {0xB0, 1, 127},    // mod wheel
+	    {0xE0, 127, 127},  // pitch bend
+	    {0xD0, 64},        // channel pressure
+	    {0xA0, 72, 100},   // poly aftertouch
+	    {0xC0, 5},         // program change
+	};
+	for (const auto &bytes : messages) {
+		const auto size = static_cast<uint32_t>(bytes.size());
+		const NoteTranslation translation = translateMidi(bytes.data(), size, clapAndMidiPort(), 0);
+		CHECK_EQ(translation.produced, 1u);
+		CHECK(!translation.dropped);
+		const auto *midi = reinterpret_cast<const clap_event_midi_t *>(firstEvent(translation));
+		CHECK_EQ(midi->header.type, static_cast<uint16_t>(CLAP_EVENT_MIDI));
+		for (uint32_t i = 0; i < size; ++i)
+			CHECK_EQ(int(midi->data[i]), int(bytes[i]));
+	}
 }
 
 TEST(live_flags_reach_every_event_produced) {
